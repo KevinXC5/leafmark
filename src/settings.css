@@ -1,0 +1,130 @@
+dialog.leafmark-settings {
+  --settings-paper: #faf9f6; --settings-card: #fff; --settings-ink: #302d29;
+  --settings-muted: #787269; --settings-line: #e5e0d8; --settings-accent: #a65136;
+  --settings-control: #faf8f4; --settings-control-line: #dedad2; --settings-divider: #ede9e2;
+  width: min(1000px, calc(100vw - 40px)); max-width: 1000px;
+  height: min(800px, calc(100dvh - 48px)); max-height: calc(100dvh - 48px);
+  padding: 8px; overflow: hidden; border: 1px solid #dedad2; border-radius: 12px;
+  background: var(--settings-paper); color: var(--settings-ink); box-shadow: 0 24px 90px #54443224;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --app-region: no-drag;
+}
+dialog.leafmark-settings[open] { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 8px; }
+.leafmark-settings::backdrop { background: #25221d30; backdrop-filter: blur(5px); }
+.leafmark-settings * { box-sizing: border-box; }
+.leafmark-settings [hidden] { display: none !important; }
+.leafmark-settings :is(button, select, input) { font: inherit; }
+.leafmark-settings button { border: 0; background: transparent; cursor: pointer; color: inherit; }
+.leafmark-settings button:hover { background: #54443208; }
+.leafmark-settings .settings-sidebar {
+  display: flex; flex-direction: column; min-height: 0; padding: 24px 14px 18px;
+  border: 1px solid #b6a18a75; border-radius: 18px;
+  background: linear-gradient(90deg, #ffffff55, #ffffff00 18%, #ffffff00 85%, #ffffff66), linear-gradient(0deg, #d4bea529, #ffffff12 65%, #fffdf799), #d8ccb899;
+  box-shadow: 3px 5px 24px #6f50352b, inset 0 1px 3px #ffffffb3;
+  backdrop-filter: blur(30px);
+}
+.leafmark-settings .settings-brand { margin: 0 12px; font-size: 22px; font-weight: 600; letter-spacing: -.7px; }
+.leafmark-settings .settings-title { font-size: 12px; font-weight: 400; color: var(--settings-muted); margin: 7px 12px 28px; }
+.leafmark-settings .settings-tabs { display: flex; flex-direction: column; gap: 6px; }
+.leafmark-settings .settings-tab { display: flex; align-items: center; gap: 12px; text-align: left; height: 42px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px; font-size: 13px; font-weight: 500; color: #655f56; }
+.leafmark-settings .settings-tab svg { flex-shrink: 0; color: var(--settings-muted); }
+.leafmark-settings .settings-tab[aria-selected="true"] { color: var(--settings-accent); background: #eeddd080; border-color: #e1c3ae99; font-weight: 600; }
+.leafmark-settings .settings-tab[aria-selected="true"] svg { color: #b65d3f; }
+.leafmark-settings .settings-sidebar-note { margin: auto 0 0; padding: 14px 12px 0; border-top: 1px solid #b4aa993d; color: #777065; font-size: 11px; }
+.leafmark-settings .settings-sidebar-note p { margin: 0 0 8px; }
+.leafmark-settings .settings-sidebar-note span { color: #827b71; font-size: 10px; }
+.leafmark-settings .settings-back { display: flex; align-items: center; gap: 7px; margin-top: 28px; padding: 8px 0 0; color: #786a5c; font-size: 11px; text-align: left; }
+.leafmark-settings .settings-back kbd { background: #ffffff40; border: 1px solid #beb1a0; border-radius: 4px; padding: 3px 6px; font: 10px "Inter", sans-serif; }
+.leafmark-settings .settings-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 30px 30px 20px; }
+.leafmark-settings .settings-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.leafmark-settings .settings-header h3 { font-size: 28px; font-weight: 600; letter-spacing: -.8px; margin: 0; line-height: 1.2; }
+.leafmark-settings .settings-close { display: flex; align-items: center; justify-content: center; padding: 4px; color: #9a8879; border-radius: 4px; }
+.leafmark-settings .settings-content { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; padding: 0 0 20px; }
+.leafmark-settings .settings-intro { font-size: 13px; line-height: 1.5; margin: 9px 0 22px; color: var(--settings-muted); }
+.leafmark-settings .settings-group { margin: 0 0 18px; }
+.leafmark-settings .settings-group-title { font-size: 11px; font-weight: 600; letter-spacing: 1px; color: #777065; margin: 0 0 9px; line-height: 1.3; }
+.leafmark-settings .settings-group-body { background: var(--settings-card); border: 1px solid var(--settings-line); border-radius: 10px; padding: 0 16px; }
+.leafmark-settings .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 57px; padding: 9px 0; border-bottom: 1px solid var(--settings-divider); }
+.leafmark-settings .settings-row:last-child { border-bottom: 0; }
+.leafmark-settings .settings-row-compact { min-height: 48px; padding: 8px 0; }
+.leafmark-settings .settings-row-copy { flex: 1; min-width: 0; }
+.leafmark-settings .settings-label { display: block; color: var(--settings-ink); font-size: 13px; font-weight: 500; line-height: 1.3; }
+.leafmark-settings .settings-description { color: var(--settings-muted); font-size: 11px; line-height: 1.4; margin: 4px 0 0; }
+.leafmark-settings .settings-select { appearance: none; width: 152px; flex-shrink: 0; height: 30px; border: 1px solid var(--settings-control-line); background: var(--settings-control) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23827b71' stroke-width='1.6'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 9px center; color: #5e584f; padding: 0 29px 0 10px; border-radius: 6px; font-size: 12px; }
+.leafmark-settings .settings-line-height { width: 105px; }
+.leafmark-settings .settings-toggle { appearance: none; flex-shrink: 0; width: 34px; height: 20px; border: 0; background: #dedad2; border-radius: 20px; position: relative; cursor: pointer; margin: 0; }
+.leafmark-settings .settings-toggle::before { content: ""; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #54443222; transition: transform 120ms ease; }
+.leafmark-settings .settings-toggle:checked { background: #c16a4c; }
+.leafmark-settings .settings-toggle:checked::before { transform: translateX(14px); }
+.leafmark-settings .settings-stepper { display: flex; align-items: center; flex-shrink: 0; height: 30px; padding: 0 6px; gap: 3px; border: 1px solid var(--settings-control-line); border-radius: 6px; background: var(--settings-control); font-size: 12px; color: #5e584f; }
+.leafmark-settings .settings-stepper button { width: 23px; height: 26px; padding: 0; color: #827b71; font-size: 16px; border-radius: 4px; }
+.leafmark-settings .settings-number { appearance: textfield; width: 25px; padding: 0; border: 0; background: transparent; color: inherit; text-align: right; font-size: 12px; }
+.leafmark-settings .settings-number::-webkit-inner-spin-button { appearance: none; }
+.leafmark-settings .settings-stepper > span { margin-right: 7px; }
+.leafmark-settings .settings-segmented { display: flex; flex-shrink: 0; padding: 3px; gap: 2px; border-radius: 7px; background: #eeeae3; }
+.leafmark-settings .settings-segmented button { padding: 5px 10px; border-radius: 5px; color: var(--settings-muted); font-size: 11px; line-height: 1.3; }
+.leafmark-settings .settings-segmented button[aria-pressed="true"] { background: #f2e0d4; color: var(--settings-accent); font-weight: 500; box-shadow: 0 1px 3px #54443212; }
+.leafmark-settings .settings-destination { display: flex; align-items: center; gap: 9px; padding: 5px 0 5px 8px; border-radius: 4px; color: #766e63; font-size: 12px; }
+.leafmark-settings .settings-destination svg { color: #827b71; }
+.leafmark-settings .settings-swatch { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #b65d3f; background: #c16a4c; }
+.leafmark-settings .settings-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; }
+.leafmark-settings .settings-saved { display: flex; align-items: center; gap: 6px; color: var(--settings-accent); }
+.leafmark-settings .settings-status { color: #827b71; font-size: 11px; line-height: 1.6; }
+.leafmark-settings .settings-reset { font-size: 11px; padding: 0; color: var(--settings-accent); border-radius: 3px; }
+.leafmark-settings .settings-danger, .leafmark-settings .settings-customize-shortcuts { font-size: 11px; padding: 7px 10px; border: 1px solid var(--settings-control-line); border-radius: 5px; color: var(--settings-accent); }
+.leafmark-settings button:disabled { cursor: default; opacity: .45; }
+.leafmark-settings button:disabled:hover { background: transparent; }
+.leafmark-settings :is(button, input, select):focus-visible { outline: 2px solid var(--settings-accent); outline-offset: 3px; }
+.leafmark-settings .settings-shortcuts { margin: 0; }
+.leafmark-settings .settings-shortcut { display: flex; justify-content: space-between; align-items: center; gap: 20px; border-bottom: 1px solid var(--settings-line); padding: 14px 0; font-size: 12px; }
+.leafmark-settings .settings-shortcut dd { margin: 0; }
+.leafmark-settings .settings-shortcut kbd { font: 10px var(--mono); color: var(--settings-muted); background: var(--settings-control); padding: 5px 7px; border: 1px solid var(--settings-line); border-radius: 4px; }
+.leafmark-settings .settings-customize-shortcuts { margin-top: 20px; }
+.leafmark-settings .settings-confirmation { padding: 12px; background: var(--settings-control); border-radius: 5px; margin-top: 10px; }
+.leafmark-settings .settings-confirmation button { margin: 10px 6px 0 0; }
+.leafmark-settings .settings-appearance > .settings-row { border: 0; padding: 0; min-height: 36px; margin-bottom: 24px; }
+.leafmark-settings .settings-segmented-theme { background: #ece5dd; gap: 3px; }
+.leafmark-settings .settings-segmented-theme button { font-size: 12px; padding: 8px 16px; }
+.leafmark-settings .settings-segmented-theme button[aria-pressed="true"] { background: #fffcf7; color: #817469; font-weight: 400; box-shadow: none; }
+.leafmark-settings .settings-theme-previews { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.leafmark-settings .settings-theme-preview { min-width: 0; min-height: 340px; padding: 24px; display: flex; flex-direction: column; gap: 18px; border: 1px solid #d6b6a3; border-radius: 10px; background: #fffcf7; color: #3d352f; }
+.leafmark-settings .settings-theme-name { font: 11px var(--mono); color: #a16d55; }
+.leafmark-settings .settings-preview-title { margin: 0; white-space: pre-line; font-family: "Newsreader", "Songti SC", serif; font-size: 29px; font-weight: 400; line-height: 1.1; }
+.leafmark-settings .settings-preview-text { margin: 0; white-space: pre-line; font-family: "Newsreader", "Songti SC", serif; font-size: 16px; line-height: 1.6; color: #817469; }
+.leafmark-settings .settings-theme-preview blockquote { margin: 0; padding: 3px 0 3px 12px; border-left: 2px solid #c18b6e; font-family: "Newsreader", "Songti SC", serif; font-size: 15px; font-style: italic; color: #a5684e; }
+.leafmark-settings .settings-preview-link { color: #bc7457; font-size: 12px; }
+.leafmark-settings .settings-theme-dark { background: #242527; border-color: #45464c; color: #e5e6e9; }
+.leafmark-settings .settings-theme-dark .settings-theme-name { color: #b9a092; }
+.leafmark-settings .settings-theme-dark .settings-preview-text { color: #a6adb7; }
+.leafmark-settings .settings-theme-dark blockquote { color: #bac0ca; }
+.leafmark-settings .settings-theme-dark .settings-preview-link { color: #d99a7c; }
+.leafmark-settings .settings-theme-hint { display: flex; align-items: center; gap: 10px; color: #817469; font-size: 12px; margin: 24px 0; }
+.leafmark-settings .settings-theme-hint svg { flex-shrink: 0; color: #a16d55; }
+.leafmark-settings .settings-theme-scope { border-top: 1px solid #e1d7cd; padding: 16px 0 0; color: #9a8879; font-size: 12px; margin: 0; }
+:root[data-theme="dark"] dialog.leafmark-settings { --settings-paper: #242527; --settings-card: #2b2c2f; --settings-ink: #e5e6e9; --settings-muted: #a6adb7; --settings-line: #45464c; --settings-divider: #3b3d42; --settings-control: #303236; --settings-control-line: #45464c; --settings-accent: #d99a7c; border-color: #45464c; }
+:root[data-theme="dark"] .leafmark-settings .settings-sidebar { background: linear-gradient(90deg, #ffffff08, #ffffff00), #303032; border-color: #45464c; box-shadow: 3px 5px 24px #00000020, inset 0 1px 3px #ffffff12; }
+:root[data-theme="dark"] .leafmark-settings :is(.settings-tab, .settings-back, .settings-select, .settings-stepper, .settings-destination, .settings-group-title) { color: var(--settings-muted); }
+:root[data-theme="dark"] .leafmark-settings .settings-tab[aria-selected="true"] { background: #544039; border-color: #735343; color: var(--settings-accent); }
+:root[data-theme="dark"] .leafmark-settings .settings-segmented { background: #383a3e; }
+:root[data-theme="dark"] .leafmark-settings .settings-segmented button[aria-pressed="true"] { background: #544039; color: var(--settings-accent); }
+@media (max-width: 700px) {
+  dialog.leafmark-settings[open] { grid-template-columns: 156px minmax(0, 1fr); }
+  .leafmark-settings .settings-sidebar { padding: 20px 10px 16px; }
+  .leafmark-settings .settings-main { padding: 24px 18px 16px; }
+  .leafmark-settings .settings-row { gap: 10px; }
+  .leafmark-settings .settings-destination { font-size: 11px; gap: 5px; }
+  .leafmark-settings .settings-theme-previews { grid-template-columns: 1fr; }
+}
+@media (max-width: 540px) {
+  dialog.leafmark-settings[open] { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); width: calc(100vw - 20px); height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); }
+  .leafmark-settings .settings-sidebar { padding: 8px; border-radius: 10px; }
+  .leafmark-settings :is(.settings-brand, .settings-title, .settings-sidebar-note, .settings-back) { display: none; }
+  .leafmark-settings .settings-tabs { flex-direction: row; gap: 3px; }
+  .leafmark-settings .settings-tab { flex: 1; justify-content: center; padding: 0 4px; gap: 5px; font-size: 12px; }
+  .leafmark-settings .settings-tab svg { width: 15px; height: 15px; }
+  .leafmark-settings .settings-main { padding: 18px 10px 10px; }
+  .leafmark-settings .settings-row { flex-wrap: wrap; }
+  .leafmark-settings .settings-row-copy { min-width: 90px; }
+  .leafmark-settings .settings-segmented-theme button { padding: 8px 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .leafmark-settings .settings-toggle::before { transition: none; } }

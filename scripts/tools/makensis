@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""仅为项目构建切换 NSIS 压缩器，不修改生成脚本或系统工具。"""
+
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+def main():
+    real = Path(os.environ.get("LEAFMARK_MAKENSIS_REAL", "/opt/homebrew/bin/makensis"))
+    if not real.is_file() or real.resolve() == Path(__file__).resolve():
+        print("[leafmark] 真实 makensis 路径无效，请设置 LEAFMARK_MAKENSIS_REAL。", file=sys.stderr)
+        return 1
+
+    args = sys.argv[1:]
+    script_index = next(
+        (i for i, arg in enumerate(args) if arg.lower().endswith(".nsi") and Path(arg).is_file()),
+        None,
+    )
+    cwd = None
+    if script_index is not None:
+        script_path = Path(args[script_index]).resolve()
+        script = script_path.read_bytes()
+        # NSIS 读取文件时默认切换到脚本目录；改用 stdin 后保留该相对路径语义。
+        if "-NOCD" not in [arg.upper() for arg in args]:
+            cwd = script_path.parent
+        args[script_index] = "-"
+    elif "-" in args:
+        script = sys.stdin.buffer.read()
+    else:
+        # 版本查询等命令原样转发，供 MyGo 检测编译器与签名能力。
+        os.execv(str(real), [str(real), *args])
+
+    # 命令行 /X 的压缩选择会被脚本覆盖，直接替换指令并保留其他字节。
+    script, count = re.subn(
+        rb"(?im)^[ \t]*SetCompressor\b[^\r\n]*",
+        b"SetCompressor zlib",
+        script,
+    )
+    if count:
+        print("[leafmark] NSIS 使用 zlib 压缩构建安装包。", file=sys.stderr)
+    result = subprocess.run([str(real), *args], input=script, cwd=cwd)
+    return result.returncode if result.returncode >= 0 else 128 - result.returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())
