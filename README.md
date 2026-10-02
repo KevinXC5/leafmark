@@ -121,6 +121,12 @@ bun run check:release
 bun run build -- -platform darwin/universal,windows/amd64,windows/arm64
 ```
 
+## 许可证
+
+Leafmark 使用 [MIT 许可证](LICENSE)。可以自由使用、修改、分发和商用，但必须保留版权声明和许可声明；软件按“原样”提供，不提供担保。
+
+MyGo、mygo-cli 和 mygo-runtime 也是 MIT。界面使用的 Inter、Newsreader 和 Geist Mono 为 SIL Open Font License 1.1。DOMPurify 为 MPL-2.0 或 Apache-2.0，elkjs 为 EPL-2.0。再分发安装包时须同时提供 [第三方声明](THIRD_PARTY_NOTICES.md)，并保留各组件自己的版权与许可证。
+
 ## 下载与自动更新
 
 正式版本从 [GitHub Releases](https://github.com/KevinXC5/leafmark/releases) 下载。macOS 的 Apple 芯片使用 darwin-arm64 DMG，Intel 芯片使用 darwin-amd64 DMG；Windows 根据架构选择 amd64 或 arm64 的 Setup 安装程序。
