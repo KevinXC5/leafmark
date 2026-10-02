@@ -1,4 +1,4 @@
-/* 链接、图片与表格弹窗：尺寸、字号与配色取自 Leafmark.pen 的“交互细节”和“查找与插入细节”画板。 */
+/* 链接、图片与表格弹窗的布局、字体和主题配色。 */
 .lm-dialog {
   --d-bg: #fffcf7; --d-head: #f0ebe3; --d-line: #dcd3c7; --d-field-line: #ded5c9; --d-cell-line: #e5ddd1;
   --d-input: #ffffff; --d-text: #494239; --d-title: #302c27; --d-muted: #74695d; --d-accent: #bd7252;
