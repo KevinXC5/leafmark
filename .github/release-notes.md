@@ -1,6 +1,4 @@
-## 0.1.0
-
-Leafmark · 叶笺是一款简洁的 Markdown 桌面编辑器，支持原位渲染、多标签编辑、工作区文件导航、阅读模式、主题与快捷键设置。
+## 下载与安装
 
 - macOS：Apple 芯片下载 darwin-arm64 DMG，Intel 芯片下载 darwin-amd64 DMG。
 - Windows：根据系统架构下载 amd64 或 arm64 的 Setup 安装程序。
