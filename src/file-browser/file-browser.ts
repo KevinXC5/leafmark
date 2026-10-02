@@ -63,7 +63,6 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   search.placeholder = "搜索 Markdown…";
   search.setAttribute("aria-label", "搜索工作区文件或文件夹");
   searchBox.append(icon(Search), search);
-  const target = el("p", "fb-target");
   const status = el("p", "fb-status");
   status.setAttribute("role", "status");
   status.setAttribute("aria-live", "polite");
@@ -79,7 +78,7 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   }), "清空近期文件记录（不删除文件）");
   recentHeader.append(recentTitle, clear);
   const recentList = el("div", "fb-recent-list");
-  root.append(searchBox, toolbar, target, status, tree, recentHeader, recentList);
+  root.append(searchBox, toolbar, status, tree, recentHeader, recentList);
   container.replaceChildren(root);
 
   let workspace: WorkspaceFolder | null = null;
@@ -174,8 +173,6 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
     choose.title = workspace ? `${workspace.path}\n点击切换工作区` : "选择 Markdown 文件夹";
     choose.setAttribute("aria-label", workspace ? `切换工作区：${workspace.name}` : "打开文件夹");
     searchBox.hidden = workspaceMore.hidden = !workspace;
-    target.textContent = selectedFolder ? `新建位置：${selectedFolder}` : "";
-    target.hidden = !selectedFolder;
     tree.replaceChildren();
     const query = search.value.trim().toLocaleLowerCase();
     const matches = (node: FolderNode): boolean => node.path.toLocaleLowerCase().includes(query) ||
@@ -224,12 +221,6 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
       }
     };
     if (native && workspace) {
-      const rootButton = button("⌂ 工作区根目录", () => { selectedFolder = ""; render(); });
-      rootButton.className = "fb-root-target";
-      rootButton.setAttribute("aria-pressed", String(!selectedFolder));
-      // 仅在选中子目录后提供返回根目录的入口。
-      rootButton.hidden = !selectedFolder;
-      tree.append(rootButton);
       const entries = el("div", "fb-entries");
       append(nodes, entries);
       if (!entries.childElementCount) entries.append(empty(query ? "没有匹配的文件或文件夹。" : "工作区内没有 Markdown 文件或文件夹，可在此新建。"));

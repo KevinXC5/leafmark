@@ -208,33 +208,39 @@ function updateToolbar() {
   });
 }
 
+let outlineSignature = "";
+let tabSignature = "";
+
 function updateDocumentUI() {
   element("document-name").textContent = session.note.name;
   element("dirty-dot").hidden = !session.note.dirty;
   document.title = session.note.id ? `${session.note.dirty ? "● " : ""}${session.note.name} · Leafmark` : "Leafmark · 叶笺";
   element("save-file").toggleAttribute("disabled", !session.note.id);
   if (native && document.title !== lastWindowTitle) { lastWindowTitle = document.title; void currentWindow.setTitle(document.title).catch(() => {}); }
-  const fileLocation = element("file-location");
-  fileLocation.textContent = session.note.path ? session.note.path.split(/[\\/]/).slice(0, -1).join(mac ? "/" : "\\") : "尚未保存到磁盘";
-  fileLocation.title = session.note.path;
   const stats = analyzeDocument(editor.state);
   element("word-count").textContent = `${stats.wordCount} 字`;
   element("read-time").textContent = `${stats.readMinutes} 分钟阅读`;
   if (!session.busy) element("save-status").textContent = externalStates.get(session.note.id) === "missing" ? "原文件已移动或删除，请另存为" : externalStates.has(session.note.id) ? "磁盘文件已修改；可从文件菜单重新加载" : session.note.dirty ? "未保存" : session.note.path ? "已保存" : "就绪";
   const outline = element("outline");
-  outline.replaceChildren();
-  for (const heading of stats.headings) {
-    const button = document.createElement("button");
-    button.className = "outline-item";
-    button.dataset.position = String(heading.from);
-    button.style.paddingLeft = `${8 + (heading.level - 1) * 12}px`;
-    const level = document.createElement("span");
-    level.className = "heading-level"; level.textContent = `H${heading.level}`;
-    const label = document.createElement("span"); label.textContent = heading.title;
-    button.append(level, label);
-    button.addEventListener("click", () => { editor.dispatch({ selection: { anchor: heading.from }, effects: EditorView.scrollIntoView(heading.from, { y: "start", yMargin: 45 }) }); editor.focus(); });
-    outline.append(button);
+  const nextOutlineSignature = JSON.stringify(stats.headings);
+  // 保留未变化的大纲按钮，避免焦点或语法刷新打断正在进行的点击。
+  if (nextOutlineSignature !== outlineSignature) {
+    outlineSignature = nextOutlineSignature;
+    outline.replaceChildren();
+    for (const heading of stats.headings) {
+      const button = document.createElement("button");
+      button.className = "outline-item";
+      button.dataset.position = String(heading.from);
+      button.style.paddingLeft = `${8 + (heading.level - 1) * 12}px`;
+      const level = document.createElement("span");
+      level.className = "heading-level"; level.textContent = `H${heading.level}`;
+      const label = document.createElement("span"); label.textContent = heading.title;
+      button.append(level, label);
+      button.addEventListener("click", () => { editor.dispatch({ selection: { anchor: heading.from }, effects: EditorView.scrollIntoView(heading.from, { y: "start", yMargin: 45 }) }); editor.focus(); });
+      outline.append(button);
+    }
   }
+  outline.querySelector(".active")?.classList.remove("active");
   [...outline.querySelectorAll<HTMLElement>("button[data-position]")].filter(button => Number(button.dataset.position) <= editor.state.selection.main.head).at(-1)?.classList.add("active");
   if (!outline.children.length) { const empty = document.createElement("p"); empty.className = "empty-outline"; empty.textContent = "输入 # 标题，建立文档大纲。"; outline.append(empty); }
   // 文件夹列表由独立异步刷新维护，正文输入不会重建文件树。
@@ -282,6 +288,9 @@ async function closeNote(id: string) {
 }
 function renderTabs() {
   rememberSession();
+  const nextTabSignature = JSON.stringify([session.note.id, [...sessions.values()].map(entry => [entry.note.id, entry.note.name, entry.note.path, entry.note.dirty])]);
+  if (nextTabSignature === tabSignature) return;
+  tabSignature = nextTabSignature;
   const tabs = element("tab-list"); tabs.replaceChildren();
   for (const entry of sessions.values()) {
     const tab = document.createElement("div"); tab.className = `file-tab${entry.note.id === session.note.id ? " active" : ""}`;
@@ -344,7 +353,6 @@ async function newNote() {
   loadNote(native ? await Files.new() : { id: crypto.randomUUID(), name: "未命名.md", path: "", content: "", dirty: false });
   editor.focus();
 }
-element("open-file").addEventListener("click", () => void perform(open));
 element("save-file").addEventListener("click", () => void perform(() => save(false)));
 element("new-file").addEventListener("click", () => void perform(newNote));
 element("unsaved-dialog").addEventListener("cancel", () => { element<HTMLDialogElement>("unsaved-dialog").returnValue = "cancel"; });
@@ -354,6 +362,10 @@ function sidebar(show: boolean) {
   element("show-sidebar").hidden = show;
   editor.requestMeasure();
 }
+// 鼠标操作导航时保留编辑器焦点，防止原位渲染和大纲刷新吞掉首次点击。
+document.querySelector(".sidebar")!.addEventListener("mousedown", event => {
+  if ((event as MouseEvent).button === 0 && (event.target as Element).closest("button")) event.preventDefault();
+});
 element("hide-sidebar").addEventListener("click", () => sidebar(false));
 element("show-sidebar").addEventListener("click", () => sidebar(true));
 for (const tab of ["documents", "outline"]) {

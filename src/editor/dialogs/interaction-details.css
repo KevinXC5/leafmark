@@ -24,12 +24,12 @@
 .lm-detail-field > span { font-size: 10px; line-height: 12px; font-weight: 500; letter-spacing: .6px; color: var(--d-muted); }
 .lm-detail-input-row { display: flex; align-items: center; gap: 8px; }
 .lm-dialog input[type="text"] {
-  min-width: 0; flex: 1; height: 31px; padding: 0 10px; border: 1px solid var(--d-line); border-radius: 5px;
+  min-width: 0; flex: 1; height: 31px; padding: 0 10px; border: 1px solid var(--d-line); border-radius: var(--control-radius);
   background: var(--d-input); color: var(--d-text); font: 11px/13px "Inter", sans-serif; outline: none;
 }
 .lm-dialog input[type="text"]:focus { border-color: var(--d-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--d-accent) 18%, transparent); }
 .lm-dialog button {
-  height: 29px; padding: 0 12px; border: 1px solid var(--d-line); border-radius: 5px;
+  height: 29px; padding: 0 12px; border: 1px solid var(--d-line); border-radius: var(--control-radius);
   background: var(--d-bg); color: var(--d-text); font: 11px/13px "Inter", sans-serif; white-space: nowrap;
 }
 .lm-dialog button:hover:not(:disabled) { background: var(--d-select-row); }
@@ -48,7 +48,7 @@
 .lm-link-dialog .lm-detail-header > span { font-size: 11px; color: var(--d-muted); }
 .lm-link-dialog .lm-detail-body { gap: 13px; padding: 13px 16px 16px; }
 .lm-link-dialog .lm-detail-field > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.lm-link-url { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 1.5px solid var(--d-field-line); border-radius: 5px; background: var(--d-input); }
+.lm-link-url { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 1.5px solid var(--d-field-line); border-radius: var(--control-radius); background: var(--d-input); }
 .lm-link-url:focus-within { border-color: var(--d-accent); }
 .lm-link-url input[type="text"] { height: 100%; padding: 0; border: 0; background: none; font-size: 12px; box-shadow: none !important; }
 .lm-url-icon { width: 14px; text-align: center; font-size: 12px; color: var(--d-muted); }
@@ -84,7 +84,7 @@
 .lm-dialog .table-grid tr.selected-row > td { background: var(--d-select-row); }
 .lm-dialog .table-grid input[type="text"] { width: 100%; height: 40px; min-width: 0; margin: 0; padding: 0 10px; border: 0; border-radius: 0; background: none; box-shadow: none; font: 13px/17px "Newsreader", Georgia, serif; }
 .lm-dialog .table-grid th input[type="text"] { font: 600 11px/13px "Inter", sans-serif; }
-.lm-dialog .table-grid .selected { background: var(--d-select) !important; outline: 1px solid var(--d-accent); outline-offset: -1px; }
+.lm-dialog .table-grid .selected { border-radius: var(--control-radius); background: var(--d-select) !important; outline: 1px solid var(--d-accent); outline-offset: -1px; }
 .lm-dialog .table-grid .selected input { color: var(--d-select-ink); }
 .lm-table-dialog .lm-detail-input-row input[type="text"] { height: 33px; font-size: 12px; border-color: var(--d-accent); }
 .lm-table-tools { display: flex; flex-direction: column; gap: 12px; }
@@ -94,7 +94,7 @@
 .lm-table-tool-buttons button { padding: 0 10px; }
 .lm-table-moving { display: flex; flex-wrap: wrap; gap: 16px; }
 .lm-table-moving .lm-table-tool-group > span { font-size: 9px; line-height: 11px; }
-.lm-table-moving button { height: 28px; min-width: 30px; padding: 0 8px; border-radius: 4px; font-size: 10px; color: var(--d-muted); }
+.lm-table-moving button { height: 28px; min-width: 30px; padding: 0 8px; border-radius: var(--control-radius); font-size: 10px; color: var(--d-muted); }
 .lm-table-moving button[aria-pressed="true"] { background: var(--d-select-row); color: var(--d-select-ink); }
 .lm-table-dialog .lm-detail-actions .primary { padding: 0 10px; }
 

@@ -115,24 +115,17 @@ test("首次恢复仅调用 Workspace.current/tree，保留容器属性并安全
   h.click("▸ 空目录"); expect(h.container.textContent).toContain("空文件夹");
 });
 
-test("工作区入口合并名称，根目录提示仅在选中子目录时出现", async () => {
+test("文件夹单击展开，不插入新建位置或根目录区域", async () => {
   const h = harness(); await h.browser.ready;
   const choose = h.container.querySelector(".fb-toolbar button") as HTMLButtonElement;
-  const target = () => h.container.querySelector(".fb-target") as HTMLElement;
-  const root = () => h.container.querySelector(".fb-root-target") as HTMLButtonElement;
   expect(choose.textContent).toBe("笔记");
-  expect(h.container.querySelector(".fb-create-tools")).toBeNull();
-  expect(h.container.querySelector(".fb-search-box svg")).not.toBeNull();
   expect(choose.title).toContain("/notes");
-  expect(target().hidden).toBe(true);
-  expect(root().hidden).toBe(true);
   h.click("▸ 资料");
-  expect(target().hidden).toBe(false);
-  expect(target().textContent).toContain("资料");
-  expect(root().hidden).toBe(false);
-  h.click("⌂ 工作区根目录");
-  expect(target().hidden).toBe(true);
-  expect(root().hidden).toBe(true);
+  expect(h.container.querySelector('.fb-selected button[aria-expanded="true"]')).not.toBeNull();
+  expect(h.container.querySelector(".fb-target")).toBeNull();
+  expect(h.container.querySelector(".fb-root-target")).toBeNull();
+  expect(h.container.textContent).not.toContain("新建位置");
+  expect(h.container.querySelector(".fb-children")!.textContent).toContain("a.md");
   choose.click(); await h.settle();
   expect(h.calls.some(call => call.name === "openFolder")).toBe(true);
 });
@@ -159,7 +152,7 @@ test("新建文件夹保留空目录并支持在所选目录新建文件", async
   const h = harness(); await h.browser.ready;
   h.click("新建文件夹"); h.submit("新目录"); await h.settle();
   expect(h.calls).toContainEqual({ name: "createFolder", args: ["新目录"] });
-  expect(h.container.textContent).toContain("新建位置：新目录");
+  expect(h.container.querySelector(".fb-selected")!.textContent).toContain("新目录");
   h.click("新建文件");
   expect((h.dom.window.document.querySelector("dialog input") as HTMLInputElement).value).toBe("新目录/");
   h.submit("新目录/新笔记.md"); await h.settle();
@@ -263,7 +256,7 @@ test("新建文件夹失败后可修正重试", async () => {
   h.controls.folderError = new Error("上级目录不存在"); h.submit("不存在/子目录"); await h.settle();
   expect(h.dom.window.document.querySelector(".fb-validation")!.textContent).toBe("上级目录不存在");
   h.controls.folderError = null; h.submit("新目录"); await h.settle();
-  expect(h.container.textContent).toContain("新建位置：新目录");
+  expect(h.container.querySelector(".fb-selected")!.textContent).toContain("新目录");
   expect(h.dom.window.document.querySelector("dialog")).toBeNull();
 });
 

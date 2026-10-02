@@ -193,7 +193,7 @@ func verifyNative(win *mygo.Window, files *Files) {
 		results["autoSave"] = true
 		fmt.Println("通过：两秒自动保存与磁盘内容")
 	}
-	result, err = eval(`document.querySelector('#documents-tab').click(); await new Promise(r=>setTimeout(r,100)); const button=[...document.querySelectorAll('#documents button')].find(button=>button.textContent.includes('工作区验证.md')); if(!button) throw Error('工作区文件树未显示 '+document.querySelector('#documents').innerText); button.click(); await new Promise(r=>setTimeout(r,150)); if(!window.leafmarkVerification.document().path.endsWith('工作区验证.md')) throw Error('工作区文件未加载'); document.querySelector('#reading-toggle').click(); await new Promise(r=>setTimeout(r,200)); const image=document.querySelector('#reading-view img'); if(!image?.src.startsWith('data:image/png')) throw Error('本地相对图片未解析'); return {folderTree:true,workspaceOpen:true,relativeImage:true};`)
+	result, err = eval(`document.querySelector('#documents-tab').click(); await new Promise(r=>setTimeout(r,100)); const button=[...document.querySelectorAll('#documents button')].find(button=>button.textContent.includes('工作区验证.md')); if(!button) throw Error('工作区文件树未显示 '+document.querySelector('#documents').innerText); window.leafmarkVerification.editor.focus(); const down=new MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}); button.dispatchEvent(down); if(!down.defaultPrevented) throw Error('文件导航未保留首次点击'); button.click(); await new Promise(r=>setTimeout(r,150)); if(!window.leafmarkVerification.document().path.endsWith('工作区验证.md')) throw Error('工作区文件未加载'); document.querySelector('#reading-toggle').click(); await new Promise(r=>setTimeout(r,200)); const image=document.querySelector('#reading-view img'); if(!image?.src.startsWith('data:image/png')) throw Error('本地相对图片未解析'); return {folderTree:true,workspaceOpen:true,relativeImage:true};`)
 	if err != nil {
 		fail(err)
 		return
@@ -226,6 +226,13 @@ func verifyNative(win *mygo.Window, files *Files) {
 	}
 	results["richSyntax"] = result
 	fmt.Println("通过：原生双链、高亮、Callout 和嵌入占位渲染")
+	result, err = eval(`const view=window.leafmarkVerification.editor; document.querySelector('#outline-tab').click(); const headings=[...document.querySelectorAll('#outline button')]; if(headings.length<2) throw Error('大纲标题不足'); view.focus(); const heading=headings[1]; const down=new MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}); heading.dispatchEvent(down); if(!down.defaultPrevented) throw Error('导航鼠标按下未保留编辑器焦点'); heading.click(); await new Promise(r=>setTimeout(r,80)); if(view.state.selection.main.head!==Number(heading.dataset.position)) throw Error('大纲首次点击未跳转'); if(!heading.isConnected) throw Error('大纲跳转重建了按钮'); document.querySelector('#documents-tab').click(); const browser=document.querySelector('.fb-browser'); const folder=browser.querySelector('button[aria-expanded]'); if(folder) { folder.click(); if(browser.querySelector('.fb-target,.fb-root-target')) throw Error('文件夹展开仍显示辅助区域'); } if(document.querySelector('.sidebar-bottom,#file-location')) throw Error('本地文件区域仍存在'); for(const selector of ['.file-tab','.sidebar-switch button','.fb-search-box']) { const node=document.querySelector(selector); if(!node || getComputedStyle(node).borderRadius!=='10px') throw Error('控件圆角不一致 '+selector); } return {singleClickOutline:true,stableOutline:true,cleanSidebar:true,controlRadius:'10px'};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["sidebarNavigation"] = result
+	fmt.Println("通过：导航首次点击、稳定大纲、侧栏布局与统一圆角")
 	if png, err := win.CapturePage(); err == nil {
 		os.WriteFile("verification/native-window.png", png, 0644)
 		results["screenshot"] = "verification/native-window.png"
