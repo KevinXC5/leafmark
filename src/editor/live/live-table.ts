@@ -1,7 +1,8 @@
 import { StateEffect, StateField, type EditorState, type Extension, type Text } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import { parser, GFM } from "@lezer/markdown";
-import { createElement, SquarePen } from "lucide";
+import { createElement, Ellipsis } from "lucide";
+import { isolateHistory } from "@codemirror/commands";
 import { openTableEditor, parseTable, type MarkdownTable } from "../dialogs/table-editor";
 import "./live-table.css";
 
@@ -43,16 +44,74 @@ class TablePreview extends WidgetType {
     wrapper.className = "lm-table-preview";
     const button = doc.createElement("button");
     button.type = "button";
-    button.className = "lm-table-edit";
-    button.setAttribute("aria-label", "编辑表格");
-    button.title = "编辑表格";
-    button.append(createElement(SquarePen, { width: 16, height: 16, "aria-hidden": "true" }));
+    button.className = "lm-table-actions";
+    button.setAttribute("aria-label", "表格操作");
+    button.setAttribute("aria-haspopup", "menu");
+    button.setAttribute("aria-expanded", "false");
+    button.title = "表格操作";
+    button.append(createElement(Ellipsis, { width: 16, height: 16, "aria-hidden": "true" }));
+    let activeRow = 0;
+    let menu: HTMLElement | null = null;
+    const closeMenu = (restoreFocus = false) => {
+      menu?.remove(); menu = null;
+      wrapper.classList.remove("lm-table-menu-open");
+      button.setAttribute("aria-expanded", "false");
+      if (restoreFocus) button.focus({ preventScroll: true });
+    };
+    // 保留原表格的源码格式，只对目标行插入；删除与插行均可独立撤销。
+    const change = (action: "above" | "below" | "delete") => {
+      if (view.state.doc.sliceString(this.position, this.position + this.source.length) !== this.source) return;
+      const lines = this.source.split("\n");
+      if (action !== "delete") {
+        const index = Math.min(lines.length, activeRow + 2 + (action === "below" && this.table.rows.length ? 1 : 0));
+        lines.splice(index, 0, `| ${this.table.headers.map(() => "").join(" | ")} |`);
+      }
+      const insert = action === "delete" ? "" : lines.join("\n");
+      closeMenu();
+      view.dispatch({ changes: { from: this.position, to: this.position + this.source.length, insert }, annotations: isolateHistory.of("full"), userEvent: "input" });
+      view.focus();
+    };
     const edit = () => {
       // 先定位源表格，再同步打开编辑器；不更改文档，保留撤销历史。
       view.dispatch({ selection: { anchor: this.position } });
       openTableEditor(view);
     };
-    button.addEventListener("click", edit);
+    button.addEventListener("click", () => {
+      if (menu) { closeMenu(); return; }
+      menu = doc.createElement("div");
+      menu.className = "lm-table-menu";
+      menu.setAttribute("role", "menu");
+      menu.setAttribute("aria-label", "表格操作");
+      wrapper.classList.add("lm-table-menu-open");
+      button.setAttribute("aria-expanded", "true");
+      const actions: [string, () => void][] = [
+        ["在上方插入行", () => change("above")],
+        ["在下方插入行", () => change("below")],
+        ["编辑表格", () => { closeMenu(); edit(); }],
+        ["删除表格", () => change("delete")],
+      ];
+      for (const [label, action] of actions) {
+        const item = doc.createElement("button");
+        item.type = "button"; item.textContent = label; item.setAttribute("role", "menuitem");
+        if (label === "删除表格") item.className = "lm-table-delete";
+        item.addEventListener("click", action); menu.append(item);
+      }
+      menu.addEventListener("keydown", event => {
+        const items = [...menu!.querySelectorAll<HTMLButtonElement>("button")];
+        const index = items.indexOf(doc.activeElement as HTMLButtonElement);
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeMenu(true); }
+        else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+          items[next]?.focus();
+        }
+      });
+      wrapper.append(menu);
+      menu.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+    });
+    wrapper.addEventListener("focusout", event => {
+      if (!(event.relatedTarget instanceof doc.defaultView!.Node) || !wrapper.contains(event.relatedTarget)) closeMenu();
+    });
     const table = doc.createElement("table");
     table.className = "table-grid";
     table.setAttribute("aria-label", "Markdown 表格");
@@ -72,7 +131,10 @@ class TablePreview extends WidgetType {
       parent.append(row);
     };
     appendRow(this.table.headers, head, true);
-    this.table.rows.forEach(row => appendRow(row, body, false));
+    this.table.rows.forEach((row, index) => {
+      appendRow(row, body, false);
+      body.lastElementChild!.addEventListener("mouseenter", () => { if (!menu) activeRow = index; });
+    });
     table.append(head, body);
     table.addEventListener("dblclick", edit);
     const scroll = doc.createElement("div");

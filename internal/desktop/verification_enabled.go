@@ -268,6 +268,23 @@ func verifyNative(win *mygo.Window, files *Files) {
 		return
 	}
 	results["sidebarNavigation"] = result
+	result, err = eval(`const test=window.leafmarkVerification; const view=test.editor; const original=view.state.doc.toString(); const source='| A | B |\n| --- | ---: |\n| x | y |\n| z | w |'; view.dispatch({changes:{from:view.state.doc.length,insert:'\n\n'+source},selection:{anchor:0}}); document.querySelector('#documents-tab').focus(); await new Promise(r=>setTimeout(r,80)); const preview=()=>document.querySelector('.lm-table-preview'); const open=()=>preview().querySelector('.lm-table-actions').click(); const choose=label=>[...preview().querySelectorAll('[role=menuitem]')].find(item=>item.textContent===label).click(); preview().scrollIntoView({block:'center'}); const button=preview().querySelector('.lm-table-actions'); button.focus(); const br=button.getBoundingClientRect(), tr=preview().querySelector('table').getBoundingClientRect(); if(br.right>tr.left || Math.abs(br.top-tr.top)>1) throw Error('操作柄未位于表格左侧'); open(); preview().querySelector('[role=menuitem]').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); if(preview().querySelector('[role=menu]')) throw Error('Escape 未关闭菜单'); preview().querySelectorAll('tbody tr')[1].dispatchEvent(new MouseEvent('mouseenter')); open(); choose('在上方插入行'); if(!view.state.doc.toString().endsWith('| x | y |\n|  |  |\n| z | w |')) throw Error('上方插行位置错误'); test.undo(); document.querySelector('#documents-tab').focus(); await new Promise(r=>setTimeout(r,30)); preview().querySelectorAll('tbody tr')[1].dispatchEvent(new MouseEvent('mouseenter')); open(); choose('在下方插入行'); if(!view.state.doc.toString().endsWith('| z | w |\n|  |  |')) throw Error('下方插行位置错误'); test.undo(); document.querySelector('#documents-tab').focus(); await new Promise(r=>setTimeout(r,30)); open(); choose('删除表格'); if(view.state.doc.toString()!==original+'\n\n') throw Error('删除影响了表格外正文'); if(!test.undo() || !view.state.doc.toString().endsWith(source)) throw Error('删除表格无法撤销'); document.querySelector('#documents-tab').focus(); await new Promise(r=>setTimeout(r,30)); preview().scrollIntoView({block:'center'}); preview().querySelector('.lm-table-actions').focus(); window.tableVerificationOriginal=original; return {leftHandle:true,escape:true,insertAbove:true,insertBelow:true,delete:true,undo:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["tableActions"] = result
+	if png, err := win.CapturePage(); err == nil {
+		os.WriteFile("verification/native-table-actions.png", png, 0644)
+	} else {
+		fail(err)
+		return
+	}
+	_, err = eval(`const view=window.leafmarkVerification.editor; view.dispatch({changes:{from:0,to:view.state.doc.length,insert:window.tableVerificationOriginal},selection:{anchor:0}}); return true;`)
+	if err != nil {
+		fail(err)
+		return
+	}
 	fmt.Println("通过：导航首次点击、稳定大纲、侧栏布局与统一圆角")
 	if png, err := win.CapturePage(); err == nil {
 		os.WriteFile("verification/native-window.png", png, 0644)

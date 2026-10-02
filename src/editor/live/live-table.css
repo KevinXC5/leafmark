@@ -5,12 +5,12 @@
 
 .cm-editor .lm-table-scroll { overflow-x: auto; }
 
-/* 悬停或键盘聚焦时显示图标，不占用表格上方的正文空间。 */
-.cm-editor .lm-table-edit {
+/* 操作柄位于表格左侧，与表格顶端对齐，保持表头完整。 */
+.cm-editor .lm-table-actions {
   position: absolute;
-  z-index: 1;
+  z-index: 2;
   top: 0.6rem;
-  right: 4px;
+  left: -32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -19,18 +19,40 @@
   padding: 0;
   color: var(--muted);
   background: var(--paper);
-  border: 0;
+  border: 1px solid var(--line);
   border-radius: var(--control-radius);
   box-shadow: 0 1px 4px var(--shadow);
   opacity: 0;
   pointer-events: none;
   cursor: pointer;
 }
-.cm-editor .lm-table-edit svg { width: 16px; height: 16px; }
-.cm-editor .lm-table-preview:hover .lm-table-edit,
-.cm-editor .lm-table-preview:focus-within .lm-table-edit { opacity: 1; pointer-events: auto; }
-.cm-editor .lm-table-edit:hover { color: var(--ink); background: var(--surface); }
-@media (hover: none) { .cm-editor .lm-table-edit { opacity: 1; pointer-events: auto; } }
+/* 透明连接区让鼠标从表格移到操作柄时，入口持续可见。 */
+.cm-editor .lm-table-preview::before { content: ""; position: absolute; top: 0.6rem; left: -32px; width: 32px; height: 32px; }
+.cm-editor .lm-table-actions svg { width: 16px; height: 16px; }
+.cm-editor .lm-table-preview:hover .lm-table-actions,
+.cm-editor .lm-table-preview:focus-within .lm-table-actions,
+.cm-editor .lm-table-menu-open .lm-table-actions { opacity: 1; pointer-events: auto; }
+.cm-editor .lm-table-actions:hover { color: var(--ink); background: var(--surface); }
+@media (hover: none) { .cm-editor .lm-table-actions { opacity: 1; pointer-events: auto; } }
+
+.cm-editor .lm-table-menu {
+  position: absolute;
+  z-index: 5;
+  top: 0.6rem;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 164px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 8px 24px var(--shadow);
+}
+.cm-editor .lm-table-menu button { padding: 8px 10px; border: 0; border-radius: var(--control-radius); background: transparent; color: inherit; font: 12px/1.4 "Inter", sans-serif; text-align: left; cursor: pointer; }
+.cm-editor .lm-table-menu button:hover { background: var(--surface); }
+.cm-editor .lm-table-menu .lm-table-delete { color: #ba5449; border-top: 1px solid var(--line); margin-top: 4px; }
 
 .cm-editor .lm-table-preview .table-grid {
   width: 100%;
