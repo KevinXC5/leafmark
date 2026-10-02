@@ -125,6 +125,15 @@ describe("实时 Markdown 装饰", () => {
     expect(result.some(range => range.widget === "CalloutTitle")).toBe(true);
     expect(decorations("> [!note]", true).some(range => range.widget === "CalloutTitle")).toBe(false);
   });
+  test("Callout 首尾构成连续容器，自定义标题也显示类型图标", () => {
+    const source = "> [!warning] **注意**\n> 第一行\n> 第二行";
+    const result = decorations(source);
+    expect(result.filter(range => range.className === "lm-callout-start")).toHaveLength(1);
+    expect(result.filter(range => range.className === "lm-callout-end")).toHaveLength(1);
+    expect(result.filter(range => range.widget === "CalloutTitle")).toHaveLength(1);
+    expect(result.some(range => range.className === "md-strong" && source.slice(range.from, range.to) === "注意")).toBe(true);
+    expect(decorations(source, true).some(range => range.widget === "CalloutTitle")).toBe(false);
+  });
   test("代码块内部不生成标题、图片或列表预览", () => {
     const result = decorations("```md\n- [ ] ![alt](https://x)\n```");
     expect(result.some(range => range.widget)).toBe(false);

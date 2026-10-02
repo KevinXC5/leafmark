@@ -5,6 +5,7 @@
   --heading-1: 1.888889; --heading-2: 1.277778; --heading-3: 1.055556;
   --code-surface: #f3f0e9; --code-ink: #64574b; --code-muted: #857c72;
   --accent: #bd7858; --highlight: #f3e8dd; --surface: #f1eee6;
+  --callout-bg: #f1ebe3; --callout-ink: #3d352f; --callout-accent: #be7559;
   --glass: #ded2bd8c; --glass-edge: #fffdf9b0; --shadow: #7052391d;
   --titlebar-bg: #faf9f5;
   --tab-active-bg: #eeeae2; --tab-active-ink: #625a50; --tab-active-icon: #9a8b79; --tab-ink: #857a6e; --tab-close: #9c9489;
@@ -21,6 +22,7 @@
   --heading-1: 2.111111; --heading-2: 1.444444; --heading-3: 1.222222;
   --code-surface: #1e2023; --code-ink: #bec6d2; --code-muted: #959ca9;
   --accent: #a6b7c8; --highlight: #343b44; --surface: #2d2f33;
+  --callout-bg: #2d2f33; --callout-ink: #e5e6e9; --callout-accent: #d99a7c;
   --glass: #303640b8; --glass-edge: #6c727953; --shadow: #00000044;
   --titlebar-bg: #242527;
   --tab-active-bg: #34363b; --tab-active-ink: #e5e6e9; --tab-active-icon: #c4c7cd; --tab-ink: #a7abb3; --tab-close: #989ca4;
@@ -252,8 +254,11 @@ dialog p { color: var(--muted); font-size: 13px; }
 .markdown-body img { max-width: 100%; height: auto; border-radius: 4px; }
 .markdown-body svg { width: 100%; height: auto; display: block; }
 .markdown-body math { font-size: 1.15em; }
-.markdown-body .callout { border-radius: 4px; }
-.markdown-body .callout-warning { border-left-color: #c69a49; }
+.markdown-body blockquote.callout { border: 0; border-radius: 5px; padding: 12px; background: var(--callout-bg); color: var(--callout-ink); font: 13px/1.5 "Inter", system-ui, sans-serif; }
+.markdown-body .callout p { margin: 0; }
+.markdown-body .callout > p + p { margin-top: 8px; }
+.markdown-body .callout-title { font-weight: 400; }
+.markdown-body .callout .callout-icon { display: inline-block; width: 16px; height: 16px; margin-right: 9px; color: var(--callout-accent); vertical-align: -3px; }
 .markdown-body mark { background: var(--highlight); color: var(--ink); }
 /* 任务项只显示复选框，不叠加项目符号；列表缩进按原型收窄。 */
 .markdown-body li.task-list-item { list-style: none; }

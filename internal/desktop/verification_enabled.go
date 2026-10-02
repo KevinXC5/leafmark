@@ -199,6 +199,13 @@ func verifyNative(win *mygo.Window, files *Files) {
 		return
 	}
 	results["workspace"] = result
+	result, err = eval(`const browser=document.querySelector('.fb-browser'); const search=browser.querySelector('.fb-search-box'); const toolbar=browser.querySelector('.fb-toolbar'); if(browser.querySelector('.fb-create-tools')) throw Error('常驻新建按钮仍存在'); if(!search.querySelector('svg') || search.nextElementSibling!==toolbar) throw Error('搜索框与目录行未遵循原型'); const input=search.querySelector('input'); input.focus(); const style=getComputedStyle(input); if(style.borderTopWidth!=='0px' || style.outlineStyle!=='none' || search.getBoundingClientRect().height>31) throw Error('搜索框样式不匹配'); input.blur(); toolbar.querySelector('.fb-more').click(); const menu=document.querySelector('.fb-menu'); if(!menu?.textContent.includes('在此新建文件…') || !menu.textContent.includes('在此新建文件夹…')) throw Error('目录创建菜单缺失'); document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); return {prototypeLayout:true,compactSearch:true,creationMenu:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["fileBrowserDesign"] = result
+	fmt.Println("通过：原型文件导航布局、搜索框与目录创建菜单")
 	fmt.Println("通过：原生工作区文件树、授权加载和本地相对图片")
 	externalPath := files.store.Current().Path
 	if err := os.WriteFile(externalPath, []byte("# 磁盘更新\n\n外部内容 🌿\n"), 0600); err != nil {
@@ -212,7 +219,7 @@ func verifyNative(win *mygo.Window, files *Files) {
 	}
 	results["external"] = result
 	fmt.Println("通过：外部修改检测与磁盘重新加载")
-	result, err = eval(`const test=window.leafmarkVerification; const view=test.editor; const original=view.state.doc.toString(); const sample='# 丰富语法验证\n\n[[文件|别名]] · [[文件#标题|别名]] · [[#标题]] · [[#^block-sample]]\n\n==高亮文本==\n\n![[不存在的音频.mp3]]\n\n> [!warning] 提示标题\n> 提示正文\n\n## 标题\n\n段落内容。 ^block-sample\n'; view.dispatch({changes:{from:0,to:view.state.doc.length,insert:sample},selection:{anchor:0}}); view.contentDOM.blur(); document.querySelector('#more-actions').focus(); if(!document.querySelector('#reading-view').hidden) document.querySelector('#reading-toggle').click(); await new Promise(r=>setTimeout(r,200)); const wiki=document.querySelectorAll('#editor .lm-wiki-link').length; const highlight=document.querySelector('#editor .lm-highlight')?.textContent; const callout=Boolean(document.querySelector('#editor .lm-callout-warning')); const embed=document.querySelector('#editor .lm-embed-placeholder')?.textContent; if(wiki!==4 || highlight!=='高亮文本' || !callout || !embed?.includes('暂未解析')) throw Error('丰富语法原位渲染不匹配 '+JSON.stringify({wiki,highlight,callout,embed})); return {wiki,highlight,callout,embed};`)
+	result, err = eval(`if(document.documentElement.dataset.theme==='dark') document.querySelector('#theme-toggle').click(); const test=window.leafmarkVerification; const view=test.editor; const original=view.state.doc.toString(); const sample='# 丰富语法验证\n\n[[文件|别名]] · [[文件#标题|别名]] · [[#标题]] · [[#^block-sample]]\n\n==高亮文本==\n\n![[不存在的音频.mp3]]\n\n> [!note]\n> 普通说明。\n\n> [!tip] 写作技巧\n> 一个实用的快捷方式。\n\n> [!warning] 提示标题\n> 提示正文\n\n## 标题\n\n段落内容。 ^block-sample\n'; view.dispatch({changes:{from:0,to:view.state.doc.length,insert:sample},selection:{anchor:0}}); view.contentDOM.blur(); document.querySelector('#more-actions').focus(); if(!document.querySelector('#reading-view').hidden) document.querySelector('#reading-toggle').click(); await new Promise(r=>setTimeout(r,200)); const wiki=document.querySelectorAll('#editor .lm-wiki-link').length; const highlight=document.querySelector('#editor .lm-highlight')?.textContent; const callout=Boolean(document.querySelector('#editor .lm-callout-warning')); const icons=document.querySelectorAll('#editor .lm-callout-title svg').length; const line=document.querySelector('#editor .lm-callout-warning'); const style=getComputedStyle(line); if(icons!==3 || style.borderLeftWidth!=='0px' || style.fontSize!=='13px' || style.backgroundColor!=='rgb(241, 235, 227)') throw Error('Callout 版式不匹配 '+JSON.stringify({icons,border:style.borderLeftWidth,font:style.fontSize,background:style.backgroundColor})); if(view.state.doc.toString()!==sample) throw Error('Callout 渲染修改了源码'); const embed=document.querySelector('#editor .lm-embed-placeholder')?.textContent; if(wiki!==4 || highlight!=='高亮文本' || !callout || !embed?.includes('暂未解析')) throw Error('丰富语法原位渲染不匹配 '+JSON.stringify({wiki,highlight,callout,embed})); return {wiki,highlight,callout,embed};`)
 	if err != nil {
 		fail(err)
 		return

@@ -8,6 +8,7 @@ import sup from "markdown-it-sup";
 import container from "markdown-it-container";
 import katex from "katex";
 import { calloutPattern, calloutType, parseWikiReference, wikiHref } from "./obsidian-syntax";
+import { calloutIconHTML, calloutStyles } from "./callout";
 
 // 使用原生 MathML 输出，导出无需外链字体或 KaTeX CSS。
 function renderMath(source: string, displayMode: boolean): string {
@@ -124,9 +125,18 @@ markdown.core.ruler.after("inline", "leafmark_callout", state => {
     if (!first || !match) continue;
     opening.attrJoin("class", `callout callout-${calloutType(match[1]!)}`);
     first.content = match[3] || match[1]!;
+    const icon = new state.Token("html_inline", "", 0);
+    icon.content = calloutIconHTML(match[1]!);
     const strongOpen = new state.Token("strong_open", "strong", 1);
+    strongOpen.attrSet("class", "callout-title");
     const strongClose = new state.Token("strong_close", "strong", -1);
-    inline.children!.splice(0, 1, strongOpen, first, strongClose);
+    inline.children!.splice(0, 1, icon, strongOpen, first, strongClose);
+    // 同一段落中的正文与标题紧凑衔接，多段落仍保留各自结构。
+    const separator = inline.children![4];
+    if (separator?.type === "softbreak") {
+      separator.type = "html_inline";
+      separator.content = '<span class="callout-separator"> · </span>';
+    }
   }
 });
 
@@ -203,8 +213,8 @@ function getPurifier(): DOMPurify {
 /** 返回可插入正文容器的安全 HTML 片段；需要浏览器 DOM。 */
 export function renderMarkdown(content: string): string {
   return getPurifier().sanitize(markdown.render(content), {
-    ALLOWED_TAGS: ["p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "strong", "em", "s", "a", "img", "pre", "code", "span", "table", "thead", "tbody", "tr", "th", "td", "input", "mark", "sub", "sup", "section", "details", "summary", "math", "semantics", "annotation", "mrow", "mi", "mn", "mo", "mtext", "mspace", "msup", "msub", "msubsup", "mfrac", "msqrt", "mroot", "mover", "munder", "munderover", "mtable", "mtr", "mtd", "menclose", "mstyle", "mpadded", "mphantom"],
-    ALLOWED_ATTR: ["href", "src", "alt", "title", "class", "id", "start", "align", "type", "checked", "disabled", "aria-label", "xmlns", "display", "encoding", "mathvariant", "mathsize", "mathcolor", "displaystyle", "scriptlevel", "stretchy", "fence", "separator", "lspace", "rspace", "minsize", "maxsize", "accent", "accentunder", "columnalign", "columnspacing", "rowspacing", "columnlines", "rowlines", "width", "height", "depth", "voffset", "notation", "linethickness"],
+    ALLOWED_TAGS: ["svg", "path", "circle", "line", "polyline", "rect", "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "strong", "em", "s", "a", "img", "pre", "code", "span", "table", "thead", "tbody", "tr", "th", "td", "input", "mark", "sub", "sup", "section", "details", "summary", "math", "semantics", "annotation", "mrow", "mi", "mn", "mo", "mtext", "mspace", "msup", "msub", "msubsup", "mfrac", "msqrt", "mroot", "mover", "munder", "munderover", "mtable", "mtr", "mtd", "menclose", "mstyle", "mpadded", "mphantom"],
+    ALLOWED_ATTR: ["viewBox", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "d", "cx", "cy", "r", "x", "y", "x1", "x2", "y1", "y2", "rx", "ry", "points", "aria-hidden", "href", "src", "alt", "title", "class", "id", "start", "align", "type", "checked", "disabled", "aria-label", "xmlns", "display", "encoding", "mathvariant", "mathsize", "mathcolor", "displaystyle", "scriptlevel", "stretchy", "fence", "separator", "lspace", "rspace", "minsize", "maxsize", "accent", "accentunder", "columnalign", "columnspacing", "rowspacing", "columnlines", "rowlines", "width", "height", "depth", "voffset", "notation", "linethickness"],
     ALLOW_DATA_ATTR: false,
     ALLOW_ARIA_ATTR: false,
     // 表格对齐使用 align 属性，避免放开任意内联 style。
@@ -231,6 +241,9 @@ const exportStyles = `
 :root[data-theme="dark"]{color-scheme:dark;--bg:#161b22;--fg:#e6edf3;--muted:#9da7b3;--line:#444c56;--code:#21262d;--link:#79c0ff;--syntax:#d2a8ff}
 @media(prefers-color-scheme:dark){:root[data-theme="auto"]{color-scheme:dark;--bg:#161b22;--fg:#e6edf3;--muted:#9da7b3;--line:#444c56;--code:#21262d;--link:#79c0ff;--syntax:#d2a8ff}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.75 system-ui,-apple-system,"Segoe UI",sans-serif}main{max-width:860px;margin:0 auto;padding:48px 32px;overflow-wrap:anywhere}h1,h2,h3,h4,h5,h6{line-height:1.3;margin:1.5em 0 .6em}h1,h2{padding-bottom:.3em;border-bottom:1px solid var(--line)}a{color:var(--link)}blockquote{margin:1em 0;padding:0 1em;border-left:4px solid var(--line);color:var(--muted)}pre,code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--code);border-radius:5px}code{padding:.15em .35em;font-size:.9em}pre{padding:18px;overflow:auto;line-height:1.5}pre code{padding:0;background:none}img{max-width:100%;height:auto}table{border-collapse:collapse;display:block;max-width:100%;overflow:auto;margin:1em 0}th,td{padding:8px 14px;border:1px solid var(--line)}th{background:var(--code)}hr{border:0;border-top:1px solid var(--line);margin:2em 0}mark{background:#fff0a6;color:#24292f}.callout{border-left-color:var(--link);background:var(--code);padding:12px 18px;border-radius:5px}details{border:1px solid var(--line);border-radius:5px;padding:12px 18px;margin:1em 0}summary{cursor:pointer;font-weight:600}.footnotes{font-size:.9em;color:var(--muted)}math[display="block"]{display:block;overflow-x:auto;margin:1em 0}.task-list-item{list-style:none}.task-list-checkbox{margin-right:.4em}.hljs-keyword,.hljs-selector-tag,.hljs-literal{color:var(--syntax)}.hljs-string,.hljs-title,.hljs-number,.hljs-attr{color:var(--link)}.hljs-comment,.hljs-quote{color:var(--muted);font-style:italic}
+${calloutStyles}
+:root[data-theme="dark"]{--callout-bg:#2d2f33;--callout-ink:#e5e6e9;--callout-accent:#d99a7c}
+@media(prefers-color-scheme:dark){:root[data-theme="auto"]{--callout-bg:#2d2f33;--callout-ink:#e5e6e9;--callout-accent:#d99a7c}}
 @media print{:root,:root[data-theme]{color-scheme:light;--bg:#fff;--fg:#000;--muted:#444;--line:#bbb;--code:#f5f5f5;--link:#000;--syntax:#333}body{font-size:11pt}main{max-width:none;padding:0}pre{white-space:pre-wrap;overflow:visible}table{display:table;overflow:visible;width:100%}thead{display:table-header-group}tr,img{break-inside:avoid}h1,h2,h3,h4,h5,h6{break-after:avoid}a{text-decoration:underline}@page{margin:18mm}}
 `;
 

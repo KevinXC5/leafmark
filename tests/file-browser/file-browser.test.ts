@@ -80,7 +80,15 @@ function harness(options: { gate?: Promise<void>; root?: string; skip?: boolean 
   });
   active.push({ browser, dom });
   const click = (label: string, parent: ParentNode = container) => {
-    const button = Array.from(parent.querySelectorAll("button")).find(button => button.textContent === label);
+    // 新建入口收进目录菜单，仍验证原有的创建、校验与错误恢复行为。
+    if (label === "新建文件" || label === "新建文件夹") {
+      const selected = container.querySelector<HTMLButtonElement>(".fb-selected .fb-more") ?? container.querySelector<HTMLButtonElement>(".fb-toolbar .fb-more")!;
+      selected.click();
+      const item = Array.from(dom.window.document.querySelectorAll<HTMLButtonElement>('.fb-menu button')).find(button => button.textContent === `在此${label}…`)!;
+      item.click();
+      return;
+    }
+    const button = Array.from(parent.querySelectorAll("button")).find(button => button.textContent === label.replace(/^[▸▾·] /, ""));
     if (!button) throw new Error(`找不到按钮 ${label}`);
     button.click();
   };
@@ -112,7 +120,9 @@ test("工作区入口合并名称，根目录提示仅在选中子目录时出�
   const choose = h.container.querySelector(".fb-toolbar button") as HTMLButtonElement;
   const target = () => h.container.querySelector(".fb-target") as HTMLElement;
   const root = () => h.container.querySelector(".fb-root-target") as HTMLButtonElement;
-  expect(choose.textContent).toBe("▾ 笔记");
+  expect(choose.textContent).toBe("笔记");
+  expect(h.container.querySelector(".fb-create-tools")).toBeNull();
+  expect(h.container.querySelector(".fb-search-box svg")).not.toBeNull();
   expect(choose.title).toContain("/notes");
   expect(target().hidden).toBe(true);
   expect(root().hidden).toBe(true);

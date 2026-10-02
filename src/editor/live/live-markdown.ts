@@ -3,6 +3,7 @@ import { syntaxTree } from "@codemirror/language";
 import { isSafeMarkdownUrl } from "../dialogs/insert-dialogs";
 import { liveBlockRanges } from "./live-block-ranges";
 import { calloutPattern, calloutType, parseWikiReference, wikiHref, type WikiReference } from "../../markdown/obsidian-syntax";
+import { calloutIconHTML } from "../../markdown/callout";
 import "./live-markdown.css";
 
 export interface LiveMarkdownOptions {
@@ -77,11 +78,13 @@ class ImagePreview extends WidgetType {
   }
 }
 class CalloutTitle extends WidgetType {
-  constructor(readonly title: string) { super(); }
-  eq(other: CalloutTitle) { return this.title === other.title; }
+  constructor(readonly title: string, readonly custom = false) { super(); }
+  eq(other: CalloutTitle) { return this.title === other.title && this.custom === other.custom; }
   toDOM(view: EditorView) {
-    const title = view.dom.ownerDocument.createElement("strong");
-    title.textContent = this.title;
+    const title = view.dom.ownerDocument.createElement("span");
+    title.className = "lm-callout-title";
+    title.innerHTML = calloutIconHTML(this.title);
+    if (!this.custom) title.append(this.title.toUpperCase());
     return title;
   }
 }
@@ -201,14 +204,19 @@ export function buildLiveMarkdownDecorations(view: EditorView, options: LiveMark
         const prefix = first.text.match(/^\s*(?:>\s*)+/)?.[0] ?? "";
         const callout = first.text.slice(prefix.length).match(calloutPattern);
         if (callout) {
-          for (let number = first.number; number <= view.state.doc.lineAt(node.to).number; number++) lineStyle(view.state.doc.line(number).from, `lm-callout lm-callout-${calloutType(callout[1]!)}`);
+          const last = view.state.doc.lineAt(node.to).number;
+          for (let number = first.number; number <= last; number++) {
+            const position = view.state.doc.line(number).from;
+            lineStyle(position, `lm-callout lm-callout-${calloutType(callout[1]!)}`);
+            if (number === first.number) lineStyle(position, "lm-callout-start");
+            if (number === last) lineStyle(position, "lm-callout-end");
+          }
           const from = first.from + prefix.length;
           const markerLength = callout[0].length - (callout[3]?.length ?? 0);
           if (!active(from, first.to)) {
-            if (callout[3]) replace(from, from + markerLength);
-            else replace(from, first.to, new CalloutTitle(callout[1]!));
+            replace(from, callout[3] ? from + markerLength : first.to, new CalloutTitle(callout[1]!, Boolean(callout[3])));
           }
-          ranges.push(Decoration.mark({ class: "md-strong" }).range(from, first.to));
+          lineStyle(first.from, "lm-callout-heading");
         }
       }
       // 只排除实际替换的范围，编辑源码时仍保留原来的行装饰。

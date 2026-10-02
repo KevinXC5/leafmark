@@ -55,6 +55,16 @@ describe("扩展原型语法", () => {
     expect(body.querySelector("summary img")).toBeNull();
     expect(body.querySelector("details p")?.textContent).toBe("正文");
   });
+  test("Callout 图标保留 SVG 线条，标题与正文紧凑排列且内容安全转义", () => {
+    const body = parse(renderMarkdown("> [!TIP] 提示\n> **正文**\n\n> [!WARNING]\n> 检查 <svg onload=alert(1)>"));
+    expect(body.querySelectorAll("svg.callout-icon")).toHaveLength(2);
+    expect(body.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(body.querySelector("svg path")?.getAttribute("d")).toBeTruthy();
+    expect(body.querySelector(".callout-tip .callout-separator")?.textContent).toBe(" · ");
+    expect(body.querySelector(".callout-tip strong:not(.callout-title)")?.textContent).toBe("正文");
+    expect(body.querySelector("[onload]")).toBeNull();
+    expect(body.querySelectorAll("svg:not(.callout-icon)")).toHaveLength(0);
+  });
   test("KaTeX 输出内联和块级 MathML，无外链样式", () => {
     const html = renderMarkdown("公式 $x^2$\n\n$$\n\\frac{1}{2}\n$$");
     const body = parse(html);

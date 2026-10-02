@@ -55,19 +55,28 @@
   white-space: normal;
 }
 
-.cm-editor .lm-callout {
-  border-left: 3px solid var(--accent, #496d98);
-  background: color-mix(in srgb, var(--accent, #496d98) 9%, transparent);
-  padding-left: 0.8em;
+.cm-editor .cm-line.lm-callout {
+  border: 0;
+  border-radius: 0;
+  background: var(--callout-bg, #f1ebe3);
+  color: var(--callout-ink, #3d352f);
+  padding: 0 12px 0 37px;
+  font: 13px/1.5 "Inter", system-ui, sans-serif;
 }
 
-.cm-editor .lm-callout-warning,
-.cm-editor .lm-callout-danger,
-.cm-editor .lm-callout-failure {
-  border-left-color: #c78232;
+.cm-editor .cm-line.lm-callout-start { border-radius: 5px 5px 0 0; padding-top: 12px; }
+.cm-editor .cm-line.lm-callout-end { border-radius: 0 0 5px 5px; padding-bottom: 12px; }
+.cm-editor .cm-line.lm-callout-start.lm-callout-end { border-radius: 5px; }
+.cm-editor .cm-line.lm-callout-heading { padding-left: 12px; }
+.cm-editor .lm-callout-title { font-weight: 400; }
+.cm-editor .lm-callout-title .callout-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 9px;
+  color: var(--callout-accent, #be7559);
+  vertical-align: -3px;
 }
-
-.cm-editor .lm-callout-success { border-left-color: #4b9565; }
 
 .cm-editor .lm-image-fallback {
   color: var(--text-muted, #777);

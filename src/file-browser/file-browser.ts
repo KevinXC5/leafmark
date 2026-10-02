@@ -1,5 +1,6 @@
 import { isMyGo } from "mygo-runtime";
-import { Files, Workspace, type Document as NoteDocument, type Folder, type Node as FolderNode, type RecentDocument } from "../platform/mygo";
+import { createElement, ChevronDown, ChevronRight, Folder, FolderOpen, FileText, Search, Ellipsis, type IconNode } from "lucide";
+import { Files, Workspace, type Document as NoteDocument, type Folder as WorkspaceFolder, type Node as FolderNode, type RecentDocument } from "../platform/mygo";
 import "./file-browser.css";
 
 export interface FileBrowserServices {
@@ -44,16 +45,24 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
       await refreshInside();
     }
   }));
-  const refreshButton = button("↻", () => refresh(), "刷新工作区和近期文件");
-  toolbar.append(choose, refreshButton);
+  const workspaceMore = button("", () => {
+    if (workspace) showMenu({ name: workspace.name, path: "", directory: true }, workspaceMore);
+  }, "工作区更多操作");
+  workspaceMore.className = "fb-more";
+  workspaceMore.setAttribute("aria-label", "工作区更多操作");
+  workspaceMore.setAttribute("aria-haspopup", "menu");
+  workspaceMore.append(icon(Ellipsis));
+  toolbar.append(choose, workspaceMore);
+  toolbar.addEventListener("contextmenu", event => {
+    event.preventDefault();
+    if (!busy && workspace) showMenu({ name: workspace.name, path: "", directory: true }, workspaceMore, event.clientX, event.clientY);
+  });
+  const searchBox = el("div", "fb-search-box");
   const search = el("input", "fb-search");
   search.type = "search";
-  search.placeholder = "搜索文件或文件夹…";
+  search.placeholder = "搜索 Markdown…";
   search.setAttribute("aria-label", "搜索工作区文件或文件夹");
-  const tools = el("div", "fb-create-tools");
-  const createFile = button("新建文件", () => editPath("file", selectedFolder));
-  const createFolder = button("新建文件夹", () => editPath("folder", selectedFolder));
-  tools.append(createFile, createFolder);
+  searchBox.append(icon(Search), search);
   const target = el("p", "fb-target");
   const status = el("p", "fb-status");
   status.setAttribute("role", "status");
@@ -70,10 +79,10 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   }), "清空近期文件记录（不删除文件）");
   recentHeader.append(recentTitle, clear);
   const recentList = el("div", "fb-recent-list");
-  root.append(toolbar, search, tools, target, status, tree, recentHeader, recentList);
+  root.append(searchBox, toolbar, target, status, tree, recentHeader, recentList);
   container.replaceChildren(root);
 
-  let workspace: Folder | null = null;
+  let workspace: WorkspaceFolder | null = null;
   let nodes: FolderNode[] = [];
   let recent: RecentDocument[] = [];
   let selectedFolder = "";
@@ -148,8 +157,8 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   function refresh() { return run(refreshInside); }
 
   function updateControls() {
-    choose.disabled = refreshButton.disabled = !native || busy;
-    createFile.disabled = createFolder.disabled = !native || busy || !workspace;
+    choose.disabled = !native || busy;
+    workspaceMore.disabled = !native || busy || !workspace;
     clear.disabled = !native || busy || !recent.length;
     search.disabled = !native || !workspace;
     root.setAttribute("aria-busy", String(busy));
@@ -159,13 +168,14 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   function render() {
     closeMenu();
     // 工作区名称兼作切换入口，避免重复堆叠名称、打开按钮与根目录提示。
-    choose.textContent = workspace ? `▾ ${workspace.name}` : "打开文件夹…";
+    const workspaceLabel = el("span", "fb-node-label");
+    workspaceLabel.textContent = workspace?.name ?? "打开文件夹…";
+    choose.replaceChildren(...(workspace ? [icon(ChevronDown), icon(FolderOpen), workspaceLabel] : [icon(FolderOpen), workspaceLabel]));
     choose.title = workspace ? `${workspace.path}\n点击切换工作区` : "选择 Markdown 文件夹";
     choose.setAttribute("aria-label", workspace ? `切换工作区：${workspace.name}` : "打开文件夹");
-    search.hidden = tools.hidden = !workspace;
+    searchBox.hidden = workspaceMore.hidden = !workspace;
     target.textContent = selectedFolder ? `新建位置：${selectedFolder}` : "";
     target.hidden = !selectedFolder;
-    createFile.title = createFolder.title = `新建位置：${selectedFolder || "工作区根目录"}`;
     tree.replaceChildren();
     const query = search.value.trim().toLocaleLowerCase();
     const matches = (node: FolderNode): boolean => node.path.toLocaleLowerCase().includes(query) ||
@@ -174,7 +184,7 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
       for (const node of items) {
         if (query && !showAll && !matches(node)) continue;
         const row = el("div", "fb-node-row");
-        const open = button(`${node.directory ? "▸" : "·"} ${node.name}`, () => {
+        const open = button("", () => {
           if (node.directory) {
             selectedFolder = node.path;
             if (expanded.has(node.path)) expanded.delete(node.path); else expanded.add(node.path);
@@ -186,12 +196,15 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
         });
         open.className = "fb-node-open";
         open.title = node.path;
+        const label = el("span", "fb-node-label");
+        label.textContent = node.name;
         if (node.directory) {
           const isExpanded = Boolean(query) || expanded.has(node.path);
-          open.textContent = `${isExpanded ? "▾" : "▸"} ${node.name}`;
+          open.append(icon(isExpanded ? ChevronDown : ChevronRight), icon(isExpanded ? FolderOpen : Folder));
           open.setAttribute("aria-expanded", String(isExpanded));
           row.classList.toggle("fb-selected", selectedFolder === node.path);
-        }
+        } else open.append(icon(FileText));
+        open.append(label);
         const more = button("⋯", () => showMenu(node, more), `${node.name}的更多操作`);
         more.className = "fb-more";
         more.setAttribute("aria-haspopup", "menu");
@@ -255,7 +268,10 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
       add("在此新建文件…", () => editPath("file", node.path));
       add("在此新建文件夹…", () => editPath("folder", node.path));
     }
-    add("重命名…", () => editPath("rename", "", node));
+    if (!node.path) {
+      add("刷新工作区和近期文件", () => refresh());
+      add("切换工作区…", () => choose.click());
+    } else add("重命名…", () => editPath("rename", "", node));
     add(node.directory ? "显示工作区根目录" : "在文件管理器中显示", () => run(async () => {
       if (!workspace) throw new Error("请先选择工作区。");
       // 后端仅允许显示根目录或近期授权文件；先登记工作区文件再传绝对路径。
@@ -416,6 +432,10 @@ function button(label: string, action: () => unknown, title?: string) {
   element.title = title ?? label;
   element.addEventListener("click", () => { action(); });
   return element;
+}
+
+function icon(node: IconNode) {
+  return createElement(node, { width: 14, height: 14, "stroke-width": 1.5, "aria-hidden": "true" });
 }
 
 function empty(message: string) {
