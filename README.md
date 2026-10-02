@@ -121,6 +121,14 @@ bun run check:release
 bun run build -- -platform darwin/universal,windows/amd64,windows/arm64
 ```
 
+## 下载与自动更新
+
+正式版本从 [GitHub Releases](https://github.com/KevinXC5/leafmark/releases) 下载。macOS 使用通用 DMG，Windows 根据架构选择 amd64 或 arm64 的 Setup 安装程序。
+
+正式版启动十秒后检查更新，持续运行时每二十四小时检查一次。发现新版本后可选择安装或稍后处理；也可在“设置 → 通用 → 软件更新”查看当前版本、手动检查和安装。更新包经过 Ed25519 签名校验，安装后下次启动生效。请保存文档后正常关闭应用，再重新打开。
+
+开发构建和安装目录不可写时禁用自动更新。当前安装包未配置 Apple Developer ID 公证与 Windows Authenticode 签名，首次运行时操作系统可能显示来源验证提示。
+
 ## 项目结构
 
 ```text

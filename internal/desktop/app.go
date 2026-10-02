@@ -18,6 +18,8 @@ func Run() {
 	mygo.Bind(files)
 	mygo.Bind(workspace)
 	mygo.Bind(NewAssets(files))
+	updates := &Updates{}
+	mygo.Bind(updates)
 	mygo.App.WhenReady(func() {
 		opts := mygo.WindowOptions{
 			Title: "Leafmark · 叶笺", URL: "/", Width: 1200, Height: 900,
@@ -32,6 +34,7 @@ func Run() {
 		win := mygo.NewWindow(opts)
 		startVerification(win, files)
 		installCloseHandler(win, files)
+		updates.start()
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

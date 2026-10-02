@@ -25,7 +25,7 @@ import { createIcons, FileText, PanelLeft, Plus, Folder, FolderOpen, Save, Sun, 
 import { currentWindow, isMyGo, runtime } from "mygo-runtime";
 import { renderDiagrams } from "../markdown/diagrams";
 import { mountFileBrowser } from "../file-browser/file-browser";
-import { Files, Workspace, Assets, type Document as NoteDocument } from "../platform/mygo";
+import { Files, Workspace, Assets, Updates, type Document as NoteDocument } from "../platform/mygo";
 import { liveMarkdown } from "../editor/live/live-markdown";
 import { liveTable } from "../editor/live/live-table";
 import { liveBlocks } from "../editor/live/live-blocks";
@@ -592,6 +592,7 @@ element("reading-toggle").onclick = toggleReading;
 element("settings-toggle").onclick = () => openSettings(settings, applySettings, {
   onCustomizeShortcuts: () => openShortcutSettings(applyShortcuts),
   shortcuts: Object.entries(shortcuts).map(([label, keys]) => ({ label: ({save:"保存",saveAs:"另存为",open:"打开文件",new:"新建文档",close:"关闭标签",find:"查找替换",bold:"加粗",italic:"斜体",link:"链接",reading:"阅读模式",settings:"设置"} as Record<string,string>)[label] ?? label, keys })),
+  updates: native ? Updates : undefined,
   onClearDrafts: session.clearRecovered,
   onClearHistory: native ? async () => { await Workspace.clearRecent(); await refreshFolder(); } : undefined,
 });

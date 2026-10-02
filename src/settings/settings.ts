@@ -68,6 +68,11 @@ export type SettingsOptions = {
   onClearDrafts?: () => void | Promise<void>;
   onClearHistory?: () => void | Promise<void>;
   onCustomizeShortcuts?: () => void;
+  updates?: {
+    status: () => Promise<{ version: string; enabled: boolean; available: string; notes: string; installed: boolean }>;
+    check: () => Promise<{ version: string; enabled: boolean; available: string; notes: string; installed: boolean }>;
+    install: () => Promise<{ version: string; enabled: boolean; available: string; notes: string; installed: boolean }>;
+  };
   /** 集成方可提供实际预设，设置页仅展示，不修改绑定。 */
   shortcuts?: readonly { label: string; keys: string }[];
 };
@@ -295,6 +300,40 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
       if (!options.onCustomizeShortcuts) panel.append(node("p", "settings-description", "快捷键自定义入口尚未接入。"));
     } else {
       panel.append(node("p", "settings-intro", "管理书写习惯与本机数据。"));
+      if (options.updates) {
+        const updates = options.updates;
+        const group = section(panel, "软件更新");
+        const check = node("button", "settings-reset", "检查更新"); check.type = "button";
+        const install = node("button", "settings-reset", "安装更新"); install.type = "button"; install.hidden = true;
+        const version = node("p", "settings-description", "正在读取版本…");
+        const message = node("p", "settings-description"); message.setAttribute("role", "status");
+        const notes = node("p", "settings-description"); notes.style.whiteSpace = "pre-wrap";
+        group.append(version, check, install, message, notes);
+        const render = (value: Awaited<ReturnType<typeof updates.status>>) => {
+          version.textContent = `当前版本：${value.version || "开发版"}`;
+          check.disabled = !value.enabled || value.installed;
+          install.hidden = !value.available || value.installed;
+          install.disabled = false;
+          notes.textContent = value.notes;
+          message.textContent = value.installed ? "更新已安装，下次启动生效。请先保存文档后再关闭应用。"
+            : !value.enabled ? "开发版或安装目录不可写时无法自动更新。"
+            : value.available ? `新版本 ${value.available} 可供安装。` : "";
+        };
+        check.disabled = true;
+        void updates.status().then(render).catch(() => { message.textContent = "无法读取更新状态，请重新打开设置。"; });
+        check.addEventListener("click", async () => {
+          check.disabled = true; install.disabled = true; message.textContent = "正在检查更新…";
+          try {
+            const value = await updates.check(); render(value);
+            if (!value.available) message.textContent = "已是最新版本。";
+          } catch (error) { message.textContent = error instanceof Error ? error.message : String(error); check.disabled = false; install.disabled = false; }
+        });
+        install.addEventListener("click", async () => {
+          check.disabled = true; install.disabled = true; message.textContent = "正在下载并安装更新，请稍候…";
+          try { render(await updates.install()); }
+          catch (error) { message.textContent = error instanceof Error ? error.message : String(error); check.disabled = false; install.disabled = false; }
+        });
+      }
       const habits = section(panel, "书写习惯");
       toggle(habits, "focusMode", "专注模式", "淡化当前段落之外的文字。");
       toggle(habits, "typewriter", "打字机模式", "让光标所在行保持在视窗中央。");

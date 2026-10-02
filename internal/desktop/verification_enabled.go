@@ -103,6 +103,12 @@ func verifyNative(win *mygo.Window, files *Files) {
 		return
 	}
 	results["initialRendering"] = result
+	result, err = eval(`document.querySelector('#settings-toggle').click(); [...document.querySelectorAll('.settings-tab')].find(tab=>tab.textContent.includes('通用')).click(); await new Promise(r=>setTimeout(r,150)); const panel=document.querySelector('.settings-panel:not([hidden])'); if(!panel.textContent.includes('软件更新') || !panel.textContent.includes('当前版本：') || !panel.textContent.includes('开发版或安装目录不可写')) throw Error('软件更新状态不匹配'); const check=[...panel.querySelectorAll('button')].find(button=>button.textContent==='检查更新'); if(!check?.disabled) throw Error('验证构建不应允许安装更新'); document.querySelector('.settings-close').click(); return {entry:true,developmentDisabled:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["softwareUpdates"] = result
 	result, err = eval(`const tab=document.querySelector('.file-tab.active'); const sidebar=document.querySelector('.sidebar'); const rect=tab.getBoundingClientRect(); const radius=getComputedStyle(tab).borderTopLeftRadius; if(rect.top!==sidebar.getBoundingClientRect().top || rect.height!==36 || radius!=='10px') throw Error('标签顶部对齐、尺寸或方形圆角不匹配'); return {top:rect.top,height:rect.height,radius};`)
 	if err != nil {
 		fail(err)

@@ -59,6 +59,14 @@ export interface State {
   recent: RecentDocument[];
 }
 
+export interface UpdateStatus {
+  version: string;
+  enabled: boolean;
+  available: string;
+  notes: string;
+  installed: boolean;
+}
+
 export interface WorkspaceDocument {
   name: string;
   path: string;
@@ -180,5 +188,18 @@ export const Assets = {
   },
   readImage(id: string, resource: string): Promise<string> {
     return call("Assets.ReadImage", id, resource);
+  },
+} as const;
+
+/** Updates 将版本检查与签名安装交给 MyGo，界面只接收明确的更新状态。 */
+export const Updates = {
+  check(): Promise<UpdateStatus> {
+    return call("Updates.Check");
+  },
+  install(): Promise<UpdateStatus> {
+    return call("Updates.Install");
+  },
+  status(): Promise<UpdateStatus> {
+    return call("Updates.Status");
   },
 } as const;
