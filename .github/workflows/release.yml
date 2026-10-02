@@ -73,7 +73,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: macOS, os: macos-latest, platform: "darwin/universal" }
+          - { name: macOS, os: macos-latest, platform: "darwin/arm64,darwin/amd64" }
           - { name: Windows, os: ubuntu-latest, platform: "windows/amd64,windows/arm64" }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -93,7 +93,22 @@ jobs:
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: |
           test -n "$MYGO_UPDATER_PRIVATE_KEY"
-          bun run build -- -platform "${{ matrix.platform }}" -skip-notarize -upload
+          bun run build -- -platform "${{ matrix.platform }}" -skip-notarize
+          python3 - <<'PY'
+          import pathlib
+          import os, subprocess
+          for platform in pathlib.Path('build').iterdir():
+              if not platform.is_dir():
+                  continue
+              for installer in [*platform.glob('*Setup*.exe'), *platform.glob('*.dmg')]:
+                  installer.rename(installer.with_name(f'{installer.stem}-{platform.name}{installer.suffix}'))
+          files = [p for p in pathlib.Path('build').rglob('*') if p.is_file()]
+          packages = sorted(str(p) for p in files if p.suffix == '.dmg' or ('Setup' in p.name and p.suffix == '.exe') or p.name.endswith('.tar.gz'))
+          manifests = sorted(str(p) for p in files if p.name.startswith('update-') and p.suffix == '.json')
+          assert packages and manifests
+          for batch in [packages, manifests]:
+              subprocess.run(['gh', 'release', 'upload', '${{ needs.prepare.outputs.tag }}', *batch, '--repo', os.environ['GITHUB_REPOSITORY'], '--clobber'], check=True)
+          PY
 
   publish:
     needs: [prepare, build]
@@ -107,7 +122,8 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir artifacts
-          test -f artifacts/update-darwin-universal.json
+          test -f artifacts/update-darwin-arm64.json
+          test -f artifacts/update-darwin-amd64.json
           test -f artifacts/update-windows-amd64.json
           test -f artifacts/update-windows-arm64.json
           python3 - <<'PY'
