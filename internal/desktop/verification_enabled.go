@@ -103,6 +103,24 @@ func verifyNative(win *mygo.Window, files *Files) {
 		return
 	}
 	results["initialRendering"] = result
+	result, err = eval(`const test=window.leafmarkVerification; const view=test.editor; view.focus(); const before={text:view.state.doc.toString(),anchor:view.state.selection.main.anchor,head:view.state.selection.main.head,scroll:view.scrollDOM.scrollTop,tabs:document.querySelectorAll('.file-tab').length}; window.settingsVerificationBefore=before; document.querySelector('#settings-toggle').click(); const page=document.querySelector('.leafmark-settings'); const rect=page.getBoundingClientRect(); if(page.tagName==='DIALOG' || document.querySelector('dialog[open]') || rect.x!==0 || rect.y!==0 || rect.width!==innerWidth || rect.height!==innerHeight) throw Error('设置未替换整个窗口'); if(!document.querySelector('#app').inert || getComputedStyle(document.querySelector('#app')).visibility!=='hidden') throw Error('后台编辑页面仍可交互'); if(!page.contains(document.activeElement)) throw Error('设置页未获得焦点'); document.querySelector('#settings-toggle').click(); if(document.querySelectorAll('.leafmark-settings').length!==1) throw Error('重复打开设置页'); return {fullWindow:true,backgroundInactive:true,singlePage:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["settingsPage"] = result
+	if png, err := win.CapturePage(); err == nil {
+		os.WriteFile("verification/native-settings.png", png, 0644)
+	} else {
+		fail(err)
+		return
+	}
+	result, err = eval(`document.querySelector('.settings-tab').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); const view=window.leafmarkVerification.editor; const before=window.settingsVerificationBefore; if(document.querySelector('.leafmark-settings') || document.querySelector('#app').inert || getComputedStyle(document.querySelector('#app')).visibility==='hidden') throw Error('未恢复书写页面'); if(view.state.doc.toString()!==before.text || view.state.selection.main.anchor!==before.anchor || view.state.selection.main.head!==before.head || view.scrollDOM.scrollTop!==before.scroll || document.querySelectorAll('.file-tab').length!==before.tabs) throw Error('设置返回改变了编辑状态'); if(document.activeElement!==view.contentDOM) throw Error('未恢复编辑器焦点'); return {escape:true,document:true,selection:true,scroll:true,tabs:true,focus:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["settingsReturn"] = result
 	result, err = eval(`document.querySelector('#settings-toggle').click(); [...document.querySelectorAll('.settings-tab')].find(tab=>tab.textContent.includes('通用')).click(); await new Promise(r=>setTimeout(r,150)); const panel=document.querySelector('.settings-panel:not([hidden])'); if(!panel.textContent.includes('软件更新') || !panel.textContent.includes('当前版本：') || !panel.textContent.includes('开发版或安装目录不可写')) throw Error('软件更新状态不匹配'); const check=[...panel.querySelectorAll('button')].find(button=>button.textContent==='检查更新'); if(!check?.disabled) throw Error('验证构建不应允许安装更新'); document.querySelector('.settings-close').click(); return {entry:true,developmentDisabled:true};`)
 	if err != nil {
 		fail(err)

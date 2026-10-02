@@ -77,8 +77,8 @@ export type SettingsOptions = {
   shortcuts?: readonly { label: string; keys: string }[];
 };
 
-let activeDialog: HTMLDialogElement | null = null;
-let dialogSequence = 0;
+let activePage: HTMLElement | null = null;
+let pageSequence = 0;
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text?: string): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
@@ -89,14 +89,25 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", tex
 
 /** 变更即保存并回传快照；编辑器重配置与两秒自动保存由集成方执行。 */
 export function openSettings(settings: Settings, onChange: (settings: Settings) => void, options: SettingsOptions = {}): void {
-  if (activeDialog?.open) { activeDialog.focus(); return; }
+  if (activePage?.isConnected) { activePage.querySelector<HTMLElement>('[aria-selected="true"]')?.focus(); return; }
   let current = validateSettings(settings);
   let afterClose: (() => void) | undefined;
   const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  const prefix = `leafmark-settings-${++dialogSequence}`;
-  const dialog = node("dialog", "leafmark-settings");
-  activeDialog = dialog;
-  dialog.setAttribute("aria-labelledby", `${prefix}-title`);
+  const prefix = `leafmark-settings-${++pageSequence}`;
+  const page = node("section", "leafmark-settings");
+  activePage = page;
+  page.setAttribute("aria-labelledby", `${prefix}-title`);
+  // 隐藏而不销毁编辑器，保留文档、选区、滚动位置及撤销记录。
+  const app = document.querySelector<HTMLElement>("#app");
+  const wasInert = app?.inert ?? false;
+  const closePage = () => {
+    page.remove(); if (activePage === page) activePage = null;
+    document.body.classList.remove("settings-open");
+    if (app) app.inert = wasInert;
+    if (previousFocus?.isConnected && !previousFocus.closest("[hidden]")) previousFocus.focus({ preventScroll: true });
+    else document.querySelector<HTMLElement>('#editor .cm-content[contenteditable="true"]')?.focus({ preventScroll: true });
+    afterClose?.();
+  };
   const side = node("aside", "settings-sidebar");
   const title = node("h2", "settings-title", "设置");
   title.id = `${prefix}-title`;
@@ -109,7 +120,7 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
   const back = node("button", "settings-back");
   back.type = "button";
   back.append(node("kbd", "", "Esc"), node("span", "", "返回书写"));
-  back.addEventListener("click", () => dialog.close());
+  back.addEventListener("click", () => closePage());
   side.append(tabs, sidebarNote, back);
   const main = node("div", "settings-main");
   const header = node("header", "settings-header");
@@ -119,7 +130,7 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
   close.append(createElement(X, { width: 18, height: 18, "aria-hidden": "true" }));
   close.type = "button";
   close.title = "返回书写（Escape）";
-  close.addEventListener("click", () => dialog.close());
+  close.addEventListener("click", () => closePage());
   header.append(heading, close);
   const content = node("div", "settings-content");
   const footer = node("footer", "settings-footer");
@@ -131,7 +142,7 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
   saved.append(createElement(Check, { width: 13, height: 13, "aria-hidden": "true" }), status);
   footer.append(saved, reset);
   main.append(header, content, footer);
-  dialog.append(side, main);
+  page.append(side, main);
 
   const bindings: (() => void)[] = [];
   let controlSequence = 0;
@@ -292,9 +303,9 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
       customize.type = "button";
       customize.disabled = !options.onCustomizeShortcuts;
       customize.addEventListener("click", () => {
-        // 等待关闭事件完成清理与焦点恢复，再打开下一层设置面板。
+        // 完成页面清理与焦点恢复后，再打开快捷键设置。
         afterClose = options.onCustomizeShortcuts;
-        dialog.close();
+        closePage();
       });
       panel.append(customize);
       if (!options.onCustomizeShortcuts) panel.append(node("p", "settings-description", "快捷键自定义入口尚未接入。"));
@@ -357,7 +368,7 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
           button.disabled = true; confirm.disabled = true; cancel.disabled = true;
           try { await action(); confirmation.hidden = true; status.textContent = `${label}完成`; }
           catch { status.textContent = "清理未完成，请稍后重试。"; }
-          finally { button.disabled = false; confirm.disabled = false; cancel.disabled = false; if (dialog.open) button.focus(); }
+          finally { button.disabled = false; confirm.disabled = false; cancel.disabled = false; if (page.isConnected) button.focus(); }
         });
       }
     }
@@ -383,17 +394,13 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
   });
   reset.addEventListener("click", () => { current = { ...defaultSettings }; bindings.forEach(refresh => refresh()); publish(); });
   // 在捕获阶段截住编辑器外的文档快捷键，避免设置中触发新建、保存等操作。
-  dialog.addEventListener("keydown", event => {
-    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dialog.close(); }
+  page.addEventListener("keydown", event => {
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closePage(); }
     else if ((event.metaKey || event.ctrlKey) && ["s", "o", "n"].includes(event.key.toLowerCase())) { event.preventDefault(); event.stopPropagation(); }
   }, true);
-  dialog.addEventListener("close", () => {
-    dialog.remove(); if (activeDialog === dialog) activeDialog = null;
-    const editor = document.querySelector<HTMLElement>('#editor .cm-content[contenteditable="true"]');
-    if (editor) editor.focus(); else if (previousFocus?.isConnected) previousFocus.focus();
-    afterClose?.();
-  }, { once: true });
   activate(0);
-  document.body.append(dialog);
-  dialog.showModal(); panels[0]!.tab.focus();
+  document.body.append(page);
+  document.body.classList.add("settings-open");
+  if (app) app.inert = true;
+  panels[0]!.tab.focus();
 }

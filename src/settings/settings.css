@@ -1,16 +1,19 @@
-dialog.leafmark-settings {
+.leafmark-settings {
   --settings-paper: #faf9f6; --settings-card: #fff; --settings-ink: #302d29;
   --settings-muted: #787269; --settings-line: #e5e0d8; --settings-accent: #a65136;
   --settings-control: #faf8f4; --settings-control-line: #dedad2; --settings-divider: #ede9e2;
-  width: min(1000px, calc(100vw - 40px)); max-width: 1000px;
-  height: min(800px, calc(100dvh - 48px)); max-height: calc(100dvh - 48px);
-  padding: 8px; overflow: hidden; border: 1px solid #dedad2; border-radius: 12px;
-  background: var(--settings-paper); color: var(--settings-ink); box-shadow: 0 24px 90px #54443224;
+  position: fixed; inset: 0; width: 100%; height: 100%;
+  padding: 8px; overflow: hidden; border: 0;
+  background: var(--settings-paper); color: var(--settings-ink);
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --app-region: no-drag;
 }
-dialog.leafmark-settings[open] { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 8px; }
-.leafmark-settings::backdrop { background: #25221d30; backdrop-filter: blur(5px); }
+.leafmark-settings { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 8px; }
+/* 保留后台布局尺寸，避免返回书写时重新计算滚动位置。 */
+.settings-open #app { visibility: hidden; }
+.mac .leafmark-settings .settings-sidebar { padding-top: 48px; }
+.leafmark-settings .settings-header { --app-region: drag; }
+.leafmark-settings .settings-header button { --app-region: no-drag; }
 .leafmark-settings * { box-sizing: border-box; }
 .leafmark-settings [hidden] { display: none !important; }
 .leafmark-settings :is(button, select, input) { font: inherit; }
@@ -101,14 +104,14 @@ dialog.leafmark-settings[open] { display: grid; grid-template-columns: 208px min
 .leafmark-settings .settings-theme-hint { display: flex; align-items: center; gap: 10px; color: #817469; font-size: 12px; margin: 24px 0; }
 .leafmark-settings .settings-theme-hint svg { flex-shrink: 0; color: #a16d55; }
 .leafmark-settings .settings-theme-scope { border-top: 1px solid #e1d7cd; padding: 16px 0 0; color: #9a8879; font-size: 12px; margin: 0; }
-:root[data-theme="dark"] dialog.leafmark-settings { --settings-paper: #242527; --settings-card: #2b2c2f; --settings-ink: #e5e6e9; --settings-muted: #a6adb7; --settings-line: #45464c; --settings-divider: #3b3d42; --settings-control: #303236; --settings-control-line: #45464c; --settings-accent: #d99a7c; border-color: #45464c; }
+:root[data-theme="dark"] .leafmark-settings { --settings-paper: #242527; --settings-card: #2b2c2f; --settings-ink: #e5e6e9; --settings-muted: #a6adb7; --settings-line: #45464c; --settings-divider: #3b3d42; --settings-control: #303236; --settings-control-line: #45464c; --settings-accent: #d99a7c; border-color: #45464c; }
 :root[data-theme="dark"] .leafmark-settings .settings-sidebar { background: linear-gradient(90deg, #ffffff08, #ffffff00), #303032; border-color: #45464c; box-shadow: 3px 5px 24px #00000020, inset 0 1px 3px #ffffff12; }
 :root[data-theme="dark"] .leafmark-settings :is(.settings-tab, .settings-back, .settings-select, .settings-stepper, .settings-destination, .settings-group-title) { color: var(--settings-muted); }
 :root[data-theme="dark"] .leafmark-settings .settings-tab[aria-selected="true"] { background: #544039; border-color: #735343; color: var(--settings-accent); }
 :root[data-theme="dark"] .leafmark-settings .settings-segmented { background: #383a3e; }
 :root[data-theme="dark"] .leafmark-settings .settings-segmented button[aria-pressed="true"] { background: #544039; color: var(--settings-accent); }
 @media (max-width: 700px) {
-  dialog.leafmark-settings[open] { grid-template-columns: 156px minmax(0, 1fr); }
+  .leafmark-settings { grid-template-columns: 156px minmax(0, 1fr); }
   .leafmark-settings .settings-sidebar { padding: 20px 10px 16px; }
   .leafmark-settings .settings-main { padding: 24px 18px 16px; }
   .leafmark-settings .settings-row { gap: 10px; }
@@ -116,7 +119,7 @@ dialog.leafmark-settings[open] { display: grid; grid-template-columns: 208px min
   .leafmark-settings .settings-theme-previews { grid-template-columns: 1fr; }
 }
 @media (max-width: 540px) {
-  dialog.leafmark-settings[open] { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); width: calc(100vw - 20px); height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); }
+  .leafmark-settings { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .leafmark-settings .settings-sidebar { padding: 8px; border-radius: 10px; }
   .leafmark-settings :is(.settings-brand, .settings-title, .settings-sidebar-note, .settings-back) { display: none; }
   .leafmark-settings .settings-tabs { flex-direction: row; gap: 3px; }

@@ -421,7 +421,7 @@ element("reading-view").addEventListener("click", event => {
 window.addEventListener("resize", updateToolbar);
 // 编辑器之外也响应文档快捷键，避免打开对话框后焦点移走导致保存失效。
 document.addEventListener("keydown", event => {
-  if (editor.hasFocus || document.querySelector("dialog[open]") || (event.target instanceof HTMLElement && event.target.matches("input,textarea,select"))) return;
+  if (editor.hasFocus || document.querySelector("dialog[open], .leafmark-settings") || (event.target instanceof HTMLElement && event.target.matches("input,textarea,select"))) return;
   for (const [action, shortcut] of Object.entries(shortcuts)) {
     const parts = shortcut.split("-"); const key = parts.pop()!;
     const mod = parts.includes("Mod");
