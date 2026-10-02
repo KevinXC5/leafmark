@@ -3,7 +3,7 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { ensureSyntaxTree, highlightingFor, syntaxTree } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { highlightTree } from "@lezer/highlight";
-import { sourceCodeLanguage, sourceHighlighting, sourceHighlightStyle } from "../src/source-highlighting";
+import { sourceCodeLanguage, sourceHighlighting, sourceHighlightStyle } from "../../src/editor/source-highlighting";
 
 function parsed(content: string) {
   // 模拟主界面原有 Markdown 扩展，验证源码 compartment 能优先接管围栏解析。

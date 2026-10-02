@@ -7,6 +7,6 @@ export default defineConfig({
   devCommand: "bun run dev:web",
   buildCommand: "bun run build:web",
   frontendDist: "dist",
-  bindings: "src/mygo.ts",
+  bindings: "src/platform/mygo.ts",
   out: "build",
 });

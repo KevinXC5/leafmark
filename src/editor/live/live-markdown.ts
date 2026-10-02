@@ -1,8 +1,8 @@
 import { EditorView, Decoration, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
-import { isSafeMarkdownUrl } from "./insert-dialogs";
+import { isSafeMarkdownUrl } from "../dialogs/insert-dialogs";
 import { liveBlockRanges } from "./live-block-ranges";
-import { calloutPattern, calloutType, parseWikiReference, wikiHref, type WikiReference } from "./obsidian-syntax";
+import { calloutPattern, calloutType, parseWikiReference, wikiHref, type WikiReference } from "../../markdown/obsidian-syntax";
 import "./live-markdown.css";
 
 export interface LiveMarkdownOptions {

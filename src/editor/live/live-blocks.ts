@@ -4,7 +4,7 @@ import { parser, GFM } from "@lezer/markdown";
 import hljs from "highlight.js/lib/common";
 import katex from "katex";
 import { liveBlockRanges } from "./live-block-ranges";
-import { parseWikiReference } from "./obsidian-syntax";
+import { parseWikiReference } from "../../markdown/obsidian-syntax";
 import "./live-blocks.css";
 
 export interface LiveBlocksOptions {

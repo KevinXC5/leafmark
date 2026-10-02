@@ -3,9 +3,9 @@ import { JSDOM } from "jsdom";
 import { EditorState, EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
-import { liveBlocks, MAX_BLOCK_PREVIEW_CHARACTERS, type LiveBlocksOptions } from "../src/live-blocks";
-import { liveBlockRanges } from "../src/live-block-ranges";
-import { buildLiveMarkdownDecorations, liveMarkdown } from "../src/live-markdown";
+import { liveBlocks, MAX_BLOCK_PREVIEW_CHARACTERS, type LiveBlocksOptions } from "../../../src/editor/live/live-blocks";
+import { liveBlockRanges } from "../../../src/editor/live/live-block-ranges";
+import { buildLiveMarkdownDecorations, liveMarkdown } from "../../../src/editor/live/live-markdown";
 
 const globals = ["window", "document", "MutationObserver", "HTMLElement", "Node", "Window", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const;
 const originals = new Map(globals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));

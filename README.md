@@ -129,10 +129,19 @@ internal/desktop/       MyGo 服务、原生对话框、窗口生命周期与原
 internal/documents/     文档、标签、保存基线、编码与外部修改检测
 internal/workspace/     工作区目录树、路径授权与近期文件
 internal/assets/        图片验证、读取与文档附件导入
-src/                    TypeScript 界面、编辑器与文档会话
-src/mygo.ts             MyGo 自动生成的前后端接口
+src/main.ts             前端入口
+src/app/                应用装配、主界面模板与全局样式
+src/editor/             编辑操作、文档统计与源码高亮
+src/editor/live/        Markdown、代码块、公式与表格的原位渲染
+src/editor/dialogs/     链接、图片与表格编辑对话框
+src/markdown/           阅读与导出渲染、Mermaid、扩展语法
+src/documents/          文档会话、草稿同步与恢复快照
+src/file-browser/       工作区文件树与近期文档
+src/settings/           应用偏好与快捷键设置
+src/platform/mygo.ts    MyGo 自动生成的前后端接口
+src/types/              第三方模块的类型声明
 scripts/                构建、预览与浏览器验证脚本
-tests/                  前端测试
+tests/                  按源码功能目录组织的前端测试与基准测试
 verification/           原生验证输入与运行输出
 ```
 

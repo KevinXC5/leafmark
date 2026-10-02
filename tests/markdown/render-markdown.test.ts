@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { exportHTML, isSafeURL, renderMarkdown } from "../src/render-markdown";
+import { exportHTML, isSafeURL, renderMarkdown } from "../../src/markdown/render-markdown";
 
 beforeAll(() => {
   // 仅为净化测试提供 DOM，生产模块仍使用浏览器自身的 DOM。

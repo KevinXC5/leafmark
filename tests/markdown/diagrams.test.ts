@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 // Mermaid 自身的 DOMPurify 在模块加载时检查浏览器环境。
 Object.defineProperty(globalThis, "window", { value: new JSDOM("").window, configurable: true, writable: true });
-const { DIAGRAM_LIMITS, diagramConfig, renderDiagrams, sanitizeDiagramSVG, validateDiagramSource } = await import("../src/diagrams");
+const { DIAGRAM_LIMITS, diagramConfig, renderDiagrams, sanitizeDiagramSVG, validateDiagramSource } = await import("../../src/markdown/diagrams");
 
 describe("Mermaid 安全和资源边界", () => {
   test("主题与严格配置", () => {
@@ -45,7 +45,7 @@ describe("Mermaid 安全和资源边界", () => {
       Object.defineProperty(w.CSSStyleSheet.prototype, "replaceSync", { value(text) {
         for (const rule of text.split("}")) if (rule.trim()) try { this.insertRule(rule + "}", this.cssRules.length); } catch {}
       }});
-      const { renderDiagrams } = await import("./src/diagrams");
+      const { renderDiagrams } = await import("./src/markdown/diagrams");
       const container = w.document.createElement("div");
       container.innerHTML = '<pre><code class="language-mermaid">graph TD; A-->B</code></pre>';
       w.document.body.append(container);
@@ -56,7 +56,7 @@ describe("Mermaid 安全和资源边界", () => {
       await renderDiagrams(container);
       if (container.querySelectorAll("figure").length !== 1 || w.document.body.children.length !== 1) throw new Error("重复渲染或临时节点未清理");
     `;
-    const result = Bun.spawnSync([process.execPath, "-e", script], { cwd: new URL("..", import.meta.url).pathname });
+    const result = Bun.spawnSync([process.execPath, "-e", script], { cwd: new URL("../..", import.meta.url).pathname });
     expect(result.exitCode, result.stderr.toString()).toBe(0);
   });
   test("无效输入保留源码并显示中文，重复调用不重复提示", async () => {

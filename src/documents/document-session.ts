@@ -1,5 +1,5 @@
 import type { EditorState } from "@codemirror/state";
-import type { Document as NoteDocument, SessionState } from "./mygo";
+import type { Document as NoteDocument, SessionState } from "../platform/mygo";
 import { readRecovery, writeRecovery, clearRecovery } from "./session-recovery";
 
 type SessionEntry = { note: NoteDocument; saved: string; state: EditorState };

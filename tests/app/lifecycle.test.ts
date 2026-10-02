@@ -1,13 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { exportHTML } from "../src/render-markdown";
-import { createDocumentSession, safeRecoveryName } from "../src/document-session";
+import { exportHTML } from "../../src/markdown/render-markdown";
+import { createDocumentSession, safeRecoveryName } from "../../src/documents/document-session";
 import { EditorState } from "@codemirror/state";
-import { readRecovery, writeRecovery, RECOVERY_STORAGE_KEY, type RecoveredNote } from "../src/session-recovery";
+import { readRecovery, writeRecovery, RECOVERY_STORAGE_KEY, type RecoveredNote } from "../../src/documents/session-recovery";
 
 // 导出 HTML 仍直接提取生产函数；会话行为直接调用模块，不复制实现。
-const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+const source = readFileSync(new URL("../../src/app/bootstrap.ts", import.meta.url), "utf8");
 function actualFunction(name: string) {
   const match = source.match(new RegExp(`^(?:async )?function ${name}\\([^]*?^}`, "m"));
   if (!match) throw Error(`找不到生产函数 ${name}，请同步测试入口`);

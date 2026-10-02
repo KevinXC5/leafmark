@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { defaultShortcuts, loadShortcuts, saveShortcuts, SHORTCUTS_STORAGE_KEY, validateShortcut } from "../src/shortcuts";
+import { defaultShortcuts, loadShortcuts, saveShortcuts, SHORTCUTS_STORAGE_KEY, validateShortcut } from "../../src/settings/shortcuts";
 
 const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 afterEach(() => {

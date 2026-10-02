@@ -1,7 +1,7 @@
 import { StateEffect, StateField, type EditorState, type Extension, type Text } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import { parser, GFM } from "@lezer/markdown";
-import { openTableEditor, parseTable, type MarkdownTable } from "./table-editor";
+import { openTableEditor, parseTable, type MarkdownTable } from "../dialogs/table-editor";
 import "./live-table.css";
 
 export interface LiveTableOptions {

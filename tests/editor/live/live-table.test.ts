@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { EditorState } from "@codemirror/state";
-import { buildLiveTableDecorations, liveTable, MAX_TABLE_PREVIEW_CHARACTERS } from "../src/live-table";
+import { buildLiveTableDecorations, liveTable, MAX_TABLE_PREVIEW_CHARACTERS } from "../../../src/editor/live/live-table";
 
 const source = "| A | B |\n| --- | ---: |\n| x | y |";
 function count(state: EditorState, focused: boolean, showActiveSyntax = true) {

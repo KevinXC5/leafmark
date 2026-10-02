@@ -1,5 +1,5 @@
 import { isMyGo } from "mygo-runtime";
-import { Files, Workspace, type Document as NoteDocument, type Folder, type Node as FolderNode, type RecentDocument } from "./mygo";
+import { Files, Workspace, type Document as NoteDocument, type Folder, type Node as FolderNode, type RecentDocument } from "../platform/mygo";
 import "./file-browser.css";
 
 export interface FileBrowserServices {

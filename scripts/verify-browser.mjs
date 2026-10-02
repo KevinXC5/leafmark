@@ -75,7 +75,7 @@ async function menu(label) {
 }
 try {
   // 从同源静态资源备份存储，避免应用初始化先保存默认偏好。首次探索沿用当前页面。
-  if (!globalThis.LEAFMARK_VERIFY_SPACE) await page.goto('http://localhost:5173/src/session-recovery.ts');
+  if (!globalThis.LEAFMARK_VERIFY_SPACE) await page.goto('http://localhost:5173/src/documents/session-recovery.ts');
   original = globalThis.LEAFMARK_VERIFY_ORIGINAL ?? await page.evaluate(keys => keys.map(key => [key, localStorage.getItem(key)]), keys);
   // 失败时仍保留准确备份供同一空间续跑；恢复完成后删除，避免保存用户偏好。
   await fs.writeFile(path.join(staging, 'e2e-storage-backup.json'), JSON.stringify({ spaceId: task.spaceId, entries: original }));
@@ -235,7 +235,7 @@ try {
   // 先停掉应用定时器与卸载处理，再从同源静态资源恢复原值，防止退出重新保存草稿。
   if (original && !fatal) {
     try {
-      await page.goto('http://localhost:5173/src/session-recovery.ts', { waitUntil: 'commit' });
+      await page.goto('http://localhost:5173/src/documents/session-recovery.ts', { waitUntil: 'commit' });
       await page.evaluate(entries => {
         for (const [key, value] of entries) { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value); }
       }, original);

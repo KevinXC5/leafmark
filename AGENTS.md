@@ -14,7 +14,7 @@
 ## 测试选择
 
 - 优先使用命令行、Bun 测试与原生自动化。仅在这些方式不能覆盖原生对话框、系统菜单或输入法等行为时使用 computer use，减少耗时的桌面操作。
-- 开发过程中根据改动运行相关测试，例如 `bun test tests/file-browser.test.ts` 或 `go test ./internal/documents`。有效回归测试即使很短也保留，不能以减少数量代替缩短执行时间。
+- 开发过程中根据改动运行相关测试，例如 `bun test tests/file-browser/file-browser.test.ts` 或 `go test ./internal/documents`。有效回归测试即使很短也保留，不能以减少数量代替缩短执行时间。
 - 一轮工作完成后运行 `bun run check`：类型检查、前端全量测试和 Go 测试。通过后，没有新增修改或未解决问题就不重复运行。
 - 并发、锁、文件生命周期变更运行相关包的 `go test -race`；发布前运行 `bun run check:release`，覆盖竞态、`go vet` 和验证构建标签。
 - 渲染、安全转义、附件授权与路径边界、磁盘覆盖、撤销重做、多标签草稿和恢复等测试必须保留。基准测试只在调查性能时手动运行。
@@ -33,7 +33,10 @@
 ## 修改边界
 
 - 保留用户已有的工作区改动，不恢复或覆盖无关文件。
-- `src/mygo.ts` 为生成接口，修改 Go 导出服务后运行 `bun run generate`，不手工编辑生成文件。
+- 前端源码按功能放入 `src/app/`、`src/editor/`、`src/markdown/`、`src/documents/`、`src/file-browser/` 和 `src/settings/`；原位渲染扩展放入 `src/editor/live/`，编辑对话框放入 `src/editor/dialogs/`。模块专用 CSS 与代码放在同一目录，第三方类型声明放入 `src/types/`，避免在 `src/` 根目录平铺功能文件。
+- 前端测试按源码功能目录放入 `tests/`，应用生命周期集成测试放入 `tests/app/`，基准测试与所属模块测试放在一起。迁移模块时同步导入、测试读取的源码路径、脚本入口及文档引用。
+- `src/main.ts` 为公共前端入口，加载 `src/app/bootstrap.ts`；HTML 页面和离线预览脚本共用此入口。
+- `src/platform/mygo.ts` 为生成接口，输出路径由 `mygo.config.ts` 的 `bindings` 指定；修改 Go 导出服务后运行 `bun run generate`，不手工编辑生成文件。
 - 说明、注释和文档使用简体中文；代码标识符遵循现有约定。
 - 文档保持三份职责：`README.md` 介绍产品与使用方式，`docs/架构与开发.md` 说明架构、实现和开发流程，`AGENTS.md` 规定 AI 开发行为。相关内容归入对应文档，避免新增职责重叠的说明文件。
 - 文档直接呈现客观、完整的最终内容，不保留问答、用户反馈、修改过程或方案讨论的痕迹。

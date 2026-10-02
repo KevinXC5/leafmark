@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { history, redo, undo } from "@codemirror/commands";
-import { applyFormat, createFormatTransaction, type FormatAction } from "../src/editor-actions";
+import { applyFormat, createFormatTransaction, type FormatAction } from "../../src/editor/editor-actions";
 import type { EditorView } from "@codemirror/view";
 
 function format(doc: string, action: FormatAction, anchor = 0, head = doc.length) {

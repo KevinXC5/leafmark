@@ -1,9 +1,9 @@
 import { EditorState } from "@codemirror/state";
 import { markdown } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
-import { analyzeDocument } from "../src/document-stats";
+import { analyzeDocument } from "../../src/editor/document-stats";
 
-// 运行：bun tests/document-stats.bench.ts。规模按 UTF-8 字节计算。
+// 运行：bun tests/editor/document-stats.bench.ts。规模按 UTF-8 字节计算。
 const paragraph = "ABC中文def a short paragraph about document performance. 😀\n\n";
 const encoder = new TextEncoder();
 function measure(fn: () => void): number {

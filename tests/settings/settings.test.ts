@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { AUTO_SAVE_DELAY, defaultSettings, loadSettings, saveSettings, SETTINGS_STORAGE_KEY, validateSettings } from "../src/settings";
+import { AUTO_SAVE_DELAY, defaultSettings, loadSettings, saveSettings, SETTINGS_STORAGE_KEY, validateSettings } from "../../src/settings/settings";
 
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 afterEach(() => {

@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { mountFileBrowser, type FileBrowser, type FileBrowserServices } from "../src/file-browser";
-import type { Document as NoteDocument, Node as FolderNode, State } from "../src/mygo";
+import { mountFileBrowser, type FileBrowser, type FileBrowserServices } from "../../src/file-browser/file-browser";
+import type { Document as NoteDocument, Node as FolderNode, State } from "../../src/platform/mygo";
 
 const globals = ["window", "document", "AbortController"] as const;
 const originals = new Map(globals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));

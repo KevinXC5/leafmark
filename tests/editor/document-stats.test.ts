@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { EditorState, Text } from "@codemirror/state";
 import { markdown } from "@codemirror/lang-markdown";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { analyzeDocument } from "../src/document-stats";
+import { analyzeDocument } from "../../src/editor/document-stats";
 
 function state(doc: string) {
   return EditorState.create({ doc, extensions: [markdown()] });

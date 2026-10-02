@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseTable, serializeTable, splitTableRow } from "../src/table-editor";
+import { parseTable, serializeTable, splitTableRow } from "../../../src/editor/dialogs/table-editor";
 
 describe("GFM 表格解析和序列化", () => {
   test("解析无边框表格及四种对齐", () => {

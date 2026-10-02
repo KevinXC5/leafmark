@@ -3,7 +3,7 @@ import { EditorState } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
-import { buildLiveMarkdownDecorations, isPreviewImageUrl } from "../src/live-markdown";
+import { buildLiveMarkdownDecorations, isPreviewImageUrl } from "../../../src/editor/live/live-markdown";
 
 function decorations(source: string, focused = false, showActiveSyntax = true) {
   const state = EditorState.create({ doc: source, extensions: [markdown({ extensions: [GFM] })] });

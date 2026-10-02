@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { clearRecovery, MAX_RECOVERY_NOTE_BYTES, readRecovery, RECOVERY_STORAGE_KEY, removeRecovery, writeRecovery, type RecoveredNote } from "../src/session-recovery";
+import { clearRecovery, MAX_RECOVERY_NOTE_BYTES, readRecovery, RECOVERY_STORAGE_KEY, removeRecovery, writeRecovery, type RecoveredNote } from "../../src/documents/session-recovery";
 
 const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 afterEach(() => {
