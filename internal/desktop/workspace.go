@@ -1,8 +1,7 @@
-package main
+package desktop
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -155,7 +154,7 @@ func (w *Workspace) BrowseImage(ctx context.Context, documentPath string) (strin
 	}
 	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 		Parent: mygo.CallerWindow(ctx), Title: "选择图片",
-		Filters: []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg", "gif"}}},
+		Filters: []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg", "gif", "webp"}}},
 	})
 	if err != nil || len(paths) == 0 {
 		return "", err
@@ -164,17 +163,6 @@ func (w *Workspace) BrowseImage(ctx context.Context, documentPath string) (strin
 		return "", err
 	}
 	return workspace.ReadImage(paths[0])
-}
-func (w *Workspace) Print(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	win := mygo.CallerWindow(ctx)
-	if win == nil {
-		return errors.New("找不到调用窗口")
-	}
-	win.Print()
-	return nil
 }
 func (w *Workspace) ShowInFolder(ctx context.Context, path string) error {
 	if err := ctx.Err(); err != nil {
@@ -192,7 +180,7 @@ func (w *Workspace) ShowInFolder(ctx context.Context, path string) error {
 	return nil
 }
 
-// rememberAuthorized 由主包 Files 在原生选择/保存文档成功后调用，不会被 mygo 导出。
+// rememberAuthorized 由 Files 在原生选择/保存文档成功后调用，不会被 mygo 导出。
 func (w *Workspace) rememberAuthorized(path string) error {
 	s, err := w.backend()
 	if err != nil {

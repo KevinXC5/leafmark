@@ -7,6 +7,7 @@ import sub from "markdown-it-sub";
 import sup from "markdown-it-sup";
 import container from "markdown-it-container";
 import katex from "katex";
+import { calloutPattern, calloutType, parseWikiReference, wikiHref } from "./obsidian-syntax";
 
 // 使用原生 MathML 输出，导出无需外链字体或 KaTeX CSS。
 function renderMath(source: string, displayMode: boolean): string {
@@ -44,6 +45,23 @@ const markdown = new MarkdownIt({
 });
 markdown.validateLink = isSafeImageURL;
 markdown.use(footnote).use(mark).use(sub).use(sup);
+// 在标准链接规则之前消费完整引用，别名只作为文本输出。
+markdown.inline.ruler.before("link", "leafmark_wiki", (state, silent) => {
+  const reference = parseWikiReference(state.src, state.pos);
+  if (!reference || state.pos + reference.length > state.posMax) return false;
+  if (!silent) {
+    const token = state.push("leafmark_wiki", "", 0);
+    token.meta = { reference };
+  }
+  state.pos += reference.length;
+  return true;
+});
+markdown.renderer.rules.leafmark_wiki = (tokens, index) => {
+  const reference = tokens[index]!.meta!.reference as NonNullable<ReturnType<typeof parseWikiReference>>;
+  const label = escapeHTML(reference.label), target = escapeHTML(reference.target);
+  if (reference.embed) return `<span class="embed-placeholder" title="${target}">嵌入：${label}（暂未解析）</span>`;
+  return `<a class="wiki-link" href="${escapeHTML(wikiHref(reference.target))}" title="${target}">${label}</a>`;
+};
 markdown.use(container, "details", {
   validate: (params: string) => /^details(?:\s|$)/.test(params.trim()),
   render: (tokens: { nesting: number; info: string }[], index: number) => tokens[index]!.nesting === 1
@@ -102,13 +120,40 @@ markdown.core.ruler.after("inline", "leafmark_callout", state => {
     const inline = state.tokens[i + 2]!;
     if (opening.type !== "blockquote_open" || state.tokens[i + 1]?.type !== "paragraph_open" || inline.type !== "inline") continue;
     const first = inline.children?.[0];
-    const match = first?.type === "text" ? first.content.match(/^\[!([A-Za-z]+)\][+-]?(?:[ \t]+(.*))?$/) : null;
+    const match = first?.type === "text" ? first.content.match(calloutPattern) : null;
     if (!first || !match) continue;
-    opening.attrJoin("class", `callout callout-${match[1]!.toLowerCase()}`);
-    first.content = match[2] || match[1]!;
+    opening.attrJoin("class", `callout callout-${calloutType(match[1]!)}`);
+    first.content = match[3] || match[1]!;
     const strongOpen = new state.Token("strong_open", "strong", 1);
     const strongClose = new state.Token("strong_close", "strong", -1);
     inline.children!.splice(0, 1, strongOpen, first, strongClose);
+  }
+});
+
+// 同文档 wiki 标题和块引用使用原文锚点，与编码后的 href 对应。
+markdown.core.ruler.after("inline", "leafmark_wiki_anchors", state => {
+  const targets = new Set<string>();
+  for (const token of state.tokens) for (const child of token.children ?? []) {
+    if (child.type === "leafmark_wiki") {
+      const reference = child.meta!.reference as NonNullable<ReturnType<typeof parseWikiReference>>;
+      if (!reference.embed && reference.target.startsWith("#")) targets.add(reference.target.slice(1));
+    }
+  }
+  for (let index = 0; index < state.tokens.length; index++) {
+    const token = state.tokens[index]!;
+    const inline = state.tokens[index + 1];
+    if (token.type === "heading_open" && inline?.type === "inline") {
+      const text = (inline.children ?? []).filter(child => ["text", "code_inline"].includes(child.type)).map(child => child.content).join("");
+      if (targets.has(text)) token.attrSet("id", text);
+    }
+    if (token.type === "paragraph_open" && inline?.type === "inline") {
+      const last = inline.children?.at(-1);
+      const block = last?.type === "text" ? last.content.match(/(?:^|[ \t])\^([A-Za-z\d-]+)[ \t]*$/) : null;
+      if (last && block && targets.has("^" + block[1])) {
+        token.attrSet("id", "^" + block[1]);
+        last.content = last.content.slice(0, block.index);
+      }
+    }
   }
 });
 

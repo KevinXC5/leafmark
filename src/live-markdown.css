@@ -41,6 +41,34 @@
   border-radius: 0.4rem;
 }
 
+.cm-editor .lm-highlight {
+  background: color-mix(in srgb, #e9b949 35%, transparent);
+  color: inherit;
+  border-radius: 0.15em;
+}
+
+.cm-editor .lm-embed-placeholder {
+  color: var(--text-muted, #777);
+  border: 1px dashed currentColor;
+  border-radius: 0.3em;
+  padding: 0.1em 0.4em;
+  white-space: normal;
+}
+
+.cm-editor .lm-callout {
+  border-left: 3px solid var(--accent, #496d98);
+  background: color-mix(in srgb, var(--accent, #496d98) 9%, transparent);
+  padding-left: 0.8em;
+}
+
+.cm-editor .lm-callout-warning,
+.cm-editor .lm-callout-danger,
+.cm-editor .lm-callout-failure {
+  border-left-color: #c78232;
+}
+
+.cm-editor .lm-callout-success { border-left-color: #4b9565; }
+
 .cm-editor .lm-image-fallback {
   color: var(--text-muted, #777);
   font-style: italic;

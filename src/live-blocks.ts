@@ -4,6 +4,7 @@ import { parser, GFM } from "@lezer/markdown";
 import hljs from "highlight.js/lib/common";
 import katex from "katex";
 import { liveBlockRanges } from "./live-block-ranges";
+import { parseWikiReference } from "./obsidian-syntax";
 import "./live-blocks.css";
 
 export interface LiveBlocksOptions {
@@ -81,6 +82,8 @@ function collectBlocks(state: EditorState): Block[] {
       return slashes % 2 !== 0;
     };
     for (let start = 0; start < line.text.length; start++) {
+      const wiki = !escaped(start) ? parseWikiReference(line.text, start) : undefined;
+      if (wiki) { start += wiki.length - 1; continue; }
       if (line.text[start] !== "$" || escaped(start) || line.text[start - 1] === "$" || line.text[start + 1] === "$" || /\s/.test(line.text[start + 1] ?? " ")) continue;
       let close = start + 1;
       while (close < line.text.length && (line.text[close] !== "$" || escaped(close))) close++;

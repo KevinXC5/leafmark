@@ -164,7 +164,7 @@ test("行内公式原位 MathML，active 行及选区展示源码", async () => 
 });
 
 test("行内公式跳过代码、链接、转义、跨行、双美元和非法公式", () => {
-  for (const source of ['`$x$`', '[label $x$](https://x)', String.raw`\$x$`, '$$x$$', '$a\nb$', '$ x $', '$x$2', String.raw`$\badcommand$`]) {
+  for (const source of ['[[文件 $x$|别名]]', '![[文件 $x$.png]]', '`$x$`', '[label $x$](https://x)', String.raw`\$x$`, '$$x$$', '$a\nb$', '$ x $', '$x$2', String.raw`$\badcommand$`]) {
     const { root } = mount(source);
     expect(root.querySelectorAll(".lm-inline-math")).toHaveLength(0);
   }

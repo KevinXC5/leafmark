@@ -1,6 +1,6 @@
 //go:build verification
 
-package main
+package desktop
 
 import (
 	"context"
@@ -103,7 +103,13 @@ func verifyNative(win *mygo.Window, files *Files) {
 		return
 	}
 	results["initialRendering"] = result
-	fmt.Println("通过：原生窗口、UTF-8 文档加载和 Markdown 排版")
+	result, err = eval(`const tab=document.querySelector('.file-tab.active'); const sidebar=document.querySelector('.sidebar'); const rect=tab.getBoundingClientRect(); const radius=getComputedStyle(tab).borderTopLeftRadius; if(rect.top!==sidebar.getBoundingClientRect().top || rect.height!==36 || radius!=='10px') throw Error('标签顶部对齐、尺寸或方形圆角不匹配'); return {top:rect.top,height:rect.height,radius};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["tabAppearance"] = result
+	fmt.Println("通过：原生窗口、UTF-8 文档加载、Markdown 排版和标签圆角")
 
 	result, err = eval(`const test = window.leafmarkVerification; const view = test.editor; const original = view.state.doc.toString(); view.dispatch({changes:{from:view.state.doc.length,insert:'\n中文输入验证 🌿\n'}}); await test.flush(); const inserted = view.state.doc.toString(); if (!inserted.includes('中文输入验证 🌿')) throw Error('中文插入失败'); if (!test.undo() || view.state.doc.toString() !== original) throw Error('撤销失败'); await test.flush(); if (!test.redo() || view.state.doc.toString() !== inserted) throw Error('重做失败'); await test.flush(); return {unicode:true,undo:true,redo:true,dirty:test.document().dirty};`)
 	if err != nil {
@@ -158,14 +164,14 @@ func verifyNative(win *mygo.Window, files *Files) {
 		return
 	}
 	results["appearance"] = result
-	result, err = eval(`const test=window.leafmarkVerification; const firstID=test.document().id; const original=test.editor.state.doc.toString(); document.querySelector('#new-file').click(); await new Promise(r=>setTimeout(r,100)); if(test.document().id===firstID) throw Error('新标签未创建'); const secondID=test.document().id; test.editor.dispatch({changes:{from:0,insert:'# 第二标签\n\n独立草稿 🌿'}}); await test.flush(); [...document.querySelectorAll('.file-tab')].find(tab=>tab.textContent.includes('本机读写验证.md')).querySelector('button').click(); await new Promise(r=>setTimeout(r,100)); if(test.document().id!==firstID || test.editor.state.doc.toString()!==original) throw Error('第一标签内容丢失'); document.querySelector('.file-tab:last-child button').click(); await new Promise(r=>setTimeout(r,100)); if(test.document().id!==secondID || !test.editor.state.doc.toString().includes('独立草稿')) throw Error('第二标签草稿丢失'); document.querySelector('.file-tab:last-child .close-tab').click(); await new Promise(r=>setTimeout(r,80)); if(!document.querySelector('#unsaved-dialog').open) throw Error('关闭草稿未提示'); document.querySelector('#unsaved-dialog button[value=cancel]').click(); await new Promise(r=>setTimeout(r,80)); if(test.document().id!==secondID) throw Error('取消关闭丢失标签'); return {tabs:true,independentDrafts:true,cancelClose:true};`)
+	result, err = eval(`const test=window.leafmarkVerification; const firstID=test.document().id; const original=test.editor.state.doc.toString(); document.querySelector('#new-file').click(); await new Promise(r=>setTimeout(r,100)); if(test.document().id===firstID) throw Error('新标签未创建'); const secondID=test.document().id; test.editor.dispatch({changes:{from:0,insert:'# 第二标签\n\n独立草稿 🌿'}}); await test.flush(); [...document.querySelectorAll('.file-tab')].find(tab=>tab.textContent.includes('本机读写验证.md')).querySelector('button').click(); await new Promise(r=>setTimeout(r,100)); if(test.document().id!==firstID || test.editor.state.doc.toString()!==original) throw Error('第一标签内容丢失'); [...document.querySelectorAll('.file-tab')].at(-1).querySelector('button').click(); await new Promise(r=>setTimeout(r,100)); if(test.document().id!==secondID || !test.editor.state.doc.toString().includes('独立草稿')) throw Error('第二标签草稿丢失'); [...document.querySelectorAll('.file-tab')].at(-1).querySelector('.close-tab').click(); await new Promise(r=>setTimeout(r,80)); if(!document.querySelector('#unsaved-dialog').open) throw Error('关闭草稿未提示'); document.querySelector('#unsaved-dialog button[value=cancel]').click(); await new Promise(r=>setTimeout(r,80)); if(test.document().id!==secondID) throw Error('取消关闭丢失标签'); return {tabs:true,independentDrafts:true,cancelClose:true};`)
 	if err != nil {
 		fail(err)
 		return
 	}
 	results["tabs"] = result
 	fmt.Println("通过：原生多标签、独立草稿和取消关闭")
-	result, err = eval(`document.querySelector('.file-tab:last-child .close-tab').click(); await new Promise(r=>setTimeout(r,80)); document.querySelector('#unsaved-dialog button[value=discard]').click(); await new Promise(r=>setTimeout(r,100)); document.querySelector('#settings-toggle').click(); const switches=document.querySelectorAll('.leafmark-settings [role=switch]'); const toggle=[...switches].find(button=>button.getAttribute('aria-label')==='自动保存'); if(toggle) toggle.click(); else { const labels=[...document.querySelectorAll('.settings-row')]; const row=labels.find(row=>row.textContent.includes('自动保存')); if(!row) throw Error('自动保存设置未找到'); const toggle=row.querySelector('[role=switch]'); if(!toggle.checked) toggle.click(); } document.querySelector('.settings-close').click(); return true;`)
+	result, err = eval(`[...document.querySelectorAll('.file-tab')].at(-1).querySelector('.close-tab').click(); await new Promise(r=>setTimeout(r,80)); document.querySelector('#unsaved-dialog button[value=discard]').click(); await new Promise(r=>setTimeout(r,100)); document.querySelector('#settings-toggle').click(); const switches=document.querySelectorAll('.leafmark-settings [role=switch]'); const toggle=[...switches].find(button=>button.getAttribute('aria-label')==='自动保存'); if(toggle) toggle.click(); else { const labels=[...document.querySelectorAll('.settings-row')]; const row=labels.find(row=>row.textContent.includes('自动保存')); if(!row) throw Error('自动保存设置未找到'); const toggle=row.querySelector('[role=switch]'); if(!toggle.checked) toggle.click(); } document.querySelector('.settings-close').click(); return true;`)
 	if err != nil {
 		fail(err)
 		return
@@ -206,6 +212,13 @@ func verifyNative(win *mygo.Window, files *Files) {
 	}
 	results["external"] = result
 	fmt.Println("通过：外部修改检测与磁盘重新加载")
+	result, err = eval(`const test=window.leafmarkVerification; const view=test.editor; const original=view.state.doc.toString(); const sample='# 丰富语法验证\n\n[[文件|别名]] · [[文件#标题|别名]] · [[#标题]] · [[#^block-sample]]\n\n==高亮文本==\n\n![[不存在的音频.mp3]]\n\n> [!warning] 提示标题\n> 提示正文\n\n## 标题\n\n段落内容。 ^block-sample\n'; view.dispatch({changes:{from:0,to:view.state.doc.length,insert:sample},selection:{anchor:0}}); view.contentDOM.blur(); document.querySelector('#more-actions').focus(); if(!document.querySelector('#reading-view').hidden) document.querySelector('#reading-toggle').click(); await new Promise(r=>setTimeout(r,200)); const wiki=document.querySelectorAll('#editor .lm-wiki-link').length; const highlight=document.querySelector('#editor .lm-highlight')?.textContent; const callout=Boolean(document.querySelector('#editor .lm-callout-warning')); const embed=document.querySelector('#editor .lm-embed-placeholder')?.textContent; if(wiki!==4 || highlight!=='高亮文本' || !callout || !embed?.includes('暂未解析')) throw Error('丰富语法原位渲染不匹配 '+JSON.stringify({wiki,highlight,callout,embed})); return {wiki,highlight,callout,embed};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["richSyntax"] = result
+	fmt.Println("通过：原生双链、高亮、Callout 和嵌入占位渲染")
 	if png, err := win.CapturePage(); err == nil {
 		os.WriteFile("verification/native-window.png", png, 0644)
 		results["screenshot"] = "verification/native-window.png"

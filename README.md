@@ -25,6 +25,23 @@ open build/darwin-universal/Leafmark.app
 
 [功能与使用](docs/功能实现与使用.md)包含操作说明、限制与验证边界。AI 不包含在当前版本。
 
+## 项目结构
+
+```text
+main.go                 Go 启动入口
+internal/desktop/       MyGo 服务、原生对话框、窗口生命周期与原生验证
+internal/documents/     文档、标签、保存基线、编码与外部修改检测
+internal/workspace/     工作区目录树、路径授权与近期文件
+internal/assets/        图片验证、读取与文档附件导入
+src/                    TypeScript 界面、编辑器与文档会话
+src/mygo.ts             MyGo 自动生成的前后端接口
+scripts/                构建、预览与浏览器验证脚本
+tests/                  前端测试
+verification/           原生验证输入与运行输出
+```
+
+`internal/` 是 Go 应用内部实现，`src/` 是前端源码。前端通过生成接口调用桌面服务，桌面服务调用业务包。[架构与开发](docs/架构与开发.md)说明职责边界、接口生成和验证方式。
+
 ## 验证和构建
 
 ```bash
@@ -40,11 +57,8 @@ bun run build -- -platform darwin/universal,windows/amd64,windows/arm64
 
 ## 预览与记录
 
-- [开发环境与验证](docs/开发环境与验证.md)：已有环境、新安装工具、实际命令和步骤。
 - [功能与使用](docs/功能实现与使用.md)：当前功能、快捷键及验证边界。
-- [视觉对照](docs/视觉对照.md)：与原型逐项对照的尺寸、配色、字体与已知差异。
 - [离线界面预览](Leafmark-preview.html)：脚本、样式、字体和 Mermaid 内嵌的单文件，可直接查看（该文件为生成产物，未纳入版本库）。
-- `docs/images/`：主窗口、弹窗、设置与阅读模式的当前界面截图。
 - `verification/`：验证输入样例与运行输出，输出文件不纳入版本库。
 
 重新生成单文件预览：

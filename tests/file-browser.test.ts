@@ -107,6 +107,26 @@ test("首次恢复仅调用 Workspace.current/tree，保留容器属性并安全
   h.click("▸ 空目录"); expect(h.container.textContent).toContain("空文件夹");
 });
 
+test("工作区入口合并名称，根目录提示仅在选中子目录时出现", async () => {
+  const h = harness(); await h.browser.ready;
+  const choose = h.container.querySelector(".fb-toolbar button") as HTMLButtonElement;
+  const target = () => h.container.querySelector(".fb-target") as HTMLElement;
+  const root = () => h.container.querySelector(".fb-root-target") as HTMLButtonElement;
+  expect(choose.textContent).toBe("▾ 笔记");
+  expect(choose.title).toContain("/notes");
+  expect(target().hidden).toBe(true);
+  expect(root().hidden).toBe(true);
+  h.click("▸ 资料");
+  expect(target().hidden).toBe(false);
+  expect(target().textContent).toContain("资料");
+  expect(root().hidden).toBe(false);
+  h.click("⌂ 工作区根目录");
+  expect(target().hidden).toBe(true);
+  expect(root().hidden).toBe(true);
+  choose.click(); await h.settle();
+  expect(h.calls.some(call => call.name === "openFolder")).toBe(true);
+});
+
 test("onAction 等待期间不访问 native；被主界面跳过的刷新可稍后重试", async () => {
   const gate = deferred(); const h = harness({ gate: gate.promise });
   expect(h.calls).toEqual([]);
@@ -208,7 +228,8 @@ test("搜索保留匹配目录路径，清空近期记录不删除文件，dispo
   expect(h.container.textContent).toContain("没有匹配的文件或文件夹");
   h.click("清空"); await h.settle();
   expect(h.state.recent).toEqual([]);
-  expect(h.container.textContent).toContain("暂无近期文件");
+  expect((h.container.querySelector(".fb-recent-header") as HTMLElement).hidden).toBe(true);
+  expect((h.container.querySelector(".fb-recent-list") as HTMLElement).hidden).toBe(true);
   h.click("新建文件"); h.browser.dispose();
   expect(h.container.childElementCount).toBe(0);
   expect(h.dom.window.document.querySelector("dialog")).toBeNull();

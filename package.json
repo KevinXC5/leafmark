@@ -5,6 +5,9 @@
   "scripts": {
     "dev": "mygo dev",
     "build": "bash scripts/build-desktop.sh",
+    "build:local": "bash scripts/build-desktop.sh -skip-dmg -skip-notarize",
+    "check": "bun run typecheck && bun test && go test ./...",
+    "check:release": "bun run check && go test -race ./... && go vet ./... && go test -tags verification ./internal/desktop",
     "generate": "mygo generate",
     "dev:web": "vite",
     "build:web": "tsc --noEmit && vite build",

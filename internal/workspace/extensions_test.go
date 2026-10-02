@@ -84,7 +84,9 @@ func TestRecentRejectsReplacedSymlink(t *testing.T) {
 		t.Fatal("近期文件被替换成链接后仍允许定位")
 	}
 }
-func TestImageDataURIValidatesContentAndSize(t *testing.T) {
+
+// 工作区层只验证委托与数据往返，格式、大小和链接边界由 assets 包覆盖。
+func TestReadImageDelegatesAuthorizedPNG(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	img.Set(0, 0, color.RGBA{R: 255, A: 255})
 	var buf bytes.Buffer
@@ -106,17 +108,5 @@ func TestImageDataURIValidatesContentAndSize(t *testing.T) {
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(uri, "data:image/png;base64,"))
 	if err != nil || !bytes.Equal(raw, buf.Bytes()) {
 		t.Fatal("图片数据不匹配")
-	}
-	for _, raw := range [][]byte{[]byte("<svg></svg>"), []byte("不是图片"), buf.Bytes()[:len(buf.Bytes())/2], make([]byte, MaxImageBytes+1)} {
-		if _, err := imageDataURI(raw); err == nil {
-			t.Fatal("允许损坏、不支持或过大图片")
-		}
-	}
-	link := filepath.Join(dir, "link.png")
-	if err := os.Symlink(path, link); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReadImage(link); err == nil {
-		t.Fatal("允许直接读取图片链接")
 	}
 }

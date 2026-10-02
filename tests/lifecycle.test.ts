@@ -2,30 +2,17 @@ import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { exportHTML } from "../src/render-markdown";
+import { createDocumentSession, safeRecoveryName } from "../src/document-session";
+import { EditorState } from "@codemirror/state";
 import { readRecovery, writeRecovery, RECOVERY_STORAGE_KEY, type RecoveredNote } from "../src/session-recovery";
 
-// 直接提取生产函数并转译，不复制生命周期实现，也不 mock 全局模块。
+// 导出 HTML 仍直接提取生产函数；会话行为直接调用模块，不复制实现。
 const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
 function actualFunction(name: string) {
   const match = source.match(new RegExp(`^(?:async )?function ${name}\\([^]*?^}`, "m"));
   if (!match) throw Error(`找不到生产函数 ${name}，请同步测试入口`);
   return match[0];
 }
-const start = source.indexOf("Object.assign(window, { leafmarkLifecycle:");
-const end = source.indexOf("\n} });", start);
-if (start < 0 || end < 0) throw Error("找不到生产生命周期注册代码，请同步测试入口");
-const lifecycle = source.slice(start, end + "\n} });".length);
-const production = new Bun.Transpiler({ loader: "ts" }).transformSync([
-  actualFunction("rememberSession"), actualFunction("persistRecovery"),
-  actualFunction("scheduleAutoSave"), actualFunction("queueDraft"), actualFunction("perform"), lifecycle,
-].join("\n"));
-
-const initializationLine = source.match(/^const initialization = initialize\(\)[^\n]+/m)?.[0];
-if (!initializationLine) throw Error("找不到生产初始化 Promise，请同步测试入口");
-const initializationProduction = new Bun.Transpiler({ loader: "ts" }).transformSync(
-  actualFunction("safeRecoveryName") + "\n" + actualFunction("initialize").replaceAll("import.meta.env.MODE", '"test"'),
-);
-
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const windows: JSDOM[] = [];
@@ -64,65 +51,64 @@ function harness(old: RecoveredNote[] = []) {
     },
     list: () => controls.onList(),
   };
-  const build = new Function("env", `
-    const { window, document, Files, controls, errors, readRecovery, writeRecovery } = env;
-    const native = true, settings = { autoSave: false }, externalStates = new Map();
-    const timers = new Map(); let timerSerial = 0;
-    let note = env.initial, savedContent = note.content, busy = false;
-    let recoveredDrafts = readRecovery(), recoveryWarning = "";
-    let draftQueue = Promise.resolve(), autoSaveTimer, recoveryTimer;
-    const sessions = new Map();
-    const editor = {
-      state: { doc: { toString: () => controls.text } },
-      dispatch: ({ effects }) => { controls.editable = effects; }
-    };
-    const editable = { reconfigure: value => value };
-    const EditorView = { editable: { of: value => value } };
-    const element = id => document.getElementById(id);
-    const showError = error => errors.push(error);
-    const updateToolbar = () => {}, updateDocumentUI = () => {};
-    // 用可控队列取代时间调度，所有异步桥接依旧由生产函数调用。
-    const setTimeout = (callback, delay) => { const id = ++timerSerial; timers.set(id, { callback, delay }); return id; };
-    const clearTimeout = id => timers.delete(id);
-    ${production}
-    rememberSession();
-    return {
-      lifecycle: window.leafmarkLifecycle, perform, persistRecovery,
-      scheduleAutoSave, externalStates, settings, timers,
-      edit: content => { if (!controls.editable) return false; controls.text = content; queueDraft(); return true; },
-      flush: () => draftQueue,
-      current: () => ({ ...note }), busy: () => busy,
-      session: id => sessions.get(id),
-      addSession: value => sessions.set(value.id, { note: { ...value }, saved: '原文', state: editor.state })
-    };
-  `);
-  const api = build({ window: dom.window, document: dom.window.document, Files, controls, errors, readRecovery, writeRecovery, initial: doc("a") });
+  const timers = new Map<number, { callback: () => void; delay: number }>();
+  let timerSerial = 0;
+  let state = EditorState.create({ doc: controls.text });
+  const settings = { autoSave: false };
+  const saves: string[] = [];
+  const session = createDocumentSession({
+    native: true, initial: doc("a"), files: { ...Files, session: async () => ({ currentId: "", documents: [] }) },
+    getState: () => state, setState: next => { state = next; controls.text = state.doc.toString(); },
+    createState: content => EditorState.create({ doc: content }),
+    setEditable: value => { controls.editable = value; },
+    hasDialog: () => !!dom.window.document.querySelector("dialog[open]"),
+    autoSave: () => settings.autoSave, save: async () => { saves.push(session.note.id); },
+    onWorking: () => {}, onLock: () => {}, onUpdate: () => session.rememberSession(),
+    onError: error => errors.push(error),
+    setTimer: ((callback: () => void, delay: number) => {
+      const id = ++timerSerial; timers.set(id, { callback, delay }); return id;
+    }) as unknown as typeof setTimeout,
+    clearTimer: ((id: number) => timers.delete(id)) as unknown as typeof clearTimeout,
+  });
+  session.rememberSession();
+  const api = {
+    ...session, settings, timers, saves,
+    edit: (content: string) => {
+      if (!controls.editable) return false;
+      controls.text = content; state = state.update({ changes: { from: 0, to: state.doc.length, insert: content } }).state;
+      session.queueDraft(); return true;
+    },
+    current: () => ({ ...session.note }), busy: () => session.busy,
+    session: (id: string) => session.entries.get(id),
+    addSession: (value: RecoveredNote) => session.entries.set(value.id, { note: { ...value }, saved: "原文", state }),
+    loadNote: session.loadNote,
+    state: () => state,
+    setState: (next: EditorState) => { state = next; controls.text = state.doc.toString(); },
+  };
   return { api, dom, controls, backend, errors };
 }
 
 function initializationHarness() {
-  const dom = new JSDOM('<div id="editor"></div><div id="welcome-view" hidden></div><div id="save-status"></div>'); windows.push(dom);
+  const { controls, errors } = harness();
   const pending = deferred<{ currentId: string; documents: (RecoveredNote & { savedContent: string })[] }>();
-  const build = new Function("env", `
-    const { window, document, pending } = env;
-    const native = true, recoveredDrafts = [], sessions = new Map(), errors = [];
-    let busy = false, note = { id: 'browser' }, editableValue = true;
-    const editor = { dispatch: ({ effects }) => { editableValue = effects; } };
-    const editable = { reconfigure: value => value }, EditorView = { editable: { of: value => value } };
-    const EditorState = { create: options => options }, extensions = () => [];
-    const Files = { session: () => pending.promise };
-    const element = id => document.getElementById(id), updateDocumentUI = () => {}, updateToolbar = () => {};
-    const showError = error => errors.push(error), draftQueue = Promise.resolve();
-    const loadNote = value => { note = value; };
-    ${new Bun.Transpiler({ loader: "ts" }).transformSync(actualFunction("perform"))}
-    ${initializationProduction}
-    ${initializationLine}
-    return { initialization, perform, errors, sessions,
-      busy: () => busy, editable: () => editableValue, current: () => note,
-      edit: () => editableValue,
-    };
-  `);
-  return { pending, api: build({ window: dom.window, document: dom.window.document, pending }) };
+  let state = EditorState.create({ doc: "原文" });
+  const session = createDocumentSession({
+    native: true, initial: doc("browser"),
+    files: { draft: async () => {}, list: async () => [], session: () => pending.promise },
+    getState: () => state, setState: next => { state = next; },
+    createState: content => EditorState.create({ doc: content }),
+    setEditable: value => { controls.editable = value; },
+    hasDialog: () => false, autoSave: () => false, save: async () => {},
+    onWorking: () => {}, onLock: () => {}, onUpdate: () => {}, onError: error => errors.push(error),
+  });
+  const initialization = session.initialize().then(current => { if (current) session.loadNote(current); })
+    .catch(error => errors.push(error)).finally(session.unlock);
+  const api = {
+    initialization, perform: session.perform, errors, sessions: session.entries,
+    busy: () => session.busy, editable: () => controls.editable,
+    current: () => session.note, edit: () => controls.editable,
+  };
+  return { pending, api };
 }
 
 test("真实 initialize 挂起 Session 时禁止编辑和新建，加载草稿与保存基线后解锁", async () => {
@@ -136,7 +122,7 @@ test("真实 initialize 挂起 Session 时禁止编辑和新建，加载草稿�
   pending.resolve({ currentId: "a", documents: [a, b] }); await api.initialization;
   expect(api.current()).toEqual(a); expect(api.sessions.size).toBe(2);
   expect(api.sessions.get("a").saved).toBe("磁盘正文");
-  expect(api.sessions.get("a").state.doc).toBe("未保存正文");
+  expect(api.sessions.get("a").state.doc.toString()).toBe("未保存正文");
   expect(api.busy()).toBe(false); expect(api.edit()).toBe(true);
   await api.perform(async () => { newCalled = true; }); expect(newCalled).toBe(true);
 });
@@ -149,7 +135,7 @@ test("真实 initialization Promise 在 Session 失败时报告错误并解锁",
 });
 
 test("真实 safeRecoveryName 为跨平台路径及非法名称生成 Markdown 文件名", () => {
-  const normalize = new Function(new Bun.Transpiler({ loader: "ts" }).transformSync(actualFunction("safeRecoveryName")) + "; return safeRecoveryName;")();
+  const normalize = safeRecoveryName;
   const cases: [string, string][] = [
     ["", "未命名.md"], [".md", "未命名.md"], [".MARKDOWN", "未命名.md"],
     ["/notes/想法.md", "想法.md"], ["C:\\笔记\\想法.markdown", "想法.markdown"],
@@ -176,6 +162,51 @@ test("外部变动标记阻止脏文档自动保存，取消原定时器，清�
   expect(api.current().dirty).toBe(true); expect(autoTimers()).toHaveLength(0);
   api.externalStates.delete("a"); api.scheduleAutoSave();
   expect(autoTimers()).toHaveLength(1);
+});
+
+test("标签切换保留实际 EditorState 的选区和撤销历史，保存基线按标签隔离", async () => {
+  const { api } = harness();
+  const { history, undo } = await import("@codemirror/commands");
+  api.setState(EditorState.create({ doc: "原文", extensions: [history()] }));
+  api.edit("甲草稿");
+  api.setState(api.state().update({ selection: { anchor: 2 } }).state);
+  await api.flush();
+  const aState = api.state();
+  api.loadNote(doc("b", "乙原文"));
+  api.edit("乙草稿"); await api.flush();
+  api.loadNote({ ...doc("a"), name: "甲新名称.md" });
+  expect(api.state()).toBe(aState);
+  expect(api.state().selection.main.head).toBe(2);
+  expect(api.current()).toMatchObject({ content: "甲草稿", name: "甲新名称.md", dirty: true });
+  expect(undo({ state: api.state(), dispatch: transaction => api.setState(transaction.state) })).toBe(true);
+  api.queueDraft(); await api.flush();
+  expect(api.current()).toMatchObject({ content: "原文", dirty: false });
+  api.loadNote(doc("b"));
+  expect(api.current()).toMatchObject({ content: "乙草稿", dirty: true });
+  api.acceptSave({ ...doc("b", "乙草稿"), name: "另存乙.md" }, "乙草稿");
+  api.edit("乙原文"); await api.flush();
+  expect(api.current()).toMatchObject({ name: "另存乙.md", dirty: true });
+});
+
+test("自动保存等待操作和对话框结束，旧标签回调不能保存新标签", async () => {
+  const { api, dom } = harness();
+  api.settings.autoSave = true;
+  api.edit("甲草稿"); await api.flush();
+  const timer = () => [...api.timers.values()].filter(value => value.delay === 2000).at(-1)!;
+  const dialog = dom.window.document.createElement("dialog");
+  dialog.setAttribute("open", ""); dom.window.document.body.append(dialog);
+  const blocked = timer(); blocked.callback(); await tick();
+  expect(api.saves).toEqual([]);
+  expect(timer()).not.toBe(blocked);
+  dialog.remove();
+  const pending = deferred<void>();
+  const working = api.perform(() => pending.promise);
+  timer().callback(); await tick(); expect(api.saves).toEqual([]);
+  pending.resolve(); await working;
+  timer().callback(); await tick(); expect(api.saves).toEqual(["a"]);
+  const stale = timer();
+  api.loadNote(doc("b")); stale.callback(); await tick();
+  expect(api.saves).toEqual(["a"]);
 });
 
 test("prepareClose 等待最新草稿入后端，等待期间禁止输入并即时持久化", async () => {
@@ -290,7 +321,7 @@ test("真实 makeExportHTML 保留特殊 $ 字符、异步增强内容并清理�
   const pending = deferred<void>();
   const makeExport = new Function("env", `
     const { document, DOMParser, exportHTML, enrichReading, content } = env;
-    const note = { name: '特殊字符.md' };
+    const session = { note: { name: '特殊字符.md' } };
     const editor = { state: { doc: { toString: () => content } } };
     ${new Bun.Transpiler({ loader: "ts" }).transformSync(actualFunction("makeExportHTML"))}
     return makeExportHTML();
@@ -321,7 +352,7 @@ test("真实 makeExportHTML 异步增强失败仍清理临时节点", async () =
   const dom = new JSDOM('<div id="app">应用正文</div>'); windows.push(dom);
   Object.defineProperty(globalThis, "window", { configurable: true, value: dom.window });
   const makeExport = new Function("document", "DOMParser", "exportHTML", "enrichReading", `
-    const note = { name: '失败.md' }, editor = { state: { doc: { toString: () => '正文' } } };
+    const session = { note: { name: '失败.md' } }, editor = { state: { doc: { toString: () => '正文' } } };
     ${new Bun.Transpiler({ loader: "ts" }).transformSync(actualFunction("makeExportHTML"))}
     return makeExportHTML();
   `);

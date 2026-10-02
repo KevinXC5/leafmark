@@ -1,4 +1,4 @@
-package main
+package desktop
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo"
-	"leafmark/internal/documents"
 )
 
 func validateExternalURL(raw string) error {
@@ -54,27 +53,14 @@ func (w *Workspace) CopyText(text string) error {
 	return nil
 }
 
-func (f *Files) ExportMarkdown(ctx context.Context, id, content string) (string, error) {
+func (w *Workspace) Print(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return err
 	}
-	doc := f.store.Current()
-	if doc.ID != id {
-		return "", documents.ErrStale
+	win := mygo.CallerWindow(ctx)
+	if win == nil {
+		return errors.New("找不到调用窗口")
 	}
-	path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
-		Parent: mygo.CallerWindow(ctx), Title: "导出 Markdown 副本", DefaultPath: doc.Name,
-		Filters:           []mygo.FileFilter{{Name: "Markdown 文档", Extensions: []string{"md", "markdown"}}},
-		CreateDirectories: true,
-	})
-	if err != nil || path == "" {
-		return "", err
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	if err := f.store.ExportCopy(id, content, path); err != nil {
-		return "", err
-	}
-	return path, nil
+	win.Print()
+	return nil
 }

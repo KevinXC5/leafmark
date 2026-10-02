@@ -184,19 +184,30 @@ func readImage(f *os.File) ([]byte, string, string, error) {
 	return raw, "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw), format, nil
 }
 
-// ImportImage 的 source 必须来自原生选择框；原始字节只读取一次，用于验证、复制与返回。
-func ImportImage(documentPath, source string) (*ImportResult, error) {
+// ReadAuthorizedImage 的 source 必须来自原生选择框，不能由前端直接指定。
+func ReadAuthorizedImage(source string) (string, error) {
+	_, uri, _, err := readSourceImage(source)
+	return uri, err
+}
+
+// 原生授权读取和导入共用文件检查与解码，拒绝源文件符号链接。
+func readSourceImage(source string) ([]byte, string, string, error) {
 	sourceRoot, err := os.OpenRoot(filepath.Dir(source))
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 	defer sourceRoot.Close()
 	f, err := openRegular(sourceRoot, filepath.Base(source))
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
-	raw, uri, format, err := readImage(f)
-	f.Close()
+	defer f.Close()
+	return readImage(f)
+}
+
+// ImportImage 的 source 必须来自原生选择框；原始字节只读取一次，用于验证、复制与返回。
+func ImportImage(documentPath, source string) (*ImportResult, error) {
+	raw, uri, format, err := readSourceImage(source)
 	if err != nil {
 		return nil, err
 	}

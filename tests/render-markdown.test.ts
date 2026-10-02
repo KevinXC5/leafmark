@@ -73,6 +73,36 @@ describe("扩展原型语法", () => {
     expect(body.querySelector("a[href]")).toBeNull();
     expect(isSafeURL(url)).toBe(false);
   });
+  test("真实笔记四种 wiki 引用显示别名并安全编码目标", () => {
+    const body = parse(renderMarkdown("[[文件|别名]] [[文件#标题|别名]] [[#标题]] [[#^块]]"));
+    const links = [...body.querySelectorAll("a.wiki-link")];
+    expect(links.map(link => link.textContent)).toEqual(["别名", "别名", "标题", "^块"]);
+    expect(links.map(link => link.getAttribute("href"))).toEqual(["./%E6%96%87%E4%BB%B6", "./%E6%96%87%E4%BB%B6#%E6%A0%87%E9%A2%98", "#%E6%A0%87%E9%A2%98", "#%5E%E5%9D%97"]);
+  });
+  test("同文档标题与段落块链接具有对应锚点", () => {
+    const body = parse(renderMarkdown("[[#Callout 块]] [[#^block-sample]]\n\n## Callout 块\n\n段落内容。 ^block-sample"));
+    expect(body.querySelector('h2[id="Callout 块"]')).not.toBeNull();
+    expect(body.querySelector('p[id="^block-sample"]')?.textContent).toBe("段落内容。");
+  });
+  test("未解析嵌入明确占位，代码和转义 wiki 保持原文", () => {
+    const body = parse(renderMarkdown("![[图片.svg|480]] ![[笔记#标题]] ![[音频.mp3]] ![[文档.pdf#page=1]]\n\n`[[代码]]` \\[[转义]]\n\n```md\n[[代码块]]\n```"));
+    expect(body.querySelectorAll(".embed-placeholder")).toHaveLength(4);
+    expect(body.querySelectorAll("a.wiki-link")).toHaveLength(0);
+    expect(body.textContent).toContain("暂未解析");
+    expect(body.querySelector("code")?.textContent).toBe("[[代码]]");
+  });
+  test("wiki 目标和别名不能注入协议、HTML 或属性", () => {
+    const body = parse(renderMarkdown('[[javascript:alert(1)|点击]] [[//evil.example/x|网络]] [[文件|<img src=x onerror=alert(1)>]]'));
+    expect(body.querySelectorAll("img,script")).toHaveLength(0);
+    for (const link of body.querySelectorAll("a")) expect(link.getAttribute("href")?.startsWith("./")).toBe(true);
+    expect(body.textContent).toContain("<img src=x onerror=alert(1)>");
+  });
+  test("Callout 别名及嵌套类型保留标题与正文", () => {
+    const body = parse(renderMarkdown("> [!faq]- 默认折叠\n> 内容\n>\n> > [!tip]\n> > 内层"));
+    expect(body.querySelector(".callout-question strong")?.textContent).toBe("默认折叠");
+    expect(body.querySelector(".callout-tip strong")?.textContent).toBe("tip");
+    expect(body.textContent).toContain("内层");
+  });
   test("Mermaid 保留为安全代码块", () => {
     const body = parse(renderMarkdown("```mermaid\ngraph TD; A-->B\n```"));
     expect(body.querySelector("code.language-mermaid")?.textContent).toContain("graph TD");

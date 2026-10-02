@@ -2,6 +2,7 @@ import { EditorView, Decoration, ViewPlugin, WidgetType, type DecorationSet, typ
 import { syntaxTree } from "@codemirror/language";
 import { isSafeMarkdownUrl } from "./insert-dialogs";
 import { liveBlockRanges } from "./live-block-ranges";
+import { calloutPattern, calloutType, parseWikiReference, wikiHref, type WikiReference } from "./obsidian-syntax";
 import "./live-markdown.css";
 
 export interface LiveMarkdownOptions {
@@ -52,14 +53,16 @@ class Rule extends WidgetType {
   }
 }
 class ImagePreview extends WidgetType {
-  constructor(readonly url: string, readonly alt: string, readonly title: string) { super(); }
-  eq(other: ImagePreview) { return this.url === other.url && this.alt === other.alt && this.title === other.title; }
+  constructor(readonly url: string, readonly alt: string, readonly title: string, readonly width?: number, readonly height?: number) { super(); }
+  eq(other: ImagePreview) { return this.url === other.url && this.alt === other.alt && this.title === other.title && this.width === other.width && this.height === other.height; }
   toDOM(view: EditorView) {
     const wrapper = view.dom.ownerDocument.createElement("span");
     wrapper.className = "lm-image-preview";
     const image = view.dom.ownerDocument.createElement("img");
     image.alt = this.alt;
     image.title = this.title;
+    if (this.width) image.width = this.width;
+    if (this.height) image.height = this.height;
     image.loading = "lazy";
     image.referrerPolicy = "no-referrer";
     image.addEventListener("error", () => {
@@ -73,6 +76,37 @@ class ImagePreview extends WidgetType {
     return wrapper;
   }
 }
+class CalloutTitle extends WidgetType {
+  constructor(readonly title: string) { super(); }
+  eq(other: CalloutTitle) { return this.title === other.title; }
+  toDOM(view: EditorView) {
+    const title = view.dom.ownerDocument.createElement("strong");
+    title.textContent = this.title;
+    return title;
+  }
+}
+
+class WikiPreview extends WidgetType {
+  constructor(readonly reference: WikiReference, readonly position: number) { super(); }
+  eq(other: WikiPreview) { return this.reference.target === other.reference.target && this.reference.label === other.reference.label && this.reference.embed === other.reference.embed && this.position === other.position; }
+  toDOM(view: EditorView) {
+    const element = view.dom.ownerDocument.createElement(this.reference.embed ? "span" : "a");
+    element.className = this.reference.embed ? "lm-embed-placeholder" : "lm-markdown-link lm-wiki-link";
+    element.textContent = this.reference.embed ? `嵌入：${this.reference.label}（暂未解析）` : this.reference.label;
+    element.title = this.reference.target;
+    if (element.tagName === "A") element.setAttribute("href", wikiHref(this.reference.target));
+    // 原位编辑尚无笔记跳转桥接，点击回到完整源码，避免浏览器离开桌面应用。
+    element.addEventListener("mousedown", event => {
+      event.preventDefault();
+      view.dispatch({ selection: { anchor: this.position } });
+      view.focus();
+    });
+    element.addEventListener("click", event => event.preventDefault());
+    return element;
+  }
+  ignoreEvent() { return true; }
+}
+
 function decodeInline(value: string): string {
   return value.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]\\^_`{|}~])/g, "$1");
 }
@@ -105,12 +139,78 @@ export function buildLiveMarkdownDecorations(view: EditorView, options: LiveMark
     replacements.push({ from, to });
     ranges.push(Decoration.replace(widget ? { widget } : {}).range(from, to));
   };
+  const wikiRanges: { from: number; to: number }[] = [];
+  const excluded: { from: number; to: number }[] = [...view.state.facet(liveBlockRanges)];
+  syntaxTree(view.state).iterate({ enter(node) {
+    if (["FencedCode", "CodeBlock", "InlineCode", "HTMLBlock", "HTMLTag", "Autolink", "URL"].includes(node.name) ||
+        (node.name === "Image" && !view.state.doc.sliceString(node.from, node.to).startsWith("![[")) ||
+        (node.name === "Link" && view.state.doc.sliceString(node.from - 1, node.from) !== "[" && !view.state.doc.sliceString(node.from, node.to).startsWith("[["))) {
+      excluded.push({ from: node.from, to: node.to });
+      return false;
+    }
+  } });
+  const overlaps = (from: number, to: number) => excluded.some(range => from < range.to && to > range.from);
+  for (const visible of view.visibleRanges) {
+    const first = view.state.doc.lineAt(visible.from).number;
+    const last = view.state.doc.lineAt(visible.to).number;
+    for (let number = first; number <= last; number++) {
+      const line = view.state.doc.line(number);
+      for (let offset = 0; offset < line.length; offset++) {
+        let slashes = 0;
+        for (let index = offset - 1; index >= 0 && line.text[index] === "\\"; index--) slashes++;
+        if (slashes % 2) continue;
+        const reference = parseWikiReference(line.text, offset);
+        if (!reference) continue;
+        const from = line.from + offset, to = from + reference.length;
+        if (overlaps(from, to)) continue;
+        wikiRanges.push({ from, to });
+        if (!active(from, to)) {
+          let url: string | undefined;
+          if (reference.image && isSafeMarkdownUrl(reference.target, true)) {
+            const resolved = options.resolveImage?.(reference.target);
+            if (resolved && isPreviewImageUrl(resolved)) url = resolved;
+            if (!url && options.onImageNeeded && !neededImages.has(reference.target)) {
+              neededImages.add(reference.target);
+              const notify = options.onImageNeeded;
+              queueMicrotask(() => notify(reference.target));
+            }
+          }
+          replace(from, to, url ? new ImagePreview(url, reference.label, reference.target, reference.width, reference.height) : new WikiPreview(reference, from));
+        }
+        offset += reference.length - 1;
+      }
+      for (const match of line.text.matchAll(/==(?=\S)(.+?\S|\S)==/g)) {
+        const from = line.from + match.index!, to = from + match[0].length;
+        let slashes = 0;
+        for (let index = match.index! - 1; index >= 0 && line.text[index] === "\\"; index--) slashes++;
+        if (slashes % 2 || overlaps(from, to) || wikiRanges.some(range => from < range.to && to > range.from)) continue;
+        ranges.push(Decoration.mark({ class: "lm-highlight", tagName: "mark" }).range(from + 2, to - 2));
+        if (!active(from, to)) { replace(from, from + 2); replace(to - 2, to); }
+      }
+    }
+  }
   const firstVisible = view.visibleRanges[0];
   const lastVisible = view.visibleRanges.at(-1);
   if (firstVisible && lastVisible) {
     // 一次遍历覆盖可见区间，避免跨折叠区域的父节点被重复处理或漏掉后续子节点。
     syntaxTree(view.state).iterate({ from: firstVisible.from, to: lastVisible.to, enter(node) {
       const name = node.name;
+      if (name !== "Document" && name !== "Paragraph" && wikiRanges.some(range => node.from >= range.from && node.to <= range.to)) return false;
+      if (name === "Blockquote") {
+        const first = view.state.doc.lineAt(node.from);
+        const prefix = first.text.match(/^\s*(?:>\s*)+/)?.[0] ?? "";
+        const callout = first.text.slice(prefix.length).match(calloutPattern);
+        if (callout) {
+          for (let number = first.number; number <= view.state.doc.lineAt(node.to).number; number++) lineStyle(view.state.doc.line(number).from, `lm-callout lm-callout-${calloutType(callout[1]!)}`);
+          const from = first.from + prefix.length;
+          const markerLength = callout[0].length - (callout[3]?.length ?? 0);
+          if (!active(from, first.to)) {
+            if (callout[3]) replace(from, from + markerLength);
+            else replace(from, first.to, new CalloutTitle(callout[1]!));
+          }
+          ranges.push(Decoration.mark({ class: "md-strong" }).range(from, first.to));
+        }
+      }
       // 只排除实际替换的范围，编辑源码时仍保留原来的行装饰。
       if (name !== "Document" && name !== "Paragraph" && view.state.facet(liveBlockRanges).some(range => node.from < range.to && node.to > range.from)) return false;
       if (/^(?:ATX|Setext)Heading[1-6]$/.test(name)) {

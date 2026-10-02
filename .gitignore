@@ -15,4 +15,10 @@ Leafmark-preview.html
 verification/*
 !verification/输入验证.md
 
+# 原型设计文件仅保留在本地
+*.pen
+
+# 开发过程记录：环境准备日志、视觉对照与截图，不上传
+docs/local/
+
 .DS_Store

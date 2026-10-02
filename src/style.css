@@ -7,7 +7,7 @@
   --accent: #bd7858; --highlight: #f3e8dd; --surface: #f1eee6;
   --glass: #ded2bd8c; --glass-edge: #fffdf9b0; --shadow: #7052391d;
   --titlebar-bg: #faf9f5;
-  --tab-active-bg: #f0e6db; --tab-active-ink: #79513c; --tab-ink: #857a6e; --tab-close: #998d80;
+  --tab-active-bg: #eeeae2; --tab-active-ink: #625a50; --tab-active-icon: #9a8b79; --tab-ink: #857a6e; --tab-close: #9c9489;
   --outline-ink: #786c60; --outline-level: #9b8b7b; --outline-active-bg: #f1dac5;
   --outline-active-ink: #965b3a; --outline-active-level: #b57953;
   --status-ink: #857c72; --status-line: #e8e3da;
@@ -20,12 +20,12 @@
   --paper: #242527; --ink: #cbcdd3; --heading: #e8e9ec; --muted: #a9adb5; --quote: #bdc0c8; --line: #3d4046;
   --heading-1: 2.111111; --heading-2: 1.444444; --heading-3: 1.222222;
   --code-surface: #1e2023; --code-ink: #bec6d2; --code-muted: #959ca9;
-  --accent: #c88e6b; --highlight: #443833; --surface: #2d2f33;
+  --accent: #a6b7c8; --highlight: #343b44; --surface: #2d2f33;
   --glass: #303640b8; --glass-edge: #6c727953; --shadow: #00000044;
-  --titlebar-bg: #393631;
-  --tab-active-bg: #ffffff0d; --tab-active-ink: #e5e6e9; --tab-ink: #a7abb3; --tab-close: #989ca4;
-  --outline-ink: #b3bdc8; --outline-level: #9da7b3; --outline-active-bg: #443833;
-  --outline-active-ink: #e1c1ac; --outline-active-level: #d49a74;
+  --titlebar-bg: #242527;
+  --tab-active-bg: #34363b; --tab-active-ink: #e5e6e9; --tab-active-icon: #c4c7cd; --tab-ink: #a7abb3; --tab-close: #989ca4;
+  --outline-ink: #b3bdc8; --outline-level: #9da7b3; --outline-active-bg: #343b44;
+  --outline-active-ink: #d3dce6; --outline-active-level: #a6b7c8;
   --status-ink: #969da8; --status-line: #3d4046;
   --find-bg: #2b2d31; --find-line: #43464d; --find-field: #1f2124;
 }
@@ -94,8 +94,8 @@ kbd { margin-left: auto; color: var(--muted); font: 9px var(--mono); }
 }
 /* 标签与标题栏共享一行，右侧独立保留新建、保存、主题和系统窗口按钮的空间。 */
 .titlebar {
-  height: 40px; flex: 0 0 40px; display: flex; align-items: center;
-  padding: 4px var(--window-controls) 4px var(--tabs-start); gap: 4px; justify-content: flex-end;
+  height: 52px; flex: 0 0 52px; display: flex; align-items: center;
+  padding: 8px var(--window-controls) 8px var(--tabs-start); gap: 4px; justify-content: flex-end;
   --app-region: drag; border-bottom: 1px solid #81725f09; background: var(--titlebar-bg);
 }
 .titlebar button { --app-region: no-drag; }
@@ -135,6 +135,8 @@ kbd { margin-left: auto; color: var(--muted); font: 9px var(--mono); }
 .cm-cursor { border-left-color: var(--accent) !important; }
 .cm-selectionBackground { background: #bd785833 !important; }
 .cm-focused .cm-selectionBackground { background: #bd78584a !important; }
+:root[data-theme="dark"] .cm-selectionBackground { background: #a6b7c833 !important; }
+:root[data-theme="dark"] .cm-focused .cm-selectionBackground { background: #a6b7c84a !important; }
 .cm-placeholder { color: var(--muted); }
 .statusbar { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px; min-height: 34px; padding: 4px 24px; color: var(--status-ink); font-size: 11px; line-height: 13px; border-top: 1px solid var(--status-line); }
 .statusbar > div { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; gap: 6px 16px; }
@@ -149,6 +151,8 @@ kbd { margin-left: auto; color: var(--muted); font: 9px var(--mono); }
 /* macOS 收起侧栏后，交通灯和展开按钮仍有各自的点击区域。 */
 .mac .sidebar-hidden .workspace { --tabs-start: calc(max(110px, var(--mygo-titlebar-inset-left, 110px)) + 36px); }
 .sidebar-hidden .titlebar { padding-left: 8px; }
+.sidebar-hidden #show-sidebar { position: absolute; top: 12px; left: 8px; }
+.mac .sidebar-hidden #show-sidebar { left: max(110px, var(--mygo-titlebar-inset-left, 110px)); }
 .mac .sidebar-hidden .titlebar { padding-left: max(110px, var(--mygo-titlebar-inset-left, 110px)); }
 .toast { position: fixed; z-index: 20; bottom: 50px; left: 50%; transform: translateX(-50%); max-width: min(600px, 90vw); font-size: 13px; line-height: 1.6; padding: 13px 18px; background: var(--paper); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 8px 32px var(--shadow); }
 dialog { min-width: 0; max-width: min(420px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 28px; box-shadow: 0 20px 80px #00000030; }
@@ -177,19 +181,21 @@ dialog p { color: var(--muted); font-size: 13px; }
 .app-actions { display: flex; align-items: center; flex: 0 0 28px; height: 28px; gap: 3px; padding: 2px 12px; border-bottom: 1px solid var(--line); }
 .app-actions button { padding: 3px 8px; border-radius: 4px; font-size: 10px; color: var(--muted); white-space: nowrap; }
 .tab-list {
-  position: absolute; z-index: 1; top: 4px; left: var(--tabs-start);
-  right: calc(var(--window-controls) + 40px); height: 32px;
-  display: flex; align-items: center; overflow-x: auto; overflow-y: hidden;
-  gap: 4px; padding: 0 0 2px; scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+  /* 与玻璃侧栏共用 8px 顶部留白；滚动条另留空间，保持标签完整的 36px 高度。 */
+  position: absolute; z-index: 1; top: 8px; left: var(--tabs-start);
+  right: calc(var(--window-controls) + 40px); height: 44px;
+  display: flex; align-items: flex-start; overflow-x: auto; overflow-y: hidden;
+  gap: 6px; padding: 0 0 8px; scrollbar-width: thin; scrollbar-color: var(--line) transparent;
   --app-region: no-drag;
 }
-.file-tab { display: flex; align-items: center; flex: 0 0 auto; min-width: 0; max-width: 240px; height: 30px; border-radius: 5px; font: 12px/15px "Inter", sans-serif; color: var(--tab-ink); white-space: nowrap; }
+.file-tab { display: flex; align-items: center; flex: 0 0 auto; min-width: 0; max-width: 240px; height: 36px; border-radius: 10px; padding: 0 12px; overflow: hidden; font: 12px/15px "Inter", sans-serif; color: var(--tab-ink); white-space: nowrap; }
 .file-tab.active { background: var(--tab-active-bg); color: var(--tab-active-ink); font-weight: 500; }
-.file-tab button { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 8px 0 10px; overflow: hidden; white-space: nowrap; }
-.file-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.file-tab button { display: flex; align-items: center; gap: 8px; min-width: 0; height: 100%; padding: 0 8px 0 0; overflow: hidden; white-space: nowrap; }
+.file-tab-label, .file-tab-label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .file-tab svg { width: 12px; height: 12px; color: var(--tab-close); }
-.file-tab.active svg { color: var(--accent); }
-.file-tab .close-tab { flex: 0 0 22px; justify-content: center; gap: 0; padding: 0 6px 0 0; font-size: 11px; color: var(--tab-close); }
+.file-tab.active svg { color: var(--tab-active-icon); }
+.file-tab .close-tab { flex: 0 0 11px; justify-content: center; gap: 0; padding: 0; font-size: 11px; color: var(--tab-close); }
+.tab-list #new-file { margin-top: 4px; }
 .tab-list:empty { pointer-events: none; }
 .action-menu { position: fixed; z-index: 30; display: flex; flex-direction: column; min-width: 205px; max-height: 80vh; overflow: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 30px var(--shadow); padding: 5px; }
 .action-menu button { padding: 8px 12px; text-align: left; font-size: 12px; border-radius: 4px; }

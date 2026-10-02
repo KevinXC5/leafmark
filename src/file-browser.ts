@@ -46,7 +46,6 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   }));
   const refreshButton = button("↻", () => refresh(), "刷新工作区和近期文件");
   toolbar.append(choose, refreshButton);
-  const workspaceName = el("p", "fb-workspace-name");
   const search = el("input", "fb-search");
   search.type = "search";
   search.placeholder = "搜索文件或文件夹…";
@@ -71,7 +70,7 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   }), "清空近期文件记录（不删除文件）");
   recentHeader.append(recentTitle, clear);
   const recentList = el("div", "fb-recent-list");
-  root.append(toolbar, workspaceName, search, tools, target, status, tree, recentHeader, recentList);
+  root.append(toolbar, search, tools, target, status, tree, recentHeader, recentList);
   container.replaceChildren(root);
 
   let workspace: Folder | null = null;
@@ -159,9 +158,14 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
 
   function render() {
     closeMenu();
-    workspaceName.textContent = workspace?.name ?? "尚未选择工作区";
-    workspaceName.title = workspace?.path ?? "";
-    target.textContent = workspace ? `新建位置：${selectedFolder || "工作区根目录"}` : "";
+    // 工作区名称兼作切换入口，避免重复堆叠名称、打开按钮与根目录提示。
+    choose.textContent = workspace ? `▾ ${workspace.name}` : "打开文件夹…";
+    choose.title = workspace ? `${workspace.path}\n点击切换工作区` : "选择 Markdown 文件夹";
+    choose.setAttribute("aria-label", workspace ? `切换工作区：${workspace.name}` : "打开文件夹");
+    search.hidden = tools.hidden = !workspace;
+    target.textContent = selectedFolder ? `新建位置：${selectedFolder}` : "";
+    target.hidden = !selectedFolder;
+    createFile.title = createFolder.title = `新建位置：${selectedFolder || "工作区根目录"}`;
     tree.replaceChildren();
     const query = search.value.trim().toLocaleLowerCase();
     const matches = (node: FolderNode): boolean => node.path.toLocaleLowerCase().includes(query) ||
@@ -210,6 +214,8 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
       const rootButton = button("⌂ 工作区根目录", () => { selectedFolder = ""; render(); });
       rootButton.className = "fb-root-target";
       rootButton.setAttribute("aria-pressed", String(!selectedFolder));
+      // 仅在选中子目录后提供返回根目录的入口。
+      rootButton.hidden = !selectedFolder;
       tree.append(rootButton);
       const entries = el("div", "fb-entries");
       append(nodes, entries);
@@ -230,7 +236,7 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
       row.append(open, reveal);
       recentList.append(row);
     }
-    if (!recent.length) recentList.append(empty("暂无近期文件。打开的本地文档会显示在这里。"));
+    recentHeader.hidden = recentList.hidden = !recent.length;
     updateControls();
   }
 

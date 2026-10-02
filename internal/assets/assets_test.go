@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -67,6 +66,18 @@ func TestFormatsAndRelativePaths(t *testing.T) {
 			if want := "data:image/" + format + ";base64," + base64.StdEncoding.EncodeToString(raw); uri != want {
 				t.Fatalf("data URI 不匹配：%s", uri)
 			}
+			source := filepath.Join(dir, "assets", "图片 (1).bin")
+			authorizedURI, err := ReadAuthorizedImage(source)
+			if err != nil || authorizedURI != uri {
+				t.Fatalf("原生授权读取结果不匹配：%v", err)
+			}
+			imported, err := ImportImage("", source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if imported.DataURI != uri || imported.Path != "" {
+				t.Fatalf("未保存导入结果不匹配：%+v", imported)
+			}
 		})
 	}
 }
@@ -101,6 +112,12 @@ func TestRejectSymlinks(t *testing.T) {
 			t.Fatalf("应拒绝符号链接 %s", resource)
 		}
 	}
+	if _, err := ReadAuthorizedImage(filepath.Join(dir, "file.png")); err == nil {
+		t.Fatal("原生授权读取应拒绝源文件符号链接")
+	}
+	if _, err := ReadAuthorizedImage(dir); err == nil {
+		t.Fatal("原生授权读取应拒绝目录")
+	}
 	if _, err := ImportImage("", filepath.Join(dir, "file.png")); err == nil {
 		t.Fatal("应拒绝源文件符号链接")
 	}
@@ -120,25 +137,31 @@ func TestImageValidationAndLimit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a.png")
 	valid := imageBytes(t, "png")
+	// 三个入口必须执行相同的格式、大小和解码校验。
+	check := func(wantValid bool) {
+		t.Helper()
+		_, relativeErr := ReadImage(filepath.Join(dir, "note.md"), "a.png")
+		_, authorizedErr := ReadAuthorizedImage(path)
+		_, importErr := ImportImage("", path)
+		for name, err := range map[string]error{"相对读取": relativeErr, "授权读取": authorizedErr, "导入": importErr} {
+			if (err == nil) != wantValid {
+				t.Fatalf("%s 校验结果不匹配：%v", name, err)
+			}
+		}
+	}
 	for _, raw := range [][]byte{[]byte("<svg></svg>"), valid[:len(valid)-15], bytes.Repeat([]byte{'x'}, MaxImageBytes+1)} {
 		put(t, path, raw)
-		if _, err := ReadImage(filepath.Join(dir, "note.md"), "a.png"); err == nil {
-			t.Fatal("应拒绝伪造、损坏或超限图片")
-		}
+		check(false)
 	}
 	// 恰好达到 8 MB 的有效图片应被接受。
 	put(t, path, append(valid, make([]byte, MaxImageBytes-len(valid))...))
-	if _, err := ReadImage(filepath.Join(dir, "note.md"), "a.png"); err != nil {
-		t.Fatal(err)
-	}
+	check(true)
 	var large bytes.Buffer
 	if err := png.Encode(&large, image.NewGray(image.Rect(0, 0, 4097, 4096))); err != nil {
 		t.Fatal(err)
 	}
 	put(t, path, large.Bytes())
-	if _, err := ReadImage(filepath.Join(dir, "note.md"), "a.png"); err == nil {
-		t.Fatal("应拒绝过量像素")
-	}
+	check(false)
 }
 
 func TestImportAndConcurrentNoOverwrite(t *testing.T) {
@@ -146,10 +169,6 @@ func TestImportAndConcurrentNoOverwrite(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "图片 (1).png")
 	raw := imageBytes(t, "png")
 	put(t, source, raw)
-	unsaved, err := ImportImage("", source)
-	if err != nil || unsaved.Path != "" || !strings.HasPrefix(unsaved.DataURI, "data:image/png;") {
-		t.Fatalf("未保存导入结果：%+v，%v", unsaved, err)
-	}
 	doc := filepath.Join(dir, "笔记.md")
 	first, err := ImportImage(doc, source)
 	if err != nil {

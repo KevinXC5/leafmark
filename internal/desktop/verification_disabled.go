@@ -1,6 +1,6 @@
 //go:build !verification
 
-package main
+package desktop
 
 import "github.com/egoist/mygo"
 
