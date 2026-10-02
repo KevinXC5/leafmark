@@ -43,8 +43,13 @@ button:hover { background: var(--surface); }
 svg { width: 16px; height: 16px; flex-shrink: 0; }
 #app { background: var(--paper); }
 .sidebar {
-  position: absolute; z-index: 3; inset: 8px auto 8px 8px; width: 248px; display: flex; flex-direction: column;
-  padding: 16px; border: 1px solid transparent; border-radius: 18px;
+  position: absolute; z-index: 3; inset: 8px auto 8px 8px; width: var(--sidebar-width); display: flex; flex-direction: column;
+  padding: 16px;
+}
+:root { --sidebar-width: 248px; }
+/* 文档导航与设置侧栏共用玻璃材质及描边。 */
+.sidebar, .leafmark-settings .settings-sidebar {
+  border: 1px solid transparent; border-radius: 18px;
   /* 按原型叠加纵向透光、侧缘反光和渐变描边，避免侧栏变成平涂色块。 */
   background: linear-gradient(90deg, #ffffff55, #ffffff00 18%, #ffffff00 85%, #ffffff66) padding-box,
     linear-gradient(to top, #d4bea529, #ffffff12 65%, #fffdf799) padding-box,
@@ -52,18 +57,18 @@ svg { width: 16px; height: 16px; flex-shrink: 0; }
   backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
   box-shadow: 3px 5px 24px #6f50352b, inset 0 1px 3px #ffffffb3;
 }
-:root[data-theme="dark"] .sidebar {
+:root[data-theme="dark"] .sidebar, :root[data-theme="dark"] .leafmark-settings .settings-sidebar {
   background: linear-gradient(to top, #171a2030, #b5c1d00d 65%, #e9eef825) padding-box,
     linear-gradient(#292c32d9, #292c32d9) padding-box;
   box-shadow: 4px 5px 24px #00000055, inset 0 1px 3px #edf2fa30;
 }
-.sidebar::before {
+.sidebar::before, .leafmark-settings .settings-sidebar::before {
   content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
   background: linear-gradient(to top, #b6a18a75, #d8ccba70 55%, #fffcf6f2);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor; mask-composite: exclude;
 }
-:root[data-theme="dark"] .sidebar::before { background: linear-gradient(to top, #bac2d042, #8792a030 55%, #e3e8f27a); }
+:root[data-theme="dark"] .sidebar::before, :root[data-theme="dark"] .leafmark-settings .settings-sidebar::before { background: linear-gradient(to top, #bac2d042, #8792a030 55%, #e3e8f27a); }
 .sidebar-top { display: flex; align-items: center; justify-content: space-between; height: 30px; margin-bottom: 14px; }
 .mac .sidebar-top { padding-left: 82px; }
 .brand { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
@@ -159,7 +164,7 @@ dialog p { color: var(--muted); font-size: 13px; }
 .dialog-actions button { font-size: 12px; border: 1px solid var(--line); border-radius: var(--control-radius); padding: 8px 12px; }
 .dialog-actions .primary { background: var(--accent); color: var(--paper); border-color: var(--accent); }
 @media (max-width: 900px) {
-  .sidebar { width: 210px; }
+  :root { --sidebar-width: 210px; }
   .workspace { margin-left: 230px; }
   .cm-scroller { padding-left: 15px; padding-right: 15px; }
   .statusbar > div { gap: 9px; }

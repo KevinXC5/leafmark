@@ -52,7 +52,13 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   workspaceMore.setAttribute("aria-label", "工作区更多操作");
   workspaceMore.setAttribute("aria-haspopup", "menu");
   workspaceMore.append(icon(Ellipsis));
-  toolbar.append(choose, workspaceMore);
+  // 根目录折叠与工作区切换使用独立按钮，箭头只控制文件树。
+  let rootExpanded = true;
+  const collapse = button("", () => { rootExpanded = !rootExpanded; render(); }, "折叠工作区目录");
+  collapse.className = "fb-root-toggle";
+  collapse.setAttribute("aria-controls", "leafmark-workspace-tree");
+  choose.className = "fb-workspace-choose";
+  toolbar.append(collapse, choose, workspaceMore);
   toolbar.addEventListener("contextmenu", event => {
     event.preventDefault();
     if (!busy && workspace) showMenu({ name: workspace.name, path: "", directory: true }, workspaceMore, event.clientX, event.clientY);
@@ -68,6 +74,7 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   status.setAttribute("aria-live", "polite");
   status.hidden = true;
   const tree = el("nav", "fb-tree");
+  tree.id = "leafmark-workspace-tree";
   tree.setAttribute("aria-label", "工作区文件");
   const recentHeader = el("div", "fb-recent-header");
   const recentTitle = el("h3", "fb-section-title");
@@ -134,6 +141,7 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
     const nextNodes = state.workspace ? await workspaceAPI.tree() : [];
     if (disposed) return;
     if (workspace?.path !== state.workspace?.path) {
+      rootExpanded = true;
       expanded.clear();
       selectedFolder = "";
     }
@@ -157,6 +165,7 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
 
   function updateControls() {
     choose.disabled = !native || busy;
+    collapse.disabled = busy || !workspace;
     workspaceMore.disabled = !native || busy || !workspace;
     clear.disabled = !native || busy || !recent.length;
     search.disabled = !native || !workspace;
@@ -169,7 +178,13 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
     // 工作区名称兼作切换入口，避免重复堆叠名称、打开按钮与根目录提示。
     const workspaceLabel = el("span", "fb-node-label");
     workspaceLabel.textContent = workspace?.name ?? "打开文件夹…";
-    choose.replaceChildren(...(workspace ? [icon(ChevronDown), icon(FolderOpen), workspaceLabel] : [icon(FolderOpen), workspaceLabel]));
+    collapse.hidden = !workspace;
+    collapse.replaceChildren(icon(rootExpanded ? ChevronDown : ChevronRight));
+    collapse.setAttribute("aria-expanded", String(rootExpanded));
+    collapse.setAttribute("aria-label", rootExpanded ? "折叠工作区目录" : "展开工作区目录");
+    collapse.title = rootExpanded ? "折叠工作区目录" : "展开工作区目录";
+    tree.hidden = !rootExpanded;
+    choose.replaceChildren(icon(workspace && !rootExpanded ? Folder : FolderOpen), workspaceLabel);
     choose.title = workspace ? `${workspace.path}\n点击切换工作区` : "选择 Markdown 文件夹";
     choose.setAttribute("aria-label", workspace ? `切换工作区：${workspace.name}` : "打开文件夹");
     searchBox.hidden = workspaceMore.hidden = !workspace;

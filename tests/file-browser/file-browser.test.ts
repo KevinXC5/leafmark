@@ -115,9 +115,27 @@ test("首次恢复仅调用 Workspace.current/tree，保留容器属性并安全
   h.click("▸ 空目录"); expect(h.container.textContent).toContain("空文件夹");
 });
 
+test("根目录箭头只折叠文件树，刷新保留折叠及子目录展开状态", async () => {
+  const h = harness(); await h.browser.ready;
+  h.click("资料");
+  const collapse = h.container.querySelector<HTMLButtonElement>(".fb-root-toggle")!;
+  const tree = h.container.querySelector<HTMLElement>(".fb-tree")!;
+  collapse.click();
+  expect(tree.hidden).toBe(true);
+  expect(collapse.getAttribute("aria-expanded")).toBe("false");
+  expect(h.calls.some(call => call.name === "openFolder")).toBe(false);
+  await h.browser.refresh();
+  expect(tree.hidden).toBe(true);
+  collapse.click();
+  expect(tree.hidden).toBe(false);
+  expect(collapse.getAttribute("aria-expanded")).toBe("true");
+  expect(tree.querySelector('.fb-node-open[aria-expanded="true"]')).not.toBeNull();
+  expect(h.calls.some(call => call.name === "openFolder")).toBe(false);
+});
+
 test("文件夹单击展开，不插入新建位置或根目录区域", async () => {
   const h = harness(); await h.browser.ready;
-  const choose = h.container.querySelector(".fb-toolbar button") as HTMLButtonElement;
+  const choose = h.container.querySelector(".fb-workspace-choose") as HTMLButtonElement;
   expect(choose.textContent).toBe("笔记");
   expect(choose.title).toContain("/notes");
   h.click("▸ 资料");

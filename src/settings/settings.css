@@ -8,7 +8,7 @@
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --app-region: no-drag;
 }
-.leafmark-settings { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 8px; }
+.leafmark-settings { display: grid; grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr); gap: 8px; }
 /* 保留后台布局尺寸，避免返回书写时重新计算滚动位置。 */
 .settings-open #app { visibility: hidden; }
 .mac .leafmark-settings .settings-sidebar { padding-top: 48px; }
@@ -20,11 +20,7 @@
 .leafmark-settings button { border: 0; background: transparent; cursor: pointer; color: inherit; }
 .leafmark-settings button:hover { background: #54443208; }
 .leafmark-settings .settings-sidebar {
-  display: flex; flex-direction: column; min-height: 0; padding: 24px 14px 18px;
-  border: 1px solid #b6a18a75; border-radius: 18px;
-  background: linear-gradient(90deg, #ffffff55, #ffffff00 18%, #ffffff00 85%, #ffffff66), linear-gradient(0deg, #d4bea529, #ffffff12 65%, #fffdf799), #d8ccb899;
-  box-shadow: 3px 5px 24px #6f50352b, inset 0 1px 3px #ffffffb3;
-  backdrop-filter: blur(30px);
+  position: relative; display: flex; flex-direction: column; min-height: 0; padding: 24px 14px 18px;
 }
 .leafmark-settings .settings-brand { margin: 0 12px; font-size: 22px; font-weight: 600; letter-spacing: -.7px; }
 .leafmark-settings .settings-title { font-size: 12px; font-weight: 400; color: var(--settings-muted); margin: 7px 12px 28px; }
@@ -105,13 +101,11 @@
 .leafmark-settings .settings-theme-hint svg { flex-shrink: 0; color: #a16d55; }
 .leafmark-settings .settings-theme-scope { border-top: 1px solid #e1d7cd; padding: 16px 0 0; color: #9a8879; font-size: 12px; margin: 0; }
 :root[data-theme="dark"] .leafmark-settings { --settings-paper: #242527; --settings-card: #2b2c2f; --settings-ink: #e5e6e9; --settings-muted: #a6adb7; --settings-line: #45464c; --settings-divider: #3b3d42; --settings-control: #303236; --settings-control-line: #45464c; --settings-accent: #d99a7c; border-color: #45464c; }
-:root[data-theme="dark"] .leafmark-settings .settings-sidebar { background: linear-gradient(90deg, #ffffff08, #ffffff00), #303032; border-color: #45464c; box-shadow: 3px 5px 24px #00000020, inset 0 1px 3px #ffffff12; }
 :root[data-theme="dark"] .leafmark-settings :is(.settings-tab, .settings-back, .settings-select, .settings-stepper, .settings-destination, .settings-group-title) { color: var(--settings-muted); }
 :root[data-theme="dark"] .leafmark-settings .settings-tab[aria-selected="true"] { background: #544039; border-color: #735343; color: var(--settings-accent); }
 :root[data-theme="dark"] .leafmark-settings .settings-segmented { background: #383a3e; }
 :root[data-theme="dark"] .leafmark-settings .settings-segmented button[aria-pressed="true"] { background: #544039; color: var(--settings-accent); }
 @media (max-width: 700px) {
-  .leafmark-settings { grid-template-columns: 156px minmax(0, 1fr); }
   .leafmark-settings .settings-sidebar { padding: 20px 10px 16px; }
   .leafmark-settings .settings-main { padding: 24px 18px 16px; }
   .leafmark-settings .settings-row { gap: 10px; }

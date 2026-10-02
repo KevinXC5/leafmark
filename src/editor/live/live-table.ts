@@ -1,6 +1,7 @@
 import { StateEffect, StateField, type EditorState, type Extension, type Text } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import { parser, GFM } from "@lezer/markdown";
+import { createElement, SquarePen } from "lucide";
 import { openTableEditor, parseTable, type MarkdownTable } from "../dialogs/table-editor";
 import "./live-table.css";
 
@@ -43,7 +44,9 @@ class TablePreview extends WidgetType {
     const button = doc.createElement("button");
     button.type = "button";
     button.className = "lm-table-edit";
-    button.textContent = "编辑表格";
+    button.setAttribute("aria-label", "编辑表格");
+    button.title = "编辑表格";
+    button.append(createElement(SquarePen, { width: 16, height: 16, "aria-hidden": "true" }));
     const edit = () => {
       // 先定位源表格，再同步打开编辑器；不更改文档，保留撤销历史。
       view.dispatch({ selection: { anchor: this.position } });
@@ -72,7 +75,10 @@ class TablePreview extends WidgetType {
     this.table.rows.forEach(row => appendRow(row, body, false));
     table.append(head, body);
     table.addEventListener("dblclick", edit);
-    wrapper.append(button, table);
+    const scroll = doc.createElement("div");
+    scroll.className = "lm-table-scroll";
+    scroll.append(table);
+    wrapper.append(button, scroll);
     return wrapper;
   }
   ignoreEvent() { return true; }

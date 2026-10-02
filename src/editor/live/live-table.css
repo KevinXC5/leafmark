@@ -1,19 +1,36 @@
 .cm-editor .lm-table-preview {
-  overflow-x: auto;
+  position: relative;
   padding: 0.6rem 0;
 }
 
+.cm-editor .lm-table-scroll { overflow-x: auto; }
+
+/* 悬停或键盘聚焦时显示图标，不占用表格上方的正文空间。 */
 .cm-editor .lm-table-edit {
-  margin-bottom: 0.4rem;
-  padding: 0.2rem 0.6rem;
-  font: inherit;
-  font-size: 0.8em;
-  color: inherit;
-  background: transparent;
-  border: 1px solid currentColor;
-  border-radius: 0.3rem;
+  position: absolute;
+  z-index: 1;
+  top: 0.6rem;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--muted);
+  background: var(--paper);
+  border: 0;
+  border-radius: var(--control-radius);
+  box-shadow: 0 1px 4px var(--shadow);
+  opacity: 0;
+  pointer-events: none;
   cursor: pointer;
 }
+.cm-editor .lm-table-edit svg { width: 16px; height: 16px; }
+.cm-editor .lm-table-preview:hover .lm-table-edit,
+.cm-editor .lm-table-preview:focus-within .lm-table-edit { opacity: 1; pointer-events: auto; }
+.cm-editor .lm-table-edit:hover { color: var(--ink); background: var(--surface); }
+@media (hover: none) { .cm-editor .lm-table-edit { opacity: 1; pointer-events: auto; } }
 
 .cm-editor .lm-table-preview .table-grid {
   width: 100%;

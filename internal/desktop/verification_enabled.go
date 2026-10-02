@@ -109,6 +109,12 @@ func verifyNative(win *mygo.Window, files *Files) {
 		return
 	}
 	results["settingsPage"] = result
+	result, err = eval(`const original=document.documentElement.dataset.theme; for(const theme of ['light','dark']) { document.documentElement.dataset.theme=theme; const main=document.querySelector('.sidebar'); const settings=document.querySelector('.settings-sidebar'); const a=getComputedStyle(main), b=getComputedStyle(settings); const ar=main.getBoundingClientRect(), br=settings.getBoundingClientRect(); if(ar.width!==br.width || ar.x!==br.x || ar.y!==br.y || ar.height!==br.height) throw Error('设置与文档侧栏尺寸不一致'); for(const property of ['backgroundImage','boxShadow','borderRadius','backdropFilter']) if(a[property]!==b[property]) throw Error(theme+' 侧栏材质不一致：'+property); if(getComputedStyle(main,'::before').backgroundImage!==getComputedStyle(settings,'::before').backgroundImage) throw Error('玻璃描边不一致'); } document.documentElement.dataset.theme=original; return {light:true,dark:true,width:true,glass:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["settingsSidebar"] = result
 	if png, err := win.CapturePage(); err == nil {
 		os.WriteFile("verification/native-settings.png", png, 0644)
 	} else {
@@ -229,6 +235,12 @@ func verifyNative(win *mygo.Window, files *Files) {
 		return
 	}
 	results["fileBrowserDesign"] = result
+	result, err = eval(`const browser=document.querySelector('.fb-browser'); const toggle=browser.querySelector('.fb-root-toggle'); const tree=browser.querySelector('.fb-tree'); const name=browser.querySelector('.fb-workspace-choose'); if(!toggle || !name || toggle.contains(name) || !toggle.title.includes('折叠')) throw Error('根目录折叠入口未独立'); toggle.click(); if(!tree.hidden || toggle.getAttribute('aria-expanded')!=='false' || document.querySelector('dialog[open]')) throw Error('根目录折叠失败'); toggle.click(); if(tree.hidden || toggle.getAttribute('aria-expanded')!=='true') throw Error('根目录展开失败'); return {collapse:true,expand:true,separateWorkspaceSwitch:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["workspaceCollapse"] = result
 	fmt.Println("通过：原型文件导航布局、搜索框与目录创建菜单")
 	fmt.Println("通过：原生工作区文件树、授权加载和本地相对图片")
 	externalPath := files.store.Current().Path
