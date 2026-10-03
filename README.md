@@ -119,6 +119,7 @@ src/platform/mygo.ts    MyGo 自动生成的前后端接口，不手工编辑
 tests/                  前端测试，目录与 src/ 对应
 scripts/                构建、预览与浏览器验证脚本
 site/                   官网静态页面
+design/                 设计源文件（logo 高清原图），不随安装包分发
 .github/workflows/      版本发布与官网发布流程
 ```
 
