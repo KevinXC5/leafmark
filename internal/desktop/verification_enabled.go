@@ -64,7 +64,7 @@ func prepareVerification(files *Files) {
 
 func startVerification(win *mygo.Window, files *Files) {
 	var once sync.Once
-	win.OnDidFinishLoad(func() { once.Do(func() { go verifyNative(win, files) }) })
+	win.Page().OnDidFinishLoad(func() { once.Do(func() { go verifyNative(win, files) }) })
 	// 超时退出，避免自动验证留下无人处理的窗口或无限等待。
 	go func() {
 		time.Sleep(45 * time.Second)
@@ -77,7 +77,7 @@ func verifyNative(win *mygo.Window, files *Files) {
 	results := map[string]any{"platform": "macOS WKWebView", "passed": false}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
-	eval := func(code string) (any, error) { return win.EvalContext(ctx, code) }
+	eval := func(code string) (any, error) { return win.Page().EvalContext(ctx, code) }
 	fail := func(err error) {
 		results["error"] = err.Error()
 		raw, _ := json.MarshalIndent(results, "", "  ")
@@ -195,7 +195,7 @@ func verifyNative(win *mygo.Window, files *Files) {
 		fail(err)
 		return
 	}
-	win.Reload()
+	win.Page().Reload()
 	time.Sleep(200 * time.Millisecond)
 	if err := wait("Boolean(window.leafmarkVerification && window.leafmarkVerification.document().path && window.leafmarkVerification.document().content.includes('**中文输入验证**'))"); err != nil {
 		fail(err)

@@ -61,6 +61,6 @@ func (w *Workspace) Print(ctx context.Context) error {
 	if win == nil {
 		return errors.New("找不到调用窗口")
 	}
-	win.Print()
+	win.Page().Print()
 	return nil
 }

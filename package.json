@@ -48,7 +48,7 @@
     "markdown-it-sub": "^2.0.0",
     "markdown-it-sup": "^2.0.0",
     "mermaid": "^12.0.0",
-    "mygo-runtime": "0.1.22"
+    "mygo-runtime": "0.2.3"
   },
   "devDependencies": {
     "@types/jsdom": "^30.0.0",
@@ -57,7 +57,7 @@
     "@types/markdown-it-container": "^4.0.1",
     "@types/markdown-it-footnote": "^3.0.4",
     "jsdom": "^30.1.1",
-    "mygo-cli": "0.1.22",
+    "mygo-cli": "0.2.3",
     "typescript": "7.0.2",
     "vite": "8.3.2"
   },

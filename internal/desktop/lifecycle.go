@@ -22,12 +22,12 @@ func installCloseHandler(win *mygo.Window, files *Files) {
 			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
 			// 先锁住正文并等待前端草稿落到后端，关闭检查读取完整快照。
-			if _, err := win.EvalContext(ctx, "await window.leafmarkLifecycle.prepareClose(); return true;"); err != nil {
-				win.Eval("window.leafmarkLifecycle.resume();")
+			if _, err := win.Page().EvalContext(ctx, "await window.leafmarkLifecycle.prepareClose(); return true;"); err != nil {
+				win.Page().Eval("window.leafmarkLifecycle.resume();")
 				mygo.Dialog.Error("无法安全关闭", "同步草稿失败，请先保存文档再关闭。")
 				return
 			}
-			defer win.Eval("window.leafmarkLifecycle.resume();")
+			defer win.Page().Eval("window.leafmarkLifecycle.resume();")
 			dirty := []documents.Document{}
 			for _, doc := range files.store.List() {
 				if doc.Dirty {
@@ -62,10 +62,10 @@ func installCloseHandler(win *mygo.Window, files *Files) {
 						return
 					}
 				}
-				win.Eval("window.leafmarkLifecycle.discardRecovery();")
+				win.Page().Eval("window.leafmarkLifecycle.discardRecovery();")
 				win.Destroy()
 			case 1:
-				win.Eval("window.leafmarkLifecycle.discardRecovery();")
+				win.Page().Eval("window.leafmarkLifecycle.discardRecovery();")
 				win.Destroy()
 			}
 		}()
