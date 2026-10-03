@@ -102,26 +102,33 @@
 ### 项目结构
 
 ```text
-main.go                 Go 启动入口
-internal/desktop/       MyGo 服务、原生对话框、窗口生命周期、更新与原生验证
-internal/documents/     文档、标签、保存基线、编码与外部修改检测
-internal/workspace/     工作区目录树、路径授权与近期文件
-internal/assets/        图片验证、读取与文档附件导入
-src/main.ts             前端入口，加载 src/app/bootstrap.ts
-src/app/                应用装配、主界面模板与全局样式
-src/editor/             编辑操作、文档统计与源码高亮
-src/editor/live/        Markdown、代码块、公式与表格的原位渲染
-src/editor/dialogs/     链接、图片与表格编辑对话框
-src/markdown/           阅读与导出渲染、Mermaid、扩展语法
-src/documents/          文档会话、草稿同步与恢复快照
-src/file-browser/       工作区文件树与近期文档
-src/settings/           应用偏好与快捷键设置
-src/platform/mygo.ts    MyGo 自动生成的前后端接口，不手工编辑
-tests/                  前端测试，目录与 src/ 对应
-scripts/                构建、预览与浏览器验证脚本
-site/                   官网静态页面
-resources/              应用图标与许可证文件
-.github/workflows/      版本发布与官网发布流程
+leafmark/
+├── main.go                 Go 启动入口
+├── internal/
+│   ├── desktop/            MyGo 服务、原生对话框、窗口生命周期、更新与原生验证
+│   ├── documents/          文档、标签、保存基线、编码与外部修改检测
+│   ├── workspace/          工作区目录树、路径授权与近期文件
+│   └── assets/             图片验证、读取与文档附件导入
+├── src/
+│   ├── main.ts             前端入口，加载 src/app/bootstrap.ts
+│   ├── app/                应用装配、主界面模板与全局样式
+│   ├── editor/             编辑操作、文档统计与源码高亮
+│   │   ├── live/           Markdown、代码块、公式与表格的原位渲染
+│   │   └── dialogs/        链接、图片与表格编辑对话框
+│   ├── markdown/           阅读与导出渲染、Mermaid、扩展语法
+│   ├── documents/          文档会话、草稿同步与恢复快照
+│   ├── file-browser/       工作区文件树与近期文档
+│   ├── settings/           应用偏好与快捷键设置
+│   ├── platform/
+│   │   └── mygo.ts         MyGo 自动生成的前后端接口，不手工编辑
+│   └── types/              第三方模块的类型声明
+├── tests/                  前端测试，目录与 src/ 对应
+├── scripts/                构建、预览与浏览器验证脚本
+├── site/                   官网静态页面
+├── resources/              应用图标与许可证文件
+├── verification/           原生验证输入与运行输出
+└── .github/
+    └── workflows/          版本发布与官网发布流程
 ```
 
 职责边界：
