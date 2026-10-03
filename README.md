@@ -177,7 +177,7 @@ python3 -m http.server 4173 -d site
 ```
 
 - 版本号和安装包直链在浏览器中从最新 Release 读取，发布新版本后无需修改官网；安装包文件名需保持 `darwin-arm64.dmg`、`windows-amd64.exe` 这类结尾。
-- `site/assets/img/app-*.webp` 是应用窗口内容在 1280×820、二倍像素密度下的截图，左上角的窗口控制按钮由样式补画。界面改版后运行 `bun run shots:site` 重新截取：它在真实 macOS 窗口中打开 `tests/fixtures/samples/` 下的示例文档（`山中来信.md` 截原位编辑，`叶脉笔记.md` 截阅读模式），浅色、深色各截一张并转为 WebP，需要本机装有 `cwebp`。
+- `site/assets/img/app-*.webp` 是应用窗口内容在 1280×820、二倍像素密度下的截图，左上角的窗口控制按钮由样式补画。界面改版后运行 `bun run shots:site` 重新截取：它在真实 macOS 窗口中打开 `tests/fixtures/samples/` 下的示例文档（`山中来信.md` 截原位编辑，`叶脉笔记.md` 截阅读模式），正文按 14 号字、1.5 倍行高排版，浅色、深色各截一张并转为 WebP，需要本机装有 `cwebp`。
 
 ## 许可证
 

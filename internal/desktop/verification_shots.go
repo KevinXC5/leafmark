@@ -44,7 +44,11 @@ func captureSiteShots(win *mygo.Window, eval func(string) (any, error), mode str
 	}
 	win.SetContentSize(1280, 820)
 	// 只保留示例文档一个标签页。
-	if _, err := eval(`const tab=[...document.querySelectorAll('.file-tab')].find(t=>!t.classList.contains('active')); tab?.querySelector('.close-tab').click(); await new Promise(r=>setTimeout(r,400)); return true;`); err != nil {
+	if _, err := eval(`for(let i=0;i<20;i++){ const tab=[...document.querySelectorAll('.file-tab')].find(t=>!t.classList.contains('active')); if(!tab) break; tab.querySelector('.close-tab').click(); await new Promise(r=>setTimeout(r,300)); } if(document.querySelectorAll('.file-tab').length!==1) throw Error('仍有多余的标签页'); return true;`); err != nil {
+		return err
+	}
+	// 截图在官网上会缩小展示，正文取设置中的 14 号字与 1.5 倍行高，一屏容纳更多内容。
+	if _, err := eval(`document.documentElement.style.setProperty('--editor-size','14px'); document.documentElement.style.setProperty('--editor-line-height','1.5'); window.leafmarkVerification.editor.requestMeasure(); return true;`); err != nil {
 		return err
 	}
 	time.Sleep(800 * time.Millisecond)
