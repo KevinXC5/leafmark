@@ -133,8 +133,8 @@ h3 { font: 500 20px/1.4 var(--serif); color: var(--ink); letter-spacing: .01em; 
 .hero-stage { position: relative; margin-top: 64px; }
 .window { position: relative; }
 .window-screen {
-  position: relative; overflow: hidden; /* 圆角随截图等比缩放：与应用侧栏同为 18px（截图为 1280×820），任何宽度下两者曲率一致。 */
-  border-radius: 1.406% / 2.195%; container-type: inline-size; background: #faf9f5;
+  position: relative; overflow: hidden; /* 圆角随截图等比缩放：侧栏圆角 18px 加 8px 内缩，窗口取同心的 26px（截图为 1280×820）。 */
+  border-radius: 2.031% / 3.171%; container-type: inline-size; background: #faf9f5;
   box-shadow: 0 0 0 1px #6e5a4329, 0 2px 4px #54402a14, 0 24px 48px -18px #54402a47, 0 60px 110px -40px #54402a59;
 }
 .shot { width: 100%; }
