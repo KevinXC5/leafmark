@@ -26,16 +26,10 @@
     reveals.forEach(node => node.classList.add("in"));
   }
 
-  // 滚动动效：叶片视差、首屏窗口放平、通栏语法带随滚动推移；只在滚动时按帧更新。
+  // 滚动动效：叶片视差与首屏窗口放平；只在滚动时按帧更新。
   const drifting = $$("[data-parallax]");
   const tilting = $("#hero-window");
-  const ribbon = $("#ribbon");
-  const track = $(".ribbon-track", ribbon);
   if (!reducedMotion) {
-    // 语法带复制两份首尾相接，循环滚动时不露出空白。
-    const items = [...track.children];
-    for (let copy = 0; copy < 2; copy++) items.forEach(item => track.append(item.cloneNode(true)));
-    track.classList.add("run");
     let queued = false;
     const update = () => {
       queued = false;
@@ -52,8 +46,6 @@
       const top = tilting.getBoundingClientRect().top;
       const tilt = Math.min(1, Math.max(0, (top - innerHeight * 0.32) / (innerHeight * 0.6)));
       tilting.style.setProperty("--tilt", tilt.toFixed(3));
-      const band = ribbon.getBoundingClientRect();
-      if (band.bottom > 0 && band.top < innerHeight) track.style.translate = `${((band.top - innerHeight) * 0.16).toFixed(1)}px 0`;
     };
     addEventListener("scroll", () => { if (!queued) { queued = true; requestAnimationFrame(update); } }, { passive: true });
     addEventListener("resize", update);

@@ -104,6 +104,9 @@ h3 { font: 500 20px/1.4 var(--serif); color: var(--ink); letter-spacing: .01em; 
 .drift { position: absolute; pointer-events: none; filter: drop-shadow(0 10px 12px #54402a30); will-change: transform; }
 .drift-a { width: 46px; left: max(12px, calc((100vw - 1180px) / 2 - 76px)); top: 430px; rotate: -24deg; }
 .drift-b { width: 40px; left: 47%; top: 118px; rotate: 38deg; }
+/* 段落之间的页边叶片：与首屏落叶同源，随滚动缓缓漂移。 */
+.drift-c { width: 42px; right: max(12px, calc((100vw - 1180px) / 2 - 84px)); top: 72px; rotate: 26deg; }
+.drift-d { width: 38px; left: max(12px, calc((100vw - 1180px) / 2 - 78px)); top: 120px; rotate: -34deg; }
 
 /* 落叶：自枝头缓缓飘下，在窗口上方淡出；位于文字与窗口之后。 */
 .hero-branch { transform-origin: 100% 0; animation: branch-sway 9s ease-in-out infinite alternate; }
@@ -166,20 +169,8 @@ h3 { font: 500 20px/1.4 var(--serif); color: var(--ink); letter-spacing: .01em; 
 .lights i:nth-child(3) { background: #28c840; }
 .window-caption { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; font: 400 13px/1.4 var(--mono); color: var(--muted); }
 
-/* 通栏语法带：自动缓行，滚动页面时再推一把。 */
-.ribbon {
-  margin-top: clamp(80px, 10vw, 136px); padding: 20px 0; overflow: hidden; border-block: 1px solid var(--line);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
-}
-.ribbon-track { display: flex; width: max-content; will-change: transform, translate; }
-.ribbon-track.run { animation: ribbon 60s linear infinite; }
-.ribbon-track span { display: inline-flex; align-items: baseline; gap: 12px; padding-right: clamp(40px, 5vw, 72px); font: 400 clamp(20px, 2.3vw, 30px)/1.3 var(--serif); letter-spacing: .04em; color: var(--ink-2); white-space: nowrap; }
-.ribbon-track .mk { font-size: .56em; font-style: normal; letter-spacing: 0; }
-@keyframes ribbon { to { transform: translateX(calc(-100% / 3)); } }
-.ribbon + .section { padding-top: clamp(80px, 10vw, 136px); }
-
 /* 段落 */
-.section { padding: clamp(96px, 12vw, 168px) 0 0; }
+.section { position: relative; padding: clamp(96px, 12vw, 168px) 0 0; }
 .section-head { max-width: 780px; margin-bottom: clamp(40px, 5vw, 64px); }
 .section-head-row { max-width: none; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 48px; align-items: end; }
 .section-note { font-size: 16.5px; padding-bottom: 8px; }
@@ -381,7 +372,7 @@ kbd[data-mod], kbd[data-shift] { font-family: var(--sans); font-size: 14px; }
 @keyframes rise { from { opacity: 0; transform: translateY(22px); } }
 
 @media (max-width: 1300px) {
-  .drift-a { display: none; }
+  .drift-a, .drift-c, .drift-d { display: none; }
 }
 @media (max-width: 1020px) {
   .nav-links { display: none; }
@@ -434,7 +425,7 @@ kbd[data-mod], kbd[data-shift] { font-family: var(--sans); font-size: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .rise, .caret, .hint-arrow, .dl.active::after, .hero-branch, .ribbon-track.run { animation: none; }
+  .rise, .caret, .hint-arrow, .dl.active::after, .hero-branch { animation: none; }
   .leaffall { display: none; }
   .js .reveal { opacity: 1; transform: none; transition: none; }
   .btn, .card, .dl-card { transition: none; }
