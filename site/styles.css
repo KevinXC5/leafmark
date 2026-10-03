@@ -116,7 +116,7 @@ h3 { font: 500 20px/1.4 var(--serif); color: var(--ink); letter-spacing: .01em; 
 @keyframes leaf-fall {
   0% { translate: 0 0; rotate: 0deg; opacity: 0; }
   8%, 76% { opacity: .9; }
-  100% { translate: 0 1000px; rotate: var(--spin); opacity: 0; }
+  100% { translate: 0 var(--fall, 1000px); rotate: var(--spin); opacity: 0; }
 }
 @keyframes leaf-sway { from { transform: translateX(calc(var(--sway) * -1)); } to { transform: translateX(var(--sway)); } }
 
@@ -399,8 +399,13 @@ kbd[data-mod], kbd[data-shift] { font-family: var(--sans); font-size: 14px; }
 @media (max-width: 720px) {
   .wrap { width: min(1180px, 100% - 36px); }
   .hero { padding-top: 112px; }
-  .hero-branch { width: 68vw; right: -110px; top: 20px; opacity: .5; }
-  .drift, .leaffall { display: none; }
+  /* 手机上枝条收小并让开标题，保持原色；落叶只留三片，贴着右侧在正文之前淡出。 */
+  .hero-branch { width: 56vw; right: -96px; top: 44px; opacity: 1; }
+  .drift, .leaffall img:nth-child(even) { display: none; }
+  .leaffall img { scale: .8; --fall: 330px; --sway: 14px !important; }
+  .leaffall img:nth-child(1) { --x: 66% !important; --t: 12s !important; }
+  .leaffall img:nth-child(3) { --x: 88% !important; --t: 15s !important; }
+  .leaffall img:nth-child(5) { --x: 77% !important; --t: 18s !important; }
   .hero-title { margin: 24px 0 26px; }
   .hero-title .accent { padding-left: 0; }
   .hero-stage { margin-top: 52px; }
