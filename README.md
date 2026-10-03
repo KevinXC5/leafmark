@@ -2,6 +2,8 @@
 
 面向 macOS / Windows 的轻量本地 Markdown 编辑器，支持原位编辑、阅读模式、多标签和本地文件夹导航。
 
+官网：<https://kevinxc5.github.io/leafmark/>
+
 界面使用 TypeScript 与 CodeMirror 6，本地文件与系统能力由 Go 提供，MyGo 负责原生窗口和前后端通信。Bun 用于开发阶段的依赖管理、命令执行和前端测试，Vite 提供前端热更新与资源构建。技术分工与运行流程见[架构与开发](docs/架构与开发.md)。
 
 ## 功能
@@ -155,6 +157,7 @@ src/settings/           应用偏好与快捷键设置
 src/platform/mygo.ts    MyGo 自动生成的前后端接口
 src/types/              第三方模块的类型声明
 scripts/                构建、预览与浏览器验证脚本
+site/                   官网静态页面，由 GitHub Pages 发布
 tests/                  按源码功能目录组织的前端测试与基准测试
 verification/           原生验证输入与运行输出
 ```

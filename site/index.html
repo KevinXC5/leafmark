@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leafmark · 叶笺 — 落笔，即成文</title>
+  <meta name="description" content="叶笺（Leafmark）是面向 macOS / Windows 的轻量本地 Markdown 编辑器：原位编辑、阅读模式、多标签与本地文件夹导航，MIT 开源。" />
+  <meta name="theme-color" content="#f6f2e9" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Leafmark · 叶笺 — 落笔，即成文" />
+  <meta property="og:description" content="面向 macOS / Windows 的轻量本地 Markdown 编辑器，原位编辑、阅读模式、多标签与本地文件夹导航。" />
+  <meta property="og:url" content="https://kevinxc5.github.io/leafmark/" />
+  <meta property="og:image" content="https://kevinxc5.github.io/leafmark/assets/img/og.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" type="image/png" href="assets/img/favicon.png" />
+  <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png" />
+  <link rel="preload" href="assets/fonts/newsreader-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="styles.css" />
+  <script>document.documentElement.classList.add("js");</script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到正文</a>
+
+  <header class="nav" id="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top" aria-label="叶笺 Leafmark 首页">
+        <img src="assets/img/logo.webp" alt="" width="34" height="34" />
+        <span class="brand-cn">叶笺</span>
+        <span class="brand-en">Leafmark</span>
+      </a>
+      <nav class="nav-links" aria-label="页面导航">
+        <a href="#live">原位编辑</a>
+        <a href="#features">功能</a>
+        <a href="#reading">阅读</a>
+        <a href="#local">本地</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="nav-github" href="https://github.com/KevinXC5/leafmark" target="_blank" rel="noopener">GitHub<span aria-hidden="true"> ↗</span></a>
+        <a class="btn btn-small" href="#download">下载</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- 首屏 -->
+    <section class="hero" id="top">
+      <div class="hero-rules" aria-hidden="true"></div>
+      <img class="hero-branch" src="assets/img/branch.webp" alt="" width="1211" height="1237" data-parallax="-0.06" />
+      <img class="drift drift-a" src="assets/img/leaf-8.webp" alt="" width="138" height="208" data-parallax="0.18" />
+      <img class="drift drift-b" src="assets/img/leaf-9.webp" alt="" width="144" height="139" data-parallax="0.3" />
+
+      <div class="wrap hero-top">
+        <div class="hero-copy">
+          <p class="eyebrow rise" style="--d: 0"><span class="mk">#</span> 轻量 · 本地 · Markdown 编辑器</p>
+          <h1 class="hero-title">
+            <span class="rise" style="--d: 1">落笔，</span>
+            <span class="rise accent" style="--d: 2">即成文。<i class="caret" aria-hidden="true"></i></span>
+          </h1>
+          <p class="lede rise" style="--d: 3">叶笺是一款面向 macOS 与 Windows 的 Markdown 编辑器。标题、列表、表格与公式都在原处成形，而文档始终是你磁盘上的一份 <code>.md</code> 文件。</p>
+          <div class="hero-cta rise" style="--d: 4">
+            <a class="btn" href="#download">免费下载 <span class="btn-meta" data-version>最新版</span></a>
+            <a class="btn btn-ghost" href="https://github.com/KevinXC5/leafmark" target="_blank" rel="noopener">查看源码 <span aria-hidden="true">↗</span></a>
+          </div>
+          <p class="hero-meta rise" style="--d: 5">macOS · Windows<span class="dot"></span>MIT 开源<span class="dot"></span>Go + TypeScript</p>
+        </div>
+
+        <aside class="hero-verse rise" style="--d: 4" aria-label="一叶为笺，落笔成章">
+          <span class="verse">一叶为笺</span>
+          <span class="verse verse-low">落笔成章</span>
+          <span class="seal" aria-hidden="true">叶笺</span>
+        </aside>
+      </div>
+
+      <div class="wrap hero-stage rise" style="--d: 6">
+        <figure class="window" id="hero-window" data-theme="light">
+          <div class="window-screen">
+            <img class="shot shot-light" src="assets/img/app-edit-light.webp" alt="叶笺浅色主题的编辑界面：左侧为大纲侧栏，右侧是原位渲染的 Markdown 文档，含标题、引用、任务列表与表格" width="2560" height="1640" fetchpriority="high" />
+            <img class="shot shot-dark" src="assets/img/app-edit-dark.webp" alt="叶笺深色主题的编辑界面" width="2560" height="1640" loading="lazy" />
+            <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          </div>
+          <figcaption class="window-caption">
+            <span>应用实际界面</span>
+            <span class="seg" role="group" aria-label="切换截图主题">
+              <button type="button" data-set-theme="light" aria-pressed="true">浅色</button>
+              <button type="button" data-set-theme="dark" aria-pressed="false">深色</button>
+            </span>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 01 原位编辑 -->
+    <section class="section" id="live">
+      <div class="wrap split">
+        <div class="split-copy reveal">
+          <p class="kicker"><span class="mk">##</span><span class="no">01</span>原位编辑</p>
+          <h2>语法，只在你落笔的<br />那一行出现。</h2>
+          <p>原位编辑把 Markdown 直接渲染在正文里。光标所在的行会露出语法标记，方便修改；离开之后，又收回成排好版的文字。</p>
+          <p>想看全貌时，一键切到源码模式，完整的 Markdown 一字不差。</p>
+          <p class="hint"><span class="hint-arrow" aria-hidden="true">→</span>点一点右边的任意一行试试</p>
+        </div>
+
+        <div class="demo reveal" id="demo" data-mode="live">
+          <div class="demo-bar">
+            <span class="demo-tab"><i class="demo-dot"></i>山中来信.md</span>
+            <span class="demo-plus" aria-hidden="true">+</span>
+          </div>
+          <div class="demo-sheet" role="group" aria-label="原位编辑演示，选择任意一行可查看该行的 Markdown 语法">
+            <div class="dl h1" tabindex="0"><span class="mk"># </span>山中来信</div>
+            <div class="dl">雨停在午后。把窗推开，纸上还留着一点潮气。</div>
+            <div class="dl quote" tabindex="0"><span class="mk">&gt; </span>写作，是把一闪而过的念头慢慢说清楚。</div>
+            <div class="dl h2" tabindex="0"><span class="mk">## </span>今天想记下的</div>
+            <div class="dl" tabindex="0">标题、列表和引用都在<span class="mk">**</span><strong>原处</strong><span class="mk">**</span>成形，按 <span class="mk">`</span><code>Mod+Shift+R</code><span class="mk">`</span> 通读全文。</div>
+            <div class="dl task done" tabindex="0"><span class="mk">- [x] </span><span class="box" aria-hidden="true"></span>把昨晚的想法誊到纸上</div>
+            <div class="dl task" tabindex="0"><span class="mk">- [ ] </span><span class="box" aria-hidden="true"></span>留一句话给明天</div>
+          </div>
+          <div class="demo-status">
+            <span>就绪 · UTF-8</span>
+            <span class="seg seg-quiet" role="group" aria-label="切换演示模式">
+              <button type="button" data-mode="live" aria-pressed="true">原位编辑</button>
+              <button type="button" data-mode="source" aria-pressed="false">源码</button>
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 功能 -->
+    <section class="section" id="features">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <p class="kicker"><span class="mk">##</span><span class="no">02</span>功能</p>
+          <h2>写作需要的，都在手边。</h2>
+        </div>
+
+        <div class="bento">
+          <article class="card span-3 reveal">
+            <div class="mini mini-tabs" aria-hidden="true">
+              <span class="t on"><i class="demo-dot"></i>山中来信.md</span>
+              <span class="t">叶脉笔记.md</span>
+              <span class="t">读书摘抄.md</span>
+              <span class="t plus">+</span>
+            </div>
+            <h3>多标签，各记各的</h3>
+            <p>每个标签保留自己的内容、选区和撤销历史。未保存的修改用圆点提示，意外退出后，草稿可以恢复为新标签。</p>
+          </article>
+
+          <article class="card span-3 reveal">
+            <div class="mini mini-tree" aria-hidden="true">
+              <span class="row dir">笔记</span>
+              <span class="row file on">山中来信.md</span>
+              <span class="row file">叶脉笔记.md</span>
+              <span class="row dir closed">草稿</span>
+              <span class="filter">筛选名称…</span>
+            </div>
+            <h3>以文件夹为工作区</h3>
+            <p>打开一个文件夹，浏览其中的 Markdown，按名称筛选、新建、重命名，并在访达或资源管理器中定位。近期文件随手可回。</p>
+          </article>
+
+          <article class="card span-2 reveal">
+            <div class="mini mini-table" aria-hidden="true">
+              <table>
+                <tr><th>层级</th><th>作用</th></tr>
+                <tr><td>主脉</td><td class="on">输送与支撑</td></tr>
+                <tr><td>侧脉</td><td>向两侧分流</td></tr>
+              </table>
+            </div>
+            <h3>表格，就是表格</h3>
+            <p>以真实表格显示，双击进入编辑器：改单元格、增删与移动行列、调整对齐。一次保存对应一次撤销。</p>
+          </article>
+
+          <article class="card span-2 reveal">
+            <div class="mini mini-math" aria-hidden="true">
+              <span class="formula"><i>Q</i><sub>n</sub> = <i>Q</i> · <i>r</i><sup>n</sup></span>
+              <span class="flow"><b>主脉</b><em></em><b>侧脉</b><em></em><b>细脉</b></span>
+            </div>
+            <h3>公式与图形</h3>
+            <p>行内与块级公式原位显示，代码块按语言高亮；Mermaid 在阅读模式里绘成图形。</p>
+          </article>
+
+          <article class="card span-2 reveal">
+            <div class="mini mini-find" aria-hidden="true">
+              <span class="field"><span>叶(脉|柄)</span><b class="on">.*</b><b>Aa</b><b>ab</b></span>
+              <span class="field field-quiet"><span>替换为…</span><small>3 / 12</small></span>
+            </div>
+            <h3>查找与替换</h3>
+            <p>区分大小写、全词匹配、正则表达式，逐个替换或一次全部替换。</p>
+          </article>
+
+          <article class="card span-2 reveal">
+            <div class="mini mini-focus" aria-hidden="true">
+              <i></i><i></i><i class="on"></i><i></i><i></i>
+            </div>
+            <h3>专注与打字机</h3>
+            <p>专注模式让其余段落退到远处，打字机模式把正在写的一行留在视线中央。</p>
+          </article>
+
+          <article class="card span-2 reveal">
+            <div class="mini mini-export" aria-hidden="true">
+              <span>.html</span><span>.md</span><span>.pdf</span>
+            </div>
+            <h3>带得走的成品</h3>
+            <p>导出的 HTML 内嵌样式、本地图片与 Mermaid 图形，离线也能打开；PDF 交给系统打印。</p>
+          </article>
+
+          <article class="card span-2 reveal">
+            <div class="mini mini-type" aria-hidden="true">
+              <span class="f1">Aa</span><span class="f2">文</span><span class="f3">Aa</span><span class="f4">{}</span>
+            </div>
+            <h3>合手的版面</h3>
+            <p>四种字体，字号 12–28，行高 1.3–2.2，三档阅读宽度；浅色、深色，或跟随系统。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 阅读 -->
+    <section class="section" id="reading">
+      <div class="wrap">
+        <div class="section-head section-head-row reveal">
+          <div>
+            <p class="kicker"><span class="mk">##</span><span class="no">03</span>阅读模式</p>
+            <h2>换一种目光，再读一遍。</h2>
+          </div>
+          <p class="section-note">写完之后切到阅读模式，全文按 CommonMark 与 GFM 渲染：提示块、公式、图形与表格各归其位。点一下后面的窗口，把它拿到前面来。</p>
+        </div>
+
+        <div class="stack reveal" id="stack" data-front="light">
+          <figure class="window stack-light" data-layer="light">
+            <div class="window-screen">
+              <img class="shot" src="assets/img/app-read-light.webp" alt="叶笺浅色主题的阅读模式：渲染后的提示块、公式、Mermaid 流程图与表格" width="2560" height="1640" loading="lazy" />
+              <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+            </div>
+          </figure>
+          <figure class="window stack-dark" data-layer="dark">
+            <div class="window-screen">
+              <img class="shot" src="assets/img/app-read-dark.webp" alt="同一篇笔记在深色主题下的阅读模式" width="2560" height="1640" loading="lazy" />
+              <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+            </div>
+          </figure>
+        </div>
+        <div class="stack-foot reveal">
+          <span>同一篇笔记，两种主题</span>
+          <span class="seg" role="group" aria-label="切换置于前方的主题">
+            <button type="button" data-front="light" aria-pressed="true">浅色在前</button>
+            <button type="button" data-front="dark" aria-pressed="false">深色在前</button>
+          </span>
+        </div>
+
+        <ul class="chips reveal" aria-label="阅读模式支持的语法">
+          <li>CommonMark / GFM</li><li>代码高亮</li><li>脚注</li><li>行内与块级公式</li><li>提示块</li><li>文本高亮</li><li>上标与下标</li><li>折叠内容</li><li>Mermaid 图形</li><li>frontmatter 隐藏</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 04 本地 -->
+    <section class="section" id="local">
+      <div class="wrap">
+        <div class="letter reveal">
+          <img class="letter-art" src="assets/img/letter.webp" alt="一张手工信笺上放着一片叶形书签，旁边是一支钢笔" width="1254" height="1254" loading="lazy" />
+          <div class="letter-copy">
+            <p class="kicker"><span class="mk">##</span><span class="no">04</span>本地优先</p>
+            <h2>你的文字，<br />留在你的磁盘。</h2>
+            <p>没有账号，没有专有格式。每一篇文档都是文件夹里的一份 Markdown，换一个编辑器照样打得开。</p>
+          </div>
+        </div>
+
+        <dl class="facts">
+          <div class="reveal"><dt>自动保存</dt><dd>开启后，停止输入两秒即写回磁盘。</dd></div>
+          <div class="reveal"><dt>草稿恢复</dt><dd>意外重启后，未保存的内容可以恢复为新标签。</dd></div>
+          <div class="reveal"><dt>外部修改检测</dt><dd>文件被其他程序改动时暂停自动保存，由你决定是否重新加载。</dd></div>
+          <div class="reveal"><dt>签名更新</dt><dd>更新包经 Ed25519 签名校验，安装后下次启动生效。</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- 05 快捷键与版本记 -->
+    <section class="section" id="keys">
+      <div class="wrap split split-even">
+        <div class="reveal">
+          <p class="kicker"><span class="mk">##</span><span class="no">05</span>快捷键</p>
+          <h2>手不离键盘。</h2>
+          <p>常用动作都有默认快捷键，也可以在设置里录制、修改和恢复默认；冲突的组合不会被保存。</p>
+          <ul class="keys">
+            <li><span>新建</span><kbd data-mod>Mod</kbd><kbd>N</kbd></li>
+            <li><span>打开</span><kbd data-mod>Mod</kbd><kbd>O</kbd></li>
+            <li><span>保存</span><kbd data-mod>Mod</kbd><kbd>S</kbd></li>
+            <li><span>查找替换</span><kbd data-mod>Mod</kbd><kbd>F</kbd></li>
+            <li><span>加粗</span><kbd data-mod>Mod</kbd><kbd>B</kbd></li>
+            <li><span>链接</span><kbd data-mod>Mod</kbd><kbd>K</kbd></li>
+            <li><span>阅读切换</span><kbd data-mod>Mod</kbd><kbd data-shift>Shift</kbd><kbd>R</kbd></li>
+            <li><span>设置</span><kbd data-mod>Mod</kbd><kbd>,</kbd></li>
+          </ul>
+        </div>
+
+        <div class="colophon reveal">
+          <p class="colophon-title">版本记</p>
+          <dl>
+            <div><dt>界面</dt><dd>TypeScript · CodeMirror 6</dd></div>
+            <div><dt>本地能力</dt><dd>Go</dd></div>
+            <div><dt>原生窗口</dt><dd>MyGo</dd></div>
+            <div><dt>字体</dt><dd>Newsreader · Inter · Geist Mono</dd></div>
+            <div><dt>平台</dt><dd>macOS · Windows</dd></div>
+            <div><dt>许可</dt><dd>MIT</dd></div>
+            <div><dt>当前版本</dt><dd data-version>见 GitHub Releases</dd></div>
+          </dl>
+          <a class="text-link" href="https://github.com/KevinXC5/leafmark/blob/main/docs/%E6%9E%B6%E6%9E%84%E4%B8%8E%E5%BC%80%E5%8F%91.md" target="_blank" rel="noopener">阅读架构与开发文档 <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 下载 -->
+    <section class="download" id="download">
+      <div class="wrap">
+        <div class="download-panel reveal">
+          <img class="fall fall-1" src="assets/img/leaf-1.webp" alt="" width="360" height="310" loading="lazy" data-parallax="0.1" />
+          <img class="fall fall-2" src="assets/img/leaf-4.webp" alt="" width="319" height="250" loading="lazy" data-parallax="0.2" />
+          <img class="fall fall-3" src="assets/img/leaf-6.webp" alt="" width="239" height="165" loading="lazy" data-parallax="0.14" />
+          <img class="fall fall-4" src="assets/img/leaf-3.webp" alt="" width="268" height="271" loading="lazy" data-parallax="0.08" />
+          <img class="fall fall-5" src="assets/img/leaf-7.webp" alt="" width="168" height="210" loading="lazy" data-parallax="0.24" />
+
+          <p class="kicker kicker-light"><span class="mk">##</span>下载<span class="no" data-version></span></p>
+          <h2>取一张笺，开始写。</h2>
+          <p class="download-lede">免费，开源，不需要注册。选择与你的设备对应的安装包。</p>
+
+          <div class="dl-grid">
+            <a class="dl-card" data-asset="darwin-arm64" href="https://github.com/KevinXC5/leafmark/releases/latest" target="_blank" rel="noopener">
+              <span class="dl-os">macOS</span><span class="dl-arch">Apple 芯片</span><span class="dl-file">DMG<span class="dl-size"></span></span>
+            </a>
+            <a class="dl-card" data-asset="darwin-amd64" href="https://github.com/KevinXC5/leafmark/releases/latest" target="_blank" rel="noopener">
+              <span class="dl-os">macOS</span><span class="dl-arch">Intel 芯片</span><span class="dl-file">DMG<span class="dl-size"></span></span>
+            </a>
+            <a class="dl-card" data-asset="windows-amd64" href="https://github.com/KevinXC5/leafmark/releases/latest" target="_blank" rel="noopener">
+              <span class="dl-os">Windows</span><span class="dl-arch">x64</span><span class="dl-file">Setup<span class="dl-size"></span></span>
+            </a>
+            <a class="dl-card" data-asset="windows-arm64" href="https://github.com/KevinXC5/leafmark/releases/latest" target="_blank" rel="noopener">
+              <span class="dl-os">Windows</span><span class="dl-arch">ARM64</span><span class="dl-file">Setup<span class="dl-size"></span></span>
+            </a>
+          </div>
+
+          <p class="download-note">安装包尚未配置 Apple 公证与 Windows 代码签名，首次运行时系统可能显示来源验证提示。Windows 版本已完成构建，尚未实机验证。全部文件与校验值见 <a href="https://github.com/KevinXC5/leafmark/releases" target="_blank" rel="noopener">GitHub Releases</a>。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <a class="brand" href="#top">
+        <img src="assets/img/logo.webp" alt="" width="28" height="28" loading="lazy" />
+        <span class="brand-cn">叶笺</span>
+        <span class="brand-en">Leafmark</span>
+      </a>
+      <p class="footer-line">一叶为笺，落笔成章。</p>
+      <nav class="footer-links" aria-label="页脚链接">
+        <a href="https://github.com/KevinXC5/leafmark" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/KevinXC5/leafmark/releases" target="_blank" rel="noopener">版本记录</a>
+        <a href="https://github.com/KevinXC5/leafmark/blob/main/LICENSE" target="_blank" rel="noopener">MIT 许可证</a>
+        <a href="https://github.com/KevinXC5/leafmark/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">第三方声明</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script src="main.js" defer></script>
+</body>
+</html>
