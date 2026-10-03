@@ -131,6 +131,9 @@ svg { width: 16px; height: 16px; flex-shrink: 0; }
 .md-inline-code { font: 0.78em var(--mono); background: var(--surface); padding: 2px 3px; border-radius: 3px; }
 .cm-line.md-code-line { background: var(--surface); font-family: var(--mono); font-size: 14px; line-height: 1.75; padding-left: 18px; padding-right: 18px; }
 .cm-line.md-code-fence { color: var(--muted); font-size: 10px; padding-top: 4px; padding-bottom: 4px; }
+/* 代码块首尾行补圆角，与渲染后的代码块外形一致。 */
+.cm-line.md-code-first { border-top-left-radius: var(--control-radius); border-top-right-radius: var(--control-radius); }
+.cm-line.md-code-last { border-bottom-left-radius: var(--control-radius); border-bottom-right-radius: var(--control-radius); }
 .task-box { width: 13px; height: 13px; vertical-align: middle; accent-color: var(--accent); margin: 0 5px 2px 0; }
 .cm-activeLine { background: transparent !important; }
 .cm-cursor { border-left-color: var(--accent) !important; }
@@ -243,12 +246,15 @@ dialog p { color: var(--muted); font-size: 13px; }
 .markdown-body h3 { font-size: calc(1em * var(--heading-3)); color: var(--heading); font-weight: 500; }
 .markdown-body a { color: var(--accent); }
 .markdown-body blockquote { margin: 20px 0; border-left: 3px solid var(--accent); padding: 10px 16px; border-radius: 4px; background: var(--surface); color: var(--quote); line-height: 1.7; }
-.markdown-body pre { padding: 18px; background: var(--surface); overflow: auto; border-radius: 5px; }
+.markdown-body pre { padding: 18px; background: var(--surface); overflow: auto; border-radius: var(--control-radius); }
 .markdown-body code { font: .8em var(--mono); background: var(--surface); }
 .markdown-body pre code { background: none; font: 14px/1.75 var(--mono); color: var(--code-ink); }
-.markdown-body table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; width: 100%; font-size: .85em; }
+/* 表格外框带圆角并裁切内容，单元格只画内部分隔线。 */
+.markdown-body table { display: block; width: fit-content; max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--control-radius); border-collapse: separate; border-spacing: 0; font-size: .85em; }
 .markdown-body td, .markdown-body th { min-width: 90px; }
-.markdown-body td, .markdown-body th { padding: 8px 12px; border: 1px solid var(--line); }
+.markdown-body td, .markdown-body th { padding: 8px 12px; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.markdown-body tr > :last-child { border-right: 0; }
+.markdown-body table > :last-child > tr:last-child > * { border-bottom: 0; }
 .markdown-body th { background: var(--surface); }
 .markdown-body img { max-width: 100%; height: auto; border-radius: 4px; }
 .markdown-body svg { width: 100%; height: auto; display: block; }

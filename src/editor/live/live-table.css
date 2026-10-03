@@ -3,7 +3,8 @@
   padding: 0.6rem 0;
 }
 
-.cm-editor .lm-table-scroll { overflow-x: auto; }
+/* 圆角外框由滚动容器绘制，单元格只保留内部分隔线，避免直角边框露出。 */
+.cm-editor .lm-table-scroll { overflow-x: auto; border: 1px solid var(--border, #aaa6); border-radius: var(--control-radius); }
 
 /* 操作柄位于表格左侧，与表格顶端对齐，保持表头完整。 */
 .cm-editor .lm-table-actions {
@@ -56,7 +57,8 @@
 
 .cm-editor .lm-table-preview .table-grid {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font: inherit;
 }
 
@@ -64,10 +66,16 @@
 .cm-editor .lm-table-preview td {
   min-width: 3rem;
   padding: 0.45rem 0.7rem;
-  border: 1px solid var(--border, #aaa6);
+  border: 0;
+  border-right: 1px solid var(--border, #aaa6);
+  border-bottom: 1px solid var(--border, #aaa6);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.cm-editor .lm-table-preview tr > :last-child { border-right: 0; }
+.cm-editor .lm-table-preview tbody tr:last-child > *,
+.cm-editor .lm-table-preview thead:has(+ tbody:empty) th { border-bottom: 0; }
 
 .cm-editor .lm-table-preview th {
   font-weight: 600;

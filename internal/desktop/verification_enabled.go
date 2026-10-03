@@ -285,6 +285,23 @@ func verifyNative(win *mygo.Window, files *Files) {
 		fail(err)
 		return
 	}
+	result, err = eval(`const view=window.leafmarkVerification.editor; window.roundedVerificationOriginal=view.state.doc.toString(); const fence='\x60\x60\x60'; const source='| A | B |\n| --- | --- |\n| x | y |\n\n'+fence+'js\nconst a = 1;\n'+fence; view.dispatch({changes:{from:view.state.doc.length,insert:'\n\n'+source},selection:{anchor:0}}); document.querySelector('#documents-tab').focus(); await new Promise(r=>setTimeout(r,120)); const radius=getComputedStyle(document.documentElement).getPropertyValue('--control-radius').trim(); const corners=['borderTopLeftRadius','borderTopRightRadius','borderBottomLeftRadius','borderBottomRightRadius']; const rounded=(name,node)=>{ if(!node) throw Error('未渲染'+name); const style=getComputedStyle(node); for(const corner of corners) if(style[corner]!==radius) throw Error(name+'圆角不一致：'+style[corner]); if(style.overflowX==='visible') throw Error(name+'未裁切内容'); }; const scroll=document.querySelector('.lm-table-preview .lm-table-scroll'); const blocks=document.querySelectorAll('.lm-block-preview'); const block=blocks[blocks.length-1]; rounded('原位表格',scroll); rounded('原位代码块',block); const cell=getComputedStyle(scroll.querySelector('th')); if(cell.borderTopWidth!=='0px' || cell.borderLeftWidth!=='0px') throw Error('表格单元格仍绘制外侧边框'); block.scrollIntoView({block:'end'}); await new Promise(r=>setTimeout(r,80)); return {radius};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["roundedBlocks"] = result
+	if png, err := win.CapturePage(); err == nil {
+		os.WriteFile("verification/native-rounded-blocks.png", png, 0644)
+	} else {
+		fail(err)
+		return
+	}
+	_, err = eval(`const view=window.leafmarkVerification.editor; document.querySelector('#reading-toggle').click(); await new Promise(r=>setTimeout(r,400)); const radius=getComputedStyle(document.documentElement).getPropertyValue('--control-radius').trim(); const reading=document.querySelector('#reading-view'); const last=selector=>{ const nodes=reading.querySelectorAll(selector); return nodes[nodes.length-1]; }; for(const [name,node] of [['阅读表格',last('table')],['阅读代码块',last('pre')]]) { if(!node) throw Error('未渲染'+name); const style=getComputedStyle(node); if(style.borderTopLeftRadius!==radius || style.borderBottomRightRadius!==radius) throw Error(name+'圆角不一致：'+style.borderTopLeftRadius); } document.querySelector('#reading-toggle').click(); await new Promise(r=>setTimeout(r,120)); view.dispatch({changes:{from:0,to:view.state.doc.length,insert:window.roundedVerificationOriginal},selection:{anchor:0}}); return true;`)
+	if err != nil {
+		fail(err)
+		return
+	}
 	fmt.Println("通过：导航首次点击、稳定大纲、侧栏布局与统一圆角")
 	if png, err := win.CapturePage(); err == nil {
 		os.WriteFile("verification/native-window.png", png, 0644)

@@ -25,6 +25,14 @@ describe("实时 Markdown 装饰", () => {
     expect(decorations("**bold**", true).filter(range => !range.className)).toHaveLength(0);
     expect(decorations("**bold**", true, false).filter(range => !range.className)).toHaveLength(2);
   });
+  test("代码块首尾行带圆角标记", () => {
+    const fenced = decorations("```js\nconst a = 1;\n```");
+    expect(fenced.filter(range => range.className === "md-code-first").map(range => range.from)).toEqual([0]);
+    expect(fenced.filter(range => range.className === "md-code-last").map(range => range.from)).toEqual([19]);
+    const single = decorations("    indented");
+    expect(single.some(range => range.className === "md-code-first")).toBe(true);
+    expect(single.some(range => range.className === "md-code-last")).toBe(true);
+  });
   test("Setext 标题和分隔线", () => {
     const result = decorations("Title\n===\n\n---");
     expect(result.filter(range => range.className === "md-h1")).toHaveLength(2);

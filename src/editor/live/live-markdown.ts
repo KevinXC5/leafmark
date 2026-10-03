@@ -309,6 +309,8 @@ export function buildLiveMarkdownDecorations(view: EditorView, options: LiveMark
           const line = view.state.doc.line(number);
           lineStyle(line.from, "md-code-line");
           if (name === "FencedCode" && (number === first || number === last)) lineStyle(line.from, "md-code-fence");
+          if (number === first) lineStyle(line.from, "md-code-first");
+          if (number === last) lineStyle(line.from, "md-code-last");
         }
         return false;
       }

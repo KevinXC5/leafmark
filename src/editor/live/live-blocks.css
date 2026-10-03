@@ -1,7 +1,7 @@
 .cm-editor .lm-block-preview {
   margin: 12px 0;
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: var(--control-radius);
   background: var(--code-surface, var(--surface));
   color: var(--code-ink, var(--ink));
   overflow: hidden;
