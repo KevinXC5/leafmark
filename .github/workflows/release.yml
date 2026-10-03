@@ -137,6 +137,11 @@ jobs:
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: |
           test -n "$MYGO_UPDATER_PRIVATE_KEY"
+          # MyGo 把 changelog 中“## 版本号”小节写入更新清单，作为应用内的更新提示；取草稿正文开头的概述。
+          version="${{ needs.prepare.outputs.tag }}"
+          summary=$(gh release view "$version" --repo "$GITHUB_REPOSITORY" --json body --jq .body | awk '/^## / || /^\[完整变更记录\]/ {exit} {print}')
+          test -n "${summary//[[:space:]]/}" || summary="详细更新内容见发布页。"
+          printf '## %s\n\n%s\n' "${version#v}" "$summary" > .github/release-notes.md
           bun run build -- -platform "${{ matrix.platform }}" -skip-notarize
           python3 - <<'PY'
           import pathlib
