@@ -24,6 +24,7 @@ jobs:
       contents: write
     outputs:
       tag: ${{ steps.version.outputs.tag }}
+      published: ${{ steps.state.outputs.published }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -39,16 +40,27 @@ jobs:
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$TAG^{commit}")"
           git merge-base --is-ancestor HEAD origin/main
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: 检查版本是否已公开
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          # 已公开的版本不能覆盖：给出提示并跳过后续步骤与任务，本次运行正常结束。
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+            if [ "$draft" != true ]; then
+              echo "::notice::$TAG 已公开发布，本次运行不做任何改动"
+              echo "published=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
       - name: 生成更新日志
+        if: steps.state.outputs.published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          # 已公开的版本不能覆盖，检查通过后才调用 DeepSeek。
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
-          fi
           test -n "$DEEPSEEK_API_KEY" || { echo "::error::未配置 DEEPSEEK_API_KEY，无法生成更新说明"; exit 1; }
           previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$TAG^" 2>/dev/null || true)
           if [ -n "$previous" ]; then
@@ -83,6 +95,7 @@ jobs:
           printf '%s\n\n[完整变更记录](%s)\n\n' "$notes" "$url" > "$RUNNER_TEMP/release-notes.md"
           cat .github/release-notes.md >> "$RUNNER_TEMP/release-notes.md"
       - name: 创建或更新发布草稿
+        if: steps.state.outputs.published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -96,6 +109,8 @@ jobs:
 
   check:
     needs: prepare
+    # 版本已公开时跳过；构建与发布任务依赖本任务，随之跳过。
+    if: needs.prepare.outputs.published != 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
