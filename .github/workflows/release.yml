@@ -109,7 +109,6 @@ jobs:
 
   check:
     needs: prepare
-    # 版本已公开时跳过；构建与发布任务依赖本任务，随之跳过。
     if: needs.prepare.outputs.published != 'true'
     runs-on: macos-latest
     steps:
@@ -123,8 +122,10 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check:release
 
+  # 构建与检查并行，安装包先上传到草稿；检查未通过时草稿不会公开。
   build:
-    needs: [prepare, check]
+    needs: prepare
+    if: needs.prepare.outputs.published != 'true'
     permissions:
       contents: write
     runs-on: ${{ matrix.os }}
@@ -175,7 +176,7 @@ jobs:
           PY
 
   publish:
-    needs: [prepare, build]
+    needs: [prepare, check, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
