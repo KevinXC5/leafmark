@@ -2,20 +2,21 @@ import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 // Mermaid 自身的 DOMPurify 在模块加载时检查浏览器环境。
 Object.defineProperty(globalThis, "window", { value: new JSDOM("").window, configurable: true, writable: true });
-const { DIAGRAM_LIMITS, diagramConfig, renderDiagrams, sanitizeDiagramSVG, validateDiagramSource } = await import("../../src/markdown/diagrams");
+const { DIAGRAM_LIMITS, DIAGRAM_PALETTES, diagramConfig, renderDiagrams, sanitizeDiagramSVG, validateDiagramSource } = await import("../../src/markdown/diagrams");
 
 describe("Mermaid 安全和资源边界", () => {
   test("主题与严格配置", () => {
     const root = new JSDOM("").window.document.documentElement;
     root.dataset.theme = "dark";
     const config = diagramConfig(root);
-    expect(config.theme).toBe("dark");
+    expect(config.theme).toBe("base");
+    expect(config.themeVariables).toMatchObject({ darkMode: true, background: DIAGRAM_PALETTES.dark.paper, primaryColor: DIAGRAM_PALETTES.dark.node, lineColor: DIAGRAM_PALETTES.dark.line });
     expect(config.securityLevel).toBe("strict");
     expect(config.startOnLoad).toBe(false);
     expect(config.htmlLabels).toBe(false);
     expect(config.maxEdges).toBe(DIAGRAM_LIMITS.edges);
     root.dataset.theme = "light";
-    expect(diagramConfig(root).theme).toBe("default");
+    expect(diagramConfig(root).themeVariables).toMatchObject({ darkMode: false, background: DIAGRAM_PALETTES.light.paper, primaryColor: DIAGRAM_PALETTES.light.node, primaryTextColor: DIAGRAM_PALETTES.light.ink });
   });
   test("限制长度、行数、词元、连线及配置覆盖", () => {
     expect(validateDiagramSource("graph TD; A-->B")).toBeNull();
@@ -49,9 +50,14 @@ describe("Mermaid 安全和资源边界", () => {
       const container = w.document.createElement("div");
       container.innerHTML = '<pre><code class="language-mermaid">graph TD; A-->B</code></pre>';
       w.document.body.append(container);
-      await renderDiagrams(container);
+      let copied = "";
+      await renderDiagrams(container, { copyText: async text => { copied = text; } });
       if (!container.querySelector("figure svg")) throw new Error(container.textContent);
-      if (container.querySelector("details code")?.textContent !== "graph TD; A-->B") throw new Error("源码未保留");
+      if (container.querySelector("details,summary,pre")) throw new Error("正文中残留源码区");
+      const copy = container.querySelector("figure button.diagram-copy");
+      if (copy?.getAttribute("aria-label") !== "复制图形源码") throw new Error("缺少悬浮复制入口");
+      copy.click(); await new Promise(resolve => setTimeout(resolve, 0));
+      if (copied !== "graph TD; A-->B" || copy.getAttribute("aria-label") !== "已复制") throw new Error("未复制图形源码");
       if (container.querySelector("script,foreignObject,image")) throw new Error("存在危险节点");
       await renderDiagrams(container);
       if (container.querySelectorAll("figure").length !== 1 || w.document.body.children.length !== 1) throw new Error("重复渲染或临时节点未清理");

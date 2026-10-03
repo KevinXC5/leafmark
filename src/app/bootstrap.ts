@@ -490,7 +490,8 @@ async function enrichReading(container: HTMLElement) {
       catch { image.alt = `${image.alt || "图片"}（本地资源未找到）`; image.removeAttribute("src"); }
     }));
   }
-  await renderDiagrams(container);
+  // 导出用的离屏容器不带交互控件。
+  await renderDiagrams(container, container === element("reading-view") ? { copyText } : {});
   for (const link of container.querySelectorAll<HTMLAnchorElement>("a[href]")) {
     const href = link.getAttribute("href")!;
     if (!/^(?:https?:|mailto:|tel:)/i.test(href)) continue;

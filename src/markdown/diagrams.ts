@@ -1,4 +1,5 @@
 import createDOMPurify from "dompurify";
+import { Check, Copy, createElement } from "lucide";
 import type { MermaidConfig } from "mermaid";
 
 export const DIAGRAM_LIMITS = Object.freeze({ characters: 12_000, lines: 200, tokens: 1_200, edges: 200 });
@@ -15,19 +16,45 @@ export function validateDiagramSource(source: string): string | null {
   return null;
 }
 
+/** 图形配色取自应用的纸色与墨色（见 src/app/style.css），节点、连线和标注与正文同一色调。 */
+export const DIAGRAM_PALETTES = Object.freeze({
+  light: Object.freeze({ paper: "#faf9f5", ink: "#47423c", heading: "#302e2b", node: "#f3e8dd", nodeEdge: "#d6b19a", line: "#9b8b7b", group: "#f4f0e8", groupEdge: "#e0d6c8", note: "#f1ebe3", noteEdge: "#dccdbd" }),
+  dark: Object.freeze({ paper: "#242527", ink: "#cbcdd3", heading: "#e8e9ec", node: "#343b44", nodeEdge: "#6c7c8d", line: "#9da7b3", group: "#2a2c30", groupEdge: "#43464d", note: "#2d2f33", noteEdge: "#4a4e56" }),
+});
+
 export function diagramConfig(root: HTMLElement): MermaidConfig {
   const theme = root.dataset.theme;
   const dark = theme === "dark" || ((theme === "auto" || !theme) && root.ownerDocument.defaultView?.matchMedia?.("(prefers-color-scheme: dark)").matches);
   return {
     startOnLoad: false,
     securityLevel: "strict",
-    theme: dark ? "dark" : "default",
+    // base 是 Mermaid 唯一可定制的主题，其余颜色由下列变量派生。
+    theme: "base",
+    themeVariables: diagramThemeVariables(dark ? "dark" : "light"),
     htmlLabels: false,
     flowchart: { htmlLabels: false },
     maxTextSize: DIAGRAM_LIMITS.characters,
     maxEdges: DIAGRAM_LIMITS.edges,
     suppressErrorRendering: true,
     fontFamily: "system-ui, sans-serif",
+  };
+}
+
+function diagramThemeVariables(mode: keyof typeof DIAGRAM_PALETTES): Record<string, string | boolean> {
+  const c = DIAGRAM_PALETTES[mode];
+  return {
+    darkMode: mode === "dark",
+    background: c.paper,
+    textColor: c.ink, titleColor: c.heading, lineColor: c.line,
+    primaryColor: c.node, primaryTextColor: c.ink, primaryBorderColor: c.nodeEdge,
+    secondaryColor: c.group, secondaryTextColor: c.ink, secondaryBorderColor: c.groupEdge,
+    tertiaryColor: c.group, tertiaryTextColor: c.ink, tertiaryBorderColor: c.groupEdge,
+    mainBkg: c.node, nodeBorder: c.nodeEdge, nodeTextColor: c.ink,
+    clusterBkg: c.group, clusterBorder: c.groupEdge, edgeLabelBackground: c.paper,
+    noteBkgColor: c.note, noteBorderColor: c.noteEdge, noteTextColor: c.ink,
+    actorBkg: c.node, actorBorder: c.nodeEdge, actorTextColor: c.ink, actorLineColor: c.line,
+    signalColor: c.line, signalTextColor: c.ink, labelBoxBkgColor: c.group, labelBoxBorderColor: c.groupEdge, labelTextColor: c.ink,
+    activationBkgColor: c.group, activationBorderColor: c.nodeEdge,
   };
 }
 
@@ -61,8 +88,33 @@ let serial = 0;
 let queue: Promise<void> = Promise.resolve();
 const pending = new WeakSet<HTMLElement>();
 
-/** 查找 Mermaid 代码块，按序动态加载、渲染并替换；失败保留源码供选择复制。 */
-export async function renderDiagrams(container: HTMLElement): Promise<void> {
+export interface DiagramOptions {
+  /** 提供后，图形右上角悬浮显示复制源码的图标；导出等静态场景不传。 */
+  copyText?: (text: string) => Promise<void>;
+}
+
+/** 悬浮在图形右上角的复制图标，正文中不常驻任何控件。 */
+function diagramCopyButton(doc: Document, source: string, copyText: NonNullable<DiagramOptions["copyText"]>): HTMLButtonElement {
+  const button = doc.createElement("button");
+  button.type = "button";
+  button.className = "diagram-copy";
+  const show = (label: string, icon: typeof Copy) => {
+    button.title = label; button.setAttribute("aria-label", label);
+    button.replaceChildren(createElement(icon, { width: 14, height: 14, "aria-hidden": "true" }));
+  };
+  show("复制图形源码", Copy);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  button.addEventListener("click", async () => {
+    clearTimeout(timer);
+    try { await copyText(source); show("已复制", Check); }
+    catch { show("复制失败，请切回编辑后手动复制", Copy); }
+    timer = setTimeout(() => show("复制图形源码", Copy), 1600);
+  });
+  return button;
+}
+
+/** 查找 Mermaid 代码块，按序动态加载、渲染并替换为图形；失败保留源码供选择复制。 */
+export async function renderDiagrams(container: HTMLElement, options: DiagramOptions = {}): Promise<void> {
   const blocks = [...container.querySelectorAll<HTMLElement>("pre code.language-mermaid")];
   const jobs: Promise<void>[] = [];
   for (const code of blocks) {
@@ -96,15 +148,8 @@ export async function renderDiagrams(container: HTMLElement): Promise<void> {
         const image = figure.querySelector("svg")!;
         image.style.maxWidth = "100%";
         image.style.height = "auto";
-        // 保留源码折叠区，便于选择复制；序列化正文也会保留 SVG 与源码。
-        const details = container.ownerDocument.createElement("details");
-        const summary = container.ownerDocument.createElement("summary");
-        summary.textContent = "图形源码（可选择复制）";
-        details.append(summary);
+        if (options.copyText) figure.append(diagramCopyButton(container.ownerDocument, source, options.copyText));
         pre.replaceWith(figure);
-        details.append(pre);
-        figure.append(details);
-        pre.dataset.diagramRendered = "true";
       } catch (error) {
         if (!container.contains(pre)) return;
         const message = container.ownerDocument.createElement("p");

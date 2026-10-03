@@ -94,6 +94,18 @@ test("顶层公式渲染原生 MathML，错误时保留安全源码", () => {
   expect(Boolean(bad.root.querySelector("img"))).toBe(false);
 });
 
+test("正文不常驻文字控件：工具栏只含图标按钮，公式和无语言代码块不加标签", () => {
+  const { root } = mount("$$\na+b\n$$\n\n```\nplain\n```\n\n```js\nconst a = 1;\n```");
+  const toolbars = [...root.querySelectorAll(".lm-block-toolbar")];
+  expect(toolbars).toHaveLength(3);
+  expect(toolbars.map(toolbar => toolbar.textContent)).toEqual(["", "", "js"]);
+  for (const toolbar of toolbars) {
+    const buttons = [...toolbar.querySelectorAll("button")];
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) { expect(button.textContent).toBe(""); expect(Boolean(button.querySelector("svg"))).toBe(true); expect(button.title).not.toBe(""); }
+  }
+});
+
 test("未知语言安全退回纯文本，Mermaid 暂显示可编辑代码", () => {
   const { root } = mount("```unknown\n<img src=x onerror=alert(1)>\n```\n\n```mermaid\ngraph TD; A-->B\n```");
   expect(root.querySelectorAll(".lm-code-preview")).toHaveLength(2);

@@ -50,6 +50,11 @@ func prepareVerification(files *Files) {
 	if err := os.WriteFile(verificationPath, raw, 0644); err != nil {
 		panic(err)
 	}
+	if mode := siteShotMode(); mode != "" {
+		if verificationPath, err = prepareSiteShot(root, mode); err != nil {
+			panic(err)
+		}
+	}
 	if _, err := files.store.Load(verificationPath); err != nil {
 		panic(err)
 	}
@@ -95,6 +100,15 @@ func verifyNative(win *mygo.Window, files *Files) {
 	}
 	if err := wait("Boolean(window.leafmarkVerification && window.leafmarkVerification.document().path)"); err != nil {
 		fail(err)
+		return
+	}
+	if mode := siteShotMode(); mode != "" {
+		if err := captureSiteShots(win, eval, mode); err != nil {
+			fmt.Fprintln(os.Stderr, "官网截图失败：", err)
+			mygo.App.Exit(1)
+			return
+		}
+		mygo.App.Exit(0)
 		return
 	}
 	result, err := eval(`const heading = document.querySelector('.md-h1')?.textContent; const bold = document.querySelector('.md-strong')?.textContent; const tasks = document.querySelectorAll('.task-box').length; if (!heading?.includes('最小功能验证') || bold !== '加粗文字' || tasks !== 2) throw Error('初始 Markdown 排版不匹配'); return {heading,bold,tasks,native:window.mygo.platform};`)

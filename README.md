@@ -94,6 +94,7 @@
 | `bun run check` | 类型检查、前端测试和 Go 测试 |
 | `bun run check:release` | 在 `check` 之上增加竞态检测、`go vet` 和验证构建标签 |
 | `bun run verify:native` | 在真实 macOS WKWebView 中自动验收并截图，结果写入 `verification/` |
+| `bun run shots:site` | 用示例文档在真实 macOS 窗口中重新截取官网的四张应用截图 |
 | `bun run build:local` | 构建当前系统与架构的应用，产物位于 `build/<平台>-<架构>/` |
 | `bun run build -- -platform …` | 发布构建，例如 `darwin/universal,windows/amd64,windows/arm64` |
 | `bun run preview:export` | 生成单文件离线界面预览 `Leafmark-preview.html` |
@@ -169,7 +170,7 @@ python3 -m http.server 4173 -d site
 ```
 
 - 版本号和安装包直链在浏览器中从最新 Release 读取，发布新版本后无需修改官网；安装包文件名需保持 `darwin-arm64.dmg`、`windows-amd64.exe` 这类结尾。
-- `site/assets/img/app-*.webp` 是应用窗口内容在 1280×820、二倍像素密度下的截图，界面改版后重新截取；左上角的窗口控制按钮由样式补画。
+- `site/assets/img/app-*.webp` 是应用窗口内容在 1280×820、二倍像素密度下的截图，左上角的窗口控制按钮由样式补画。界面改版后运行 `bun run shots:site` 重新截取：它在真实 macOS 窗口中打开 `tests/fixtures/samples/` 下的示例文档（`山中来信.md` 截原位编辑，`叶脉笔记.md` 截阅读模式），浅色、深色各截一张并转为 WebP，需要本机装有 `cwebp`。
 
 ## 许可证
 

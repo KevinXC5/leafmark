@@ -4,23 +4,35 @@
   border-radius: var(--control-radius);
   background: var(--code-surface, var(--surface));
   color: var(--code-ink, var(--ink));
+  position: relative;
   overflow: hidden;
 }
 
+/* 工具栏悬浮在块的右上角，仅在悬浮、键盘聚焦或有状态提示时出现，不占正文高度。 */
 .cm-editor .lm-block-toolbar {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  right: 8px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 18px 0;
+  gap: 2px;
+  max-width: calc(100% - 16px);
+  padding: 2px;
   font: 11px/20px "Inter", sans-serif;
   color: var(--code-muted, var(--muted));
-  flex-wrap: wrap;
+  background: var(--code-surface, var(--surface));
+  border-radius: 7px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s;
 }
+.cm-editor .lm-block-preview:hover .lm-block-toolbar,
+.cm-editor .lm-block-preview:focus-within .lm-block-toolbar,
+.cm-editor .lm-block-toolbar:has(.lm-block-status:not(:empty)) { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .cm-editor .lm-block-toolbar { opacity: 1; pointer-events: auto; } }
 
-.cm-editor .lm-block-language {
-  margin-right: auto;
-  font-weight: 400;
-}
+.cm-editor .lm-block-language { padding: 0 6px; font-weight: 400; }
 
 :root[data-theme="dark"] .lm-block-language { font-family: var(--mono); }
 
@@ -28,41 +40,25 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 20px;
-  padding: 0 5px;
-  font: inherit;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   color: inherit;
   background: transparent;
   border: 0;
-  border-radius: 3px;
+  border-radius: 5px;
   cursor: pointer;
 }
-
-/* 复制保留原生按钮的可访问名称，仅将视觉呈现收敛为 13px 图标。 */
-.cm-editor .lm-block-toolbar button[aria-label^="复制"] {
-  width: 20px;
-  padding: 0;
-  font-size: 0;
-}
-.cm-editor .lm-block-toolbar button[aria-label^="复制"]::before {
-  content: "";
-  width: 13px;
-  height: 13px;
-  background: currentColor;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-.cm-editor .lm-block-toolbar button[aria-label^="编辑"] { opacity: 0; }
-.cm-editor .lm-block-preview:hover button[aria-label^="编辑"],
-.cm-editor .lm-block-preview:focus-within button[aria-label^="编辑"] { opacity: 1; }
+.cm-editor .lm-block-toolbar button svg { width: 13px; height: 13px; }
 .cm-editor .lm-block-toolbar button:hover { background: var(--surface); color: var(--ink); }
 .cm-editor .lm-block-toolbar button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-@media (hover: none) { .cm-editor .lm-block-toolbar button[aria-label^="编辑"] { opacity: 1; } }
 
-.cm-editor .lm-block-status { white-space: normal; }
-.cm-editor .lm-block-content { padding: 9px 18px 16px; overflow-x: auto; }
+.cm-editor .lm-block-status { padding: 0 4px; white-space: normal; }
+.cm-editor .lm-block-status:empty { display: none; }
+.cm-editor .lm-block-content { padding: 14px 18px; overflow-x: auto; }
 .cm-editor .lm-block-content pre {
   margin: 0;
   white-space: pre;

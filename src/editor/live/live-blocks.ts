@@ -3,6 +3,7 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemir
 import { parser, GFM } from "@lezer/markdown";
 import hljs from "highlight.js/lib/common";
 import katex from "katex";
+import { Copy, createElement, Pencil } from "lucide";
 import { liveBlockRanges } from "./live-block-ranges";
 import { parseWikiReference } from "../../markdown/obsidian-syntax";
 import "./live-blocks.css";
@@ -132,13 +133,12 @@ class BlockPreview extends WidgetType {
     wrapper.className = `lm-block-preview ${this.block.math ? "lm-math-preview" : "lm-code-preview"}`;
     const toolbar = doc.createElement("div");
     toolbar.className = "lm-block-toolbar";
-    const label = doc.createElement("span");
-    label.className = "lm-block-language";
-    label.textContent = this.block.math ? "公式" : this.block.language || "纯文本";
+    const icon = (button: HTMLButtonElement, node: typeof Copy, label: string) => {
+      button.type = "button"; button.title = label; button.setAttribute("aria-label", label);
+      button.append(createElement(node, { width: 13, height: 13, "aria-hidden": "true" }));
+    };
     const edit = doc.createElement("button");
-    edit.type = "button";
-    edit.textContent = "编辑";
-    edit.setAttribute("aria-label", this.block.math ? "编辑公式源码" : "编辑代码源码");
+    icon(edit, Pencil, this.block.math ? "编辑公式源码" : "编辑代码源码");
     const reveal = () => {
       if (removedWidgets.has(wrapper)) return;
       const anchor = view.state.doc.lineAt(this.block.from).to + 1;
@@ -147,9 +147,7 @@ class BlockPreview extends WidgetType {
     };
     edit.addEventListener("click", reveal);
     const copy = doc.createElement("button");
-    copy.type = "button";
-    copy.textContent = "复制";
-    copy.setAttribute("aria-label", this.block.math ? "复制公式源码" : "复制代码");
+    icon(copy, Copy, this.block.math ? "复制公式源码" : "复制代码");
     const status = doc.createElement("span");
     status.className = "lm-block-status";
     status.setAttribute("role", "status");
@@ -171,7 +169,14 @@ class BlockPreview extends WidgetType {
     });
     // 控件点击不改变编辑器选区，复制时不会意外切回源码。
     toolbar.addEventListener("mousedown", event => event.preventDefault());
-    toolbar.append(label, status, copy, edit);
+    // 语言名来自围栏信息串，只随悬浮工具栏出现；公式和纯文本不加标签。
+    if (!this.block.math && this.block.language) {
+      const label = doc.createElement("span");
+      label.className = "lm-block-language";
+      label.textContent = this.block.language;
+      toolbar.append(label);
+    }
+    toolbar.append(status, copy, edit);
     const content = doc.createElement("div");
     content.className = "lm-block-content";
     content.addEventListener("dblclick", reveal);
