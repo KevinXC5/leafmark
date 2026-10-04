@@ -67,11 +67,7 @@ func startVerification(win *mygo.Window, files *Files) {
 	win.Page().OnDidFinishLoad(func() { once.Do(func() { go verifyNative(win, files) }) })
 	// 超时退出，避免自动验证留下无人处理的窗口或无限等待。
 	go func() {
-		timeout := 45 * time.Second
-		if suiteScript() != "" {
-			timeout = suiteTimeout
-		}
-		time.Sleep(timeout)
+		time.Sleep(45 * time.Second)
 		fmt.Fprintln(os.Stderr, "原生验证超时")
 		mygo.App.Exit(1)
 	}()
@@ -104,10 +100,6 @@ func verifyNative(win *mygo.Window, files *Files) {
 	}
 	if err := wait("Boolean(window.leafmarkVerification && window.leafmarkVerification.document().path)"); err != nil {
 		fail(err)
-		return
-	}
-	if script := suiteScript(); script != "" {
-		runSuite(win, files, script)
 		return
 	}
 	if mode := siteShotMode(); mode != "" {

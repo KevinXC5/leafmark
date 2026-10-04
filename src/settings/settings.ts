@@ -1,4 +1,5 @@
 import "./settings.css";
+import { renderMarkdown } from "../markdown/render-markdown";
 import { createElement, SquarePen, Sun, Command, SlidersHorizontal, ChevronRight, Check, X, Monitor } from "lucide";
 
 export type Settings = {
@@ -85,6 +86,57 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", tex
   element.className = className;
   if (text !== undefined) element.textContent = text;
   return element;
+}
+
+type UpdateStatus = Awaited<ReturnType<NonNullable<SettingsOptions["updates"]>["status"]>>;
+let activeUpdateDialog: HTMLDialogElement | null = null;
+
+/** 自动与手动检查共用弹窗；远端 Markdown 经过现有渲染器的安全过滤。 */
+export function openUpdateDialog(status: UpdateStatus, install: () => Promise<void>, onClose?: () => void): HTMLDialogElement {
+  if (activeUpdateDialog?.isConnected) return activeUpdateDialog;
+  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const dialog = node("dialog", "settings-update-dialog");
+  activeUpdateDialog = dialog;
+  const title = node("h2", "", `发现新版本 ${status.available}`);
+  title.id = "leafmark-update-title"; dialog.setAttribute("aria-labelledby", title.id);
+  const notes = node("div", "settings-update-log");
+  notes.innerHTML = renderMarkdown(status.notes.trim() || "此版本未提供更新日志。");
+  notes.tabIndex = 0; notes.setAttribute("role", "region"); notes.setAttribute("aria-label", "更新日志");
+  const hint = node("p", "", "升级后下次启动生效，不会关闭当前文档。请保存文档后再退出应用。");
+  hint.setAttribute("role", "status");
+  const actions = node("div", "dialog-actions");
+  const cancel = node("button", "", "取消"); cancel.type = "button";
+  const confirm = node("button", "primary", "确定升级"); confirm.type = "button";
+  actions.append(cancel, confirm);
+  dialog.append(title, node("p", "", `当前版本：${status.version || "开发版"}`), node("h3", "", "更新日志"), notes, hint, actions);
+  cancel.onclick = () => dialog.close();
+  confirm.onclick = async () => {
+    if (confirm.disabled) return;
+    confirm.disabled = true; cancel.disabled = true;
+    hint.textContent = "正在下载并安装更新，请稍候…";
+    try {
+      await install();
+      hint.textContent = "更新已安装，下次启动生效。请先保存文档后再关闭应用。";
+      confirm.hidden = true; cancel.textContent = "关闭";
+    } catch (error) {
+      hint.textContent = error instanceof Error ? error.message : String(error);
+      confirm.disabled = false;
+    } finally { cancel.disabled = false; }
+  };
+  dialog.addEventListener("cancel", event => { if (cancel.disabled) event.preventDefault(); });
+  dialog.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      event.preventDefault(); event.stopPropagation();
+      if (!cancel.disabled) dialog.close();
+    } else if (event.metaKey || event.ctrlKey) { event.preventDefault(); event.stopPropagation(); }
+  }, true);
+  dialog.addEventListener("close", () => {
+    dialog.remove(); activeUpdateDialog = null;
+    if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+    onClose?.();
+  }, { once: true });
+  document.body.append(dialog); dialog.showModal(); cancel.focus();
+  return dialog;
 }
 
 /** 变更即保存并回传快照；编辑器重配置与两秒自动保存由集成方执行。 */
@@ -336,38 +388,14 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
         };
         const showUpdate = () => {
           if (!page.isConnected || !latest?.available || latest.installed || updateDialog?.open) return;
-          const dialog = node("dialog", "settings-update-dialog"); updateDialog = dialog;
-          const title = node("h2", "", `发现新版本 ${latest.available}`); title.id = `${prefix}-update-title`;
-          dialog.setAttribute("aria-labelledby", title.id);
-          const summary = node("p", "", `当前版本：${latest.version || "开发版"}`);
-          const notesTitle = node("h3", "", "更新日志");
-          // 远端日志仅作为文本展示，保留换行，不执行其中的 HTML。
-          const notes = node("div", "settings-update-log", latest.notes.trim() || "此版本未提供更新日志。");
-          notes.tabIndex = 0; notes.setAttribute("role", "region"); notes.setAttribute("aria-label", "更新日志");
-          const hint = node("p", "", "升级后下次启动生效，不会关闭当前文档。请保存文档后再退出应用。");
-          const actions = node("div", "dialog-actions");
-          const cancel = node("button", "", "取消"); cancel.type = "button";
-          const confirm = node("button", "primary", "确定升级"); confirm.type = "button";
-          actions.append(cancel, confirm); dialog.append(title, summary, notesTitle, notes, hint, actions);
-          cancel.addEventListener("click", () => dialog.close());
-          confirm.addEventListener("click", async () => {
-            if (confirm.disabled) return;
-            confirm.disabled = true;
-            dialog.close();
-            check.disabled = true; install.disabled = true; message.textContent = "正在下载并安装更新，请稍候…";
+          updateDialog = openUpdateDialog(latest, async () => {
+            check.disabled = true; install.disabled = true;
             try { render(await updates.install()); }
-            catch (error) { message.textContent = error instanceof Error ? error.message : String(error); check.disabled = false; install.disabled = false; }
+            catch (error) { check.disabled = false; install.disabled = false; throw error; }
+          }, () => {
+            updateDialog = null;
+            if (page.isConnected && !install.hidden) install.focus({ preventScroll: true });
           });
-          dialog.addEventListener("keydown", event => {
-            if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dialog.close(); }
-            else if (event.metaKey || event.ctrlKey) { event.preventDefault(); event.stopPropagation(); }
-          }, true);
-          dialog.addEventListener("close", () => {
-            dialog.remove(); if (updateDialog === dialog) updateDialog = null;
-            if (page.isConnected) install.focus({ preventScroll: true });
-          }, { once: true });
-          // 放在设置页之外，避免 Escape 被设置页的捕获监听器当作返回书写。
-          document.body.append(dialog); dialog.showModal(); cancel.focus();
         };
         check.disabled = true;
         void updates.status().then(render).catch(() => { message.textContent = "无法读取更新状态，请重新打开设置。"; });

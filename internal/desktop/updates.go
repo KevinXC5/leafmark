@@ -9,6 +9,9 @@ import (
 	"github.com/egoist/mygo"
 )
 
+// UpdateAvailable 通知页面展示可用版本的更新日志与升级确认。
+var UpdateAvailable = mygo.NewEvent[UpdateStatus]("updates:available")
+
 // Updates 将版本检查与签名安装交给 MyGo，界面只接收明确的更新状态。
 type Updates struct {
 	mu        sync.Mutex
@@ -135,16 +138,7 @@ func (u *Updates) start() {
 		for {
 			status, err := u.Check(context.Background())
 			if err == nil && status.Available != "" && !status.Installed {
-				res, err := mygo.Dialog.Message(mygo.MessageOptions{
-					Type: mygo.MessageInfo, Message: "Leafmark " + status.Available + " 可供更新",
-					Detail:  "当前版本：" + status.Version + "\n升级后下次启动生效，不会关闭当前文档。\n\n更新日志\n" + status.Notes,
-					Buttons: []string{"确定升级", "取消"}, DefaultButton: 1, CancelButton: 1,
-				})
-				if err == nil && res.Button == 0 {
-					if _, err := u.Install(context.Background()); err != nil {
-						mygo.Dialog.Error("更新未完成", err.Error())
-					}
-				}
+				_ = UpdateAvailable.Broadcast(status)
 			}
 			// 检查失败时保持安静，手动检查入口可以随时重试。
 			timer.Reset(24 * time.Hour)

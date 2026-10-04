@@ -15,7 +15,7 @@ import { GFM } from "@lezer/markdown";
 import { search, searchKeymap, openSearchPanel } from "@codemirror/search";
 import { applyFormat } from "../editor/editor-actions";
 import { renderMarkdown, exportHTML } from "../markdown/render-markdown";
-import { loadSettings, saveSettings, openSettings, editorFonts, readingWidths, type Settings } from "../settings/settings";
+import { loadSettings, saveSettings, openSettings, openUpdateDialog, editorFonts, readingWidths, type Settings } from "../settings/settings";
 import { openTableEditor } from "../editor/dialogs/table-editor";
 import { openLinkDialog, openImageDialog } from "../editor/dialogs/insert-dialogs";
 import { appTemplate } from "./app-template";
@@ -635,6 +635,9 @@ element("format-menu-toggle").onclick = () => showMenu(element("format-menu-togg
 ]);
 element("find-toggle").onclick = () => { if (readingMode) toggleReading(); openSearchPanel(editor); };
 element("reading-toggle").onclick = toggleReading;
+if (native) events.updatesAvailable.on(status => {
+  openUpdateDialog(status, async () => { await Updates.install(); });
+});
 element("settings-toggle").onclick = () => openSettings(settings, applySettings, {
   onCustomizeShortcuts: () => openShortcutSettings(applyShortcuts),
   shortcuts: Object.entries(shortcuts).map(([label, keys]) => ({ label: ({save:"保存",saveAs:"另存为",open:"打开文件",new:"新建文档",close:"关闭标签",find:"查找替换",bold:"加粗",italic:"斜体",link:"链接",reading:"阅读模式",settings:"设置"} as Record<string,string>)[label] ?? label, keys })),
@@ -663,6 +666,7 @@ if (import.meta.env.MODE === "verification") {
   Object.assign(window, { leafmarkVerification: {
     editor, document: () => ({ ...session.note }), flush: session.flush,
     undo: () => undo(editor), redo: () => redo(editor),
+    openUpdateDialog,
     openSettings: (options: Parameters<typeof openSettings>[2]) => openSettings(settings, applySettings, options),
   } });
 }

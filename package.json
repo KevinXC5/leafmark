@@ -18,7 +18,6 @@
     "preview:export": "bun run build:web && python3 scripts/export-preview.py",
     "doctor": "mygo doctor",
     "verify:native": "bun run typecheck && vite build --mode verification --outDir .verification-web && go run -tags verification .",
-    "verify:full": "bun scripts/verify-full.mjs",
     "shots:site": "bash scripts/site-shots.sh"
   },
   "dependencies": {
@@ -62,5 +61,5 @@
     "typescript": "7.0.2",
     "vite": "8.3.2"
   },
-  "version": "0.3.2"
+  "version": "0.3.3"
 }

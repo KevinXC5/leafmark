@@ -214,4 +214,6 @@ export const Updates = {
 export const events = {
   /** OpenRequested 通知页面有系统交给应用的文档等待打开，载荷为排队数量。 */
   filesOpenRequested: event<number>("files:open-requested"),
+  /** UpdateAvailable 通知页面展示可用版本的更新日志与升级确认。 */
+  updatesAvailable: event<UpdateStatus>("updates:available"),
 } as const;
