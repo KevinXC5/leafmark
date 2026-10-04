@@ -147,7 +147,8 @@ leafmark/
 
 - 前端测试覆盖编辑、渲染安全、表格、会话、草稿恢复、设置与文件导航；Go 测试覆盖文档状态、编码、文件操作、路径授权与图片处理。
 - 原生验证覆盖中文与 emoji 输入、撤销重做、磁盘保存、多标签草稿、自动保存、工作区、相对图片和外部修改检测。
-- 以下内容需人工验收：输入法组合输入、系统打印、原生文件选择框，以及 Windows 实机运行。
+- `.github/workflows/windows.yml` 在 Windows runner 上运行 `check:release` 与 `verify:native`，保存 WebView2 原生断言结果和截图；推送 main、PR、手动触发及版本发布均运行此检查。
+- 以下内容需人工验收：输入法组合输入、系统打印、原生文件选择框、安装与文件关联、真实拖放，以及升级后重启。Windows ARM64 的原生运行需在对应设备上验收。
 
 ### 发布
 
@@ -161,7 +162,7 @@ git push origin main v0.2.0
 `.github/workflows/release.yml` 的流程：
 
 1. **准备**：核对标签与版本号，用 DeepSeek 把上一版本以来的提交说明整理成更新日志，创建发布草稿。
-2. **检查与构建**（并行）：运行 `check:release`；同时在 macOS 构建两个架构的 DMG，在 Ubuntu 构建两个架构的 Windows 安装程序，上传到草稿。
+2. **检查与构建**（并行）：在 macOS 与 Windows 运行 `check:release`，Windows 额外运行 WebView2 原生验收；同时在 macOS 构建两个架构的 DMG，在 Ubuntu 构建两个架构的 Windows 安装程序，上传到草稿。
 3. **发布**：检查与构建都通过后，核对更新清单、生成 `checksums.txt` 并公开发布。
 
 - 需要两个 Actions Secret：`DEEPSEEK_API_KEY` 和 `MYGO_UPDATER_PRIVATE_KEY`（更新包的 Ed25519 签名私钥，公钥在 `mygo.config.ts` 中）。

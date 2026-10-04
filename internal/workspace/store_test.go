@@ -133,7 +133,8 @@ func TestCreateOpenAndPersist(t *testing.T) {
 		t.Fatal("调用者修改了内部状态")
 	}
 	info, err := os.Stat(filepath.Join(data, "workspace.json"))
-	if err != nil || info.Mode().Perm() != 0600 {
+	// Windows 的权限位只表示只读属性，不支持 Unix 的 0600 权限。
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatalf("配置权限错误：%v", err)
 	}
 }
@@ -235,6 +236,10 @@ func TestAtomicHTMLAndRejectLinks(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "export.html")
 	write(t, path, "旧 HTML")
+	original, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := WriteHTML(path, "<!doctype html><p>中文</p>"); err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +248,7 @@ func TestAtomicHTMLAndRejectLinks(t *testing.T) {
 		t.Fatal("导出内容错误")
 	}
 	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0600 {
+	if info.Mode().Perm() != original.Mode().Perm() {
 		t.Fatal("导出未保留权限")
 	}
 	link := filepath.Join(dir, "link.html")

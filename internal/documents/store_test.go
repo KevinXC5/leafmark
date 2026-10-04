@@ -13,6 +13,10 @@ func TestUTF8RoundTripPreservesBOMAndLineEndings(t *testing.T) {
 	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
 		t.Fatal(err)
 	}
+	originalStat, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := NewStore("", "")
 	doc, err := s.Load(path)
 	if err != nil {
@@ -32,8 +36,11 @@ func TestUTF8RoundTripPreservesBOMAndLineEndings(t *testing.T) {
 	if string(raw) != original+"第二行\r\n" {
 		t.Fatalf("保存结果：%q", raw)
 	}
-	stat, _ := os.Stat(path)
-	if stat.Mode().Perm() != 0600 {
+	stat, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stat.Mode().Perm() != originalStat.Mode().Perm() {
 		t.Fatal("保存改变了原文件权限")
 	}
 	if s.Current().Dirty {

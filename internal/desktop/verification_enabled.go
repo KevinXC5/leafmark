@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -74,7 +75,13 @@ func startVerification(win *mygo.Window, files *Files) {
 }
 
 func verifyNative(win *mygo.Window, files *Files) {
-	results := map[string]any{"platform": "macOS WKWebView", "passed": false}
+	platform := runtime.GOOS
+	if platform == "darwin" {
+		platform = "macOS WKWebView"
+	} else if platform == "windows" {
+		platform = "Windows WebView2"
+	}
+	results := map[string]any{"platform": platform, "arch": runtime.GOARCH, "passed": false}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	eval := func(code string) (any, error) { return win.Page().EvalContext(ctx, code) }

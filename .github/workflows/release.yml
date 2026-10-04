@@ -122,6 +122,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check:release
 
+  windows-check:
+    needs: prepare
+    if: needs.prepare.outputs.published != 'true'
+    uses: ./.github/workflows/windows.yml
+
   # 构建与检查并行，安装包先上传到草稿；检查未通过时草稿不会公开。
   build:
     needs: prepare
@@ -176,7 +181,7 @@ jobs:
           PY
 
   publish:
-    needs: [prepare, check, build]
+    needs: [prepare, check, windows-check, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
