@@ -22,7 +22,7 @@
 - 并发、锁和文件生命周期变更运行相关包的 `go test -race`；发布前运行 `bun run check:release`，覆盖竞态、`go vet` 和验证构建标签。保留有效回归测试，尤其是渲染、安全转义、附件授权、路径边界、磁盘覆盖、撤销重做、多标签草稿及恢复测试；基准测试仅在调查性能时运行。
 - 应用布局、原位渲染、侧栏、多标签、保存及本地文件能力优先用 `bun run verify:native` 验收。它构建验证前端并运行 `go run -tags verification .`，通过 MyGo 的 `win.Page().EvalContext()`、`win.CapturePage()` 在真实 macOS WKWebView 中断言、截图并退出；数据位于 `.verification-data/` 和 `verification/`，不得修改用户笔记。
 - 验收须读取 `verification/native-results.json` 确认 `passed`，查看 `verification/native-window.png` 核对视觉。新界面行为补充针对性的原生断言；Markdown 问题用真实原文的只读副本检查源码、渲染结构和视觉，并说明不支持的语法。
-- 原生验证入口位于 `internal/desktop/verification_enabled.go`，正式构建由 `verification_disabled.go` 排除；前端入口仅在 Vite `verification` 模式启用。覆盖范围为 macOS WKWebView，不能据此宣称 Windows、原生文件对话框或输入法已验收，也不能将 Bun 测试或浏览器截图称为原生验证。
+- 原生验证入口位于 `internal/desktop/verification_enabled.go`，正式构建由 `verification_disabled.go` 排除；前端入口仅在 Vite `verification` 模式启用。原生验证按运行环境覆盖 macOS WKWebView 或 Windows WebView2，须核对结果中的 `platform` 与 `arch`；不能由 macOS 结果推断 Windows 已验收，也不能由 Windows amd64 结果推断 ARM64 已验收。原生文件对话框、输入法、安装、真实拖放与升级重启须单独验收，不能将 Bun 测试或浏览器截图称为原生验证。
 - `tests/fixtures/samples/` 的 `山中来信.md` 与 `叶脉笔记.md` 是统一的示例文档：需要完整文档做渲染测试、视觉核对或官网截图时使用它们，不另造示例。官网截图用 `bun run shots:site` 生成，修改示例文档或影响截图的界面后重新运行，并查看 `verification/site-shots/` 下的原图核对视觉。
 - `scripts/verify-browser.mjs` 仅按需检查网页预览、浏览器特有行为或原生入口难以定位的问题，调用前遵守 ego-browser Skill；不默认重复执行与原生验证相同的网页全量检查。
 

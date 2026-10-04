@@ -50,6 +50,24 @@ test("表格预览渲染单元格内的行内格式，图片只显示替代文�
   expect(cells[3]!.textContent).toContain("<b>x</b> a | b");
 });
 
+test("表格菜单移除时同步失焦不会重复删除，插行仍写入文档", () => {
+  const { root, view, dom } = mount("| A |\n| --- |\n| x |");
+  root.querySelector<HTMLButtonElement>(".lm-table-actions")!.click();
+  const menu = root.querySelector<HTMLElement>('[role="menu"]')!;
+  const remove = menu.remove.bind(menu);
+  let removals = 0;
+  // 模拟 WebView2 在移除聚焦节点过程中同步派发 focusout。
+  menu.remove = () => {
+    if (++removals > 1) throw new Error("菜单被重入删除");
+    menu.dispatchEvent(new dom.window.FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+    remove();
+  };
+  menu.querySelector<HTMLButtonElement>("button")!.click();
+  expect(removals).toBe(1);
+  expect(root.querySelector('[role="menu"]')).toBeNull();
+  expect(view.state.doc.toString()).toBe("| A |\n| --- |\n|  |\n| x |");
+});
+
 test("表格预览中的危险链接不生成可点击地址", () => {
   const { root } = mount("| A |\n| --- |\n| [x](javascript:alert(1)) |");
   expect(root.querySelector(".lm-table-preview a")).toBeNull();

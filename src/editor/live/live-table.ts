@@ -55,7 +55,10 @@ class TablePreview extends WidgetType {
     let activeRow = 0;
     let menu: HTMLElement | null = null;
     const closeMenu = (restoreFocus = false) => {
-      menu?.remove(); menu = null;
+      // WebView2 移除聚焦菜单时同步触发 focusout，先清空引用以免重入删除。
+      const closing = menu;
+      menu = null;
+      closing?.remove();
       wrapper.classList.remove("lm-table-menu-open");
       button.setAttribute("aria-expanded", "false");
       if (restoreFocus) button.focus({ preventScroll: true });
