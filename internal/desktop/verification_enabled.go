@@ -147,6 +147,36 @@ func verifyNative(win *mygo.Window, files *Files) {
 		return
 	}
 	results["softwareUpdates"] = result
+	result, err = eval(`const test=window.leafmarkVerification; let notify, complete, calls=0, restarts=0, unsubscribed=0; const status={version:'0.3.3',enabled:true,available:'0.3.4',notes:'# 问题修复\n\n- 打开文件更平稳。',installed:false}; const dialog=test.openUpdateDialog(status,()=>{calls++;return new Promise(resolve=>complete=resolve);},{onProgress:listener=>{notify=listener;return ()=>unsubscribed++;},restart:async()=>{restarts++;}}); const confirm=dialog.querySelector('.primary'), cancel=dialog.querySelector('.dialog-actions button'), progress=dialog.querySelector('progress'); if(!progress.hidden) throw Error('下载开始前进度条应隐藏'); confirm.click(); if(!confirm.disabled || !cancel.disabled || progress.hidden || progress.hasAttribute('value')) throw Error('下载开始状态错误'); confirm.click(); if(calls!==1) throw Error('重复发起安装'); notify({downloaded:45,total:100}); if(progress.value!==45 || !dialog.textContent.includes('45%')) throw Error('真实下载进度未显示'); const original=document.documentElement.dataset.theme; document.documentElement.dataset.theme='dark'; window.updateVerification={dialog,confirm,cancel,progress,complete,notify,get restarts(){return restarts;},get unsubscribed(){return unsubscribed;},original}; return {realProgress:true,duplicateInstallPrevented:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["updateDownload"] = result
+	if png, err := win.CapturePage(); err == nil {
+		os.WriteFile("verification/native-update-progress.png", png, 0644)
+	} else {
+		fail(err)
+		return
+	}
+	result, err = eval(`const state=window.updateVerification; state.notify({downloaded:100,total:100}); if(state.confirm.textContent!=='确定升级' || !state.confirm.disabled || !state.dialog.textContent.includes('正在校验并安装')) throw Error('下载完成提前允许重启'); state.complete(); await new Promise(r=>setTimeout(r,0)); if(state.progress.value!==100 || state.confirm.textContent!=='重启应用' || state.confirm.disabled || state.cancel.textContent!=='稍后') throw Error('安装完成状态错误'); state.confirm.click(); await new Promise(r=>setTimeout(r,0)); if(state.restarts!==1) throw Error('未调用重启接口'); return {installationWait:true,restartButton:true,restartCalled:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["updateInstalled"] = result
+	if png, err := win.CapturePage(); err == nil {
+		os.WriteFile("verification/native-update-installed.png", png, 0644)
+	} else {
+		fail(err)
+		return
+	}
+	result, err = eval(`const state=window.updateVerification; state.dialog.close(); await new Promise(r=>setTimeout(r,0)); if(state.unsubscribed!==1) throw Error('关闭弹窗未解绑进度事件'); document.documentElement.dataset.theme=state.original; let attempts=0; const dialog=window.leafmarkVerification.openUpdateDialog({version:'0.3.3',enabled:true,available:'0.3.4',notes:'',installed:false},async()=>{if(++attempts===1) throw Error('模拟下载失败');},{onProgress:()=>()=>{},restart:async()=>{throw Error('模拟重启失败');}}); const confirm=dialog.querySelector('.primary'), progress=dialog.querySelector('progress'); confirm.click(); await new Promise(r=>setTimeout(r,0)); if(confirm.disabled || !progress.hidden || !dialog.textContent.includes('模拟下载失败')) throw Error('安装失败未恢复重试'); confirm.click(); await new Promise(r=>setTimeout(r,0)); if(attempts!==2 || confirm.textContent!=='重启应用') throw Error('安装重试失败'); confirm.click(); await new Promise(r=>setTimeout(r,0)); if(confirm.disabled || confirm.textContent!=='重启应用' || !dialog.textContent.includes('模拟重启失败')) throw Error('重启失败无法重试'); dialog.close(); await new Promise(r=>setTimeout(r,0)); delete window.updateVerification; return {unsubscribe:true,installRetry:true,restartRetry:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["updateRetry"] = result
 	result, err = eval(`const tab=document.querySelector('.file-tab.active'); const sidebar=document.querySelector('.sidebar'); const rect=tab.getBoundingClientRect(); const radius=getComputedStyle(tab).borderTopLeftRadius; if(rect.top!==sidebar.getBoundingClientRect().top || rect.height!==36 || radius!=='10px') throw Error('标签顶部对齐、尺寸或方形圆角不匹配'); return {top:rect.top,height:rect.height,radius};`)
 	if err != nil {
 		fail(err)

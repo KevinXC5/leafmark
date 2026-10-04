@@ -45,7 +45,7 @@ func Run() {
 		})
 		installTapClickFix()
 		startVerification(win, files)
-		installCloseHandler(win, files)
+		updates.restartFn = installCloseHandler(win, files)
 		updates.start()
 	})
 	if err := mygo.App.Run(); err != nil {

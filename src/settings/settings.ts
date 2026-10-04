@@ -65,11 +65,17 @@ export function saveSettings(settings: Settings): void {
   try { localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(validateSettings(settings))); } catch { /* 保留会话内设置。 */ }
 }
 
+export type UpdateDownloadProgress = { downloaded: number; total: number };
+export type UpdateDialogOptions = {
+  restart: () => Promise<void>;
+  onProgress: (listener: (progress: UpdateDownloadProgress) => void) => () => void;
+};
+
 export type SettingsOptions = {
   onClearDrafts?: () => void | Promise<void>;
   onClearHistory?: () => void | Promise<void>;
   onCustomizeShortcuts?: () => void;
-  updates?: {
+  updates?: UpdateDialogOptions & {
     status: () => Promise<{ version: string; enabled: boolean; available: string; notes: string; installed: boolean }>;
     check: () => Promise<{ version: string; enabled: boolean; available: string; notes: string; installed: boolean }>;
     install: () => Promise<{ version: string; enabled: boolean; available: string; notes: string; installed: boolean }>;
@@ -92,7 +98,7 @@ type UpdateStatus = Awaited<ReturnType<NonNullable<SettingsOptions["updates"]>["
 let activeUpdateDialog: HTMLDialogElement | null = null;
 
 /** 自动与手动检查共用弹窗；远端 Markdown 经过现有渲染器的安全过滤。 */
-export function openUpdateDialog(status: UpdateStatus, install: () => Promise<void>, onClose?: () => void): HTMLDialogElement {
+export function openUpdateDialog(status: UpdateStatus, install: () => Promise<void>, options: UpdateDialogOptions, onClose?: () => void): HTMLDialogElement {
   if (activeUpdateDialog?.isConnected) return activeUpdateDialog;
   const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const dialog = node("dialog", "settings-update-dialog");
@@ -102,26 +108,57 @@ export function openUpdateDialog(status: UpdateStatus, install: () => Promise<vo
   const notes = node("div", "settings-update-log");
   notes.innerHTML = renderMarkdown(status.notes.trim() || "此版本未提供更新日志。");
   notes.tabIndex = 0; notes.setAttribute("role", "region"); notes.setAttribute("aria-label", "更新日志");
-  const hint = node("p", "", "升级后下次启动生效，不会关闭当前文档。请保存文档后再退出应用。");
+  const progress = node("progress", "settings-update-progress");
+  progress.max = 100; progress.hidden = true;
+  progress.setAttribute("aria-label", "更新下载进度");
+  let installed = status.installed;
+  let downloading = false;
+  const hint = node("p", "", "安装完成后可重启应用以使用新版本，重启前会检查未保存的文档。");
   hint.setAttribute("role", "status");
   const actions = node("div", "dialog-actions");
   const cancel = node("button", "", "取消"); cancel.type = "button";
   const confirm = node("button", "primary", "确定升级"); confirm.type = "button";
   actions.append(cancel, confirm);
-  dialog.append(title, node("p", "", `当前版本：${status.version || "开发版"}`), node("h3", "", "更新日志"), notes, hint, actions);
+  dialog.append(title, node("p", "", `当前版本：${status.version || "开发版"}`), node("h3", "", "更新日志"), notes, hint, progress, actions);
+  const showInstalled = () => {
+    installed = true;
+    progress.hidden = false; progress.value = 100;
+    hint.textContent = "更新已安装，重启应用即可使用新版本。";
+    confirm.textContent = "重启应用"; cancel.textContent = "稍后";
+  };
+  if (installed) showInstalled();
+  // 下载结束并不代表安装成功；此时保留满格进度，等待签名校验及替换完成。
+  const offProgress = options.onProgress(({ downloaded, total }) => {
+    if (!downloading) return;
+    if (total > 0) {
+      const percent = Math.max(0, Math.min(100, downloaded / total * 100));
+      progress.value = percent;
+      hint.textContent = downloaded >= total ? "下载完成，正在校验并安装更新…" : `正在下载更新… ${Math.floor(percent)}%`;
+    } else {
+      progress.removeAttribute("value");
+      hint.textContent = "正在下载更新，请稍候…";
+    }
+  });
   cancel.onclick = () => dialog.close();
   confirm.onclick = async () => {
     if (confirm.disabled) return;
     confirm.disabled = true; cancel.disabled = true;
-    hint.textContent = "正在下载并安装更新，请稍候…";
     try {
-      await install();
-      hint.textContent = "更新已安装，下次启动生效。请先保存文档后再关闭应用。";
-      confirm.hidden = true; cancel.textContent = "关闭";
+      if (installed) {
+        await options.restart();
+      } else {
+        downloading = true;
+        progress.hidden = false; progress.removeAttribute("value");
+        hint.textContent = "正在连接下载，请稍候…";
+        await install();
+        showInstalled();
+      }
     } catch (error) {
       hint.textContent = error instanceof Error ? error.message : String(error);
-      confirm.disabled = false;
-    } finally { cancel.disabled = false; }
+      if (!installed) progress.hidden = true;
+    } finally {
+      downloading = false; confirm.disabled = false; cancel.disabled = false;
+    }
   };
   dialog.addEventListener("cancel", event => { if (cancel.disabled) event.preventDefault(); });
   dialog.addEventListener("keydown", event => {
@@ -131,6 +168,7 @@ export function openUpdateDialog(status: UpdateStatus, install: () => Promise<vo
     } else if (event.metaKey || event.ctrlKey) { event.preventDefault(); event.stopPropagation(); }
   }, true);
   dialog.addEventListener("close", () => {
+    offProgress();
     dialog.remove(); activeUpdateDialog = null;
     if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     onClose?.();
@@ -380,19 +418,20 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
           latest = value;
           version.textContent = `当前版本：${value.version || "开发版"}`;
           check.disabled = !value.enabled || value.installed;
-          install.hidden = !value.available || value.installed;
+          install.hidden = !value.available;
+          install.textContent = value.installed ? "重启应用" : "查看更新";
           install.disabled = false;
           message.textContent = value.installed ? "更新已安装，下次启动生效。请先保存文档后再关闭应用。"
             : !value.enabled ? "开发版或安装目录不可写时无法自动更新。"
             : value.available ? `新版本 ${value.available} 可供安装。` : "";
         };
         const showUpdate = () => {
-          if (!page.isConnected || !latest?.available || latest.installed || updateDialog?.open) return;
+          if (!page.isConnected || !latest?.available || updateDialog?.open) return;
           updateDialog = openUpdateDialog(latest, async () => {
             check.disabled = true; install.disabled = true;
             try { render(await updates.install()); }
             catch (error) { check.disabled = false; install.disabled = false; throw error; }
-          }, () => {
+          }, updates, () => {
             updateDialog = null;
             if (page.isConnected && !install.hidden) install.focus({ preventScroll: true });
           });

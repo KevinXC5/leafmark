@@ -640,13 +640,14 @@ element("format-menu-toggle").onclick = () => showMenu(element("format-menu-togg
 ]);
 element("find-toggle").onclick = () => { if (readingMode) toggleReading(); openSearchPanel(editor); };
 element("reading-toggle").onclick = toggleReading;
+const updateOptions = { ...Updates, onProgress: events.updatesProgress.on };
 if (native) events.updatesAvailable.on(status => {
-  openUpdateDialog(status, async () => { await Updates.install(); });
+  openUpdateDialog(status, async () => { await Updates.install(); }, updateOptions);
 });
 element("settings-toggle").onclick = () => openSettings(settings, applySettings, {
   onCustomizeShortcuts: () => openShortcutSettings(applyShortcuts),
   shortcuts: Object.entries(shortcuts).map(([label, keys]) => ({ label: ({save:"保存",saveAs:"另存为",open:"打开文件",new:"新建文档",close:"关闭标签",find:"查找替换",bold:"加粗",italic:"斜体",link:"链接",reading:"阅读模式",settings:"设置"} as Record<string,string>)[label] ?? label, keys })),
-  updates: native ? Updates : undefined,
+  updates: native ? updateOptions : undefined,
   onClearDrafts: session.clearRecovered,
   onClearHistory: native ? async () => { await Workspace.clearRecent(); await refreshFolder(); } : undefined,
 });

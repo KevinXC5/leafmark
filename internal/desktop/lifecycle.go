@@ -10,15 +10,28 @@ import (
 )
 
 // installCloseHandler 在关闭前同步所有草稿，并处理未保存文档。
-func installCloseHandler(win *mygo.Window, files *Files) {
-	var prompting atomic.Bool
+func installCloseHandler(win *mygo.Window, files *Files) func() {
+	var prompting, restarting, approved atomic.Bool
+	finish := func() {
+		if restarting.Swap(false) {
+			// 校验完成后让 Relaunch 执行关闭，避免最后一个窗口先触发普通退出。
+			approved.Store(true)
+			mygo.App.Relaunch()
+		} else {
+			win.Destroy()
+		}
+	}
 	win.OnClose(func(e *mygo.CloseEvent) {
+		if approved.Swap(false) {
+			return
+		}
 		e.PreventDefault()
 		if !prompting.CompareAndSwap(false, true) {
 			return
 		}
 		go func() {
 			defer prompting.Store(false)
+			defer restarting.Store(false)
 			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
 			// 先锁住正文并等待前端草稿落到后端，关闭检查读取完整快照。
@@ -35,7 +48,7 @@ func installCloseHandler(win *mygo.Window, files *Files) {
 				}
 			}
 			if len(dirty) == 0 {
-				win.Destroy()
+				finish()
 				return
 			}
 			res, err := mygo.Dialog.Message(mygo.MessageOptions{
@@ -63,11 +76,17 @@ func installCloseHandler(win *mygo.Window, files *Files) {
 					}
 				}
 				win.Page().Eval("window.leafmarkLifecycle.discardRecovery();")
-				win.Destroy()
+				finish()
 			case 1:
 				win.Page().Eval("window.leafmarkLifecycle.discardRecovery();")
-				win.Destroy()
+				finish()
 			}
 		}()
 	})
+	return func() {
+		if prompting.Load() || !restarting.CompareAndSwap(false, true) {
+			return
+		}
+		win.Close()
+	}
 }

@@ -59,6 +59,11 @@ export interface State {
   recent: RecentDocument[];
 }
 
+export interface UpdateDownloadProgress {
+  downloaded: number;
+  total: number;
+}
+
 export interface UpdateStatus {
   version: string;
   enabled: boolean;
@@ -203,6 +208,10 @@ export const Updates = {
   install(): Promise<UpdateStatus> {
     return call("Updates.Install");
   },
+  /** Restart 仅允许安装成功后重启；桌面入口负责先完成文档关闭检查。 */
+  restart(): Promise<void> {
+    return call("Updates.Restart");
+  },
   status(): Promise<UpdateStatus> {
     return call("Updates.Status");
   },
@@ -216,4 +225,6 @@ export const events = {
   filesOpenRequested: event<number>("files:open-requested"),
   /** UpdateAvailable 通知页面展示可用版本的更新日志与升级确认。 */
   updatesAvailable: event<UpdateStatus>("updates:available"),
+  /** UpdateProgress 将真实下载字节数发送给更新弹窗。 */
+  updatesProgress: event<UpdateDownloadProgress>("updates:progress"),
 } as const;

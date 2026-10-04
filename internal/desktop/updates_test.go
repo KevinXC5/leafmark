@@ -18,7 +18,7 @@ func newTestUpdates() *Updates {
 		checkFn: func(context.Context) (*mygo.Update, error) {
 			return nil, errors.New("测试未配置检查依赖")
 		},
-		installFn: func(context.Context, *mygo.Update) error {
+		installFn: func(context.Context, *mygo.Update, func(int64, int64)) error {
 			return errors.New("测试未配置安装依赖")
 		},
 	}
@@ -66,7 +66,7 @@ func TestUpdatesRejectConcurrentOperations(t *testing.T) {
 					}
 					return up, block(ctx)
 				}
-				u.installFn = func(ctx context.Context, got *mygo.Update) error {
+				u.installFn = func(ctx context.Context, got *mygo.Update, _ func(int64, int64)) error {
 					if installCalls.Add(1) > 1 || active != "install" {
 						return errors.New("并发安装进入依赖")
 					}
@@ -170,7 +170,7 @@ func TestUpdatesInstallFailurePreservesPendingAndAllowsRetry(t *testing.T) {
 		t.Fatalf("准备更新失败：%v", err)
 	}
 	calls := 0
-	u.installFn = func(_ context.Context, got *mygo.Update) error {
+	u.installFn = func(_ context.Context, got *mygo.Update, _ func(int64, int64)) error {
 		calls++
 		if got != up {
 			t.Fatal("安装重试未使用原待安装更新")
@@ -205,7 +205,7 @@ func TestUpdatesInstalledPreventsRepeatedInstallAndCheck(t *testing.T) {
 		checkCalls++
 		return up, nil
 	}
-	u.installFn = func(context.Context, *mygo.Update) error {
+	u.installFn = func(context.Context, *mygo.Update, func(int64, int64)) error {
 		installCalls++
 		return nil
 	}
@@ -229,6 +229,34 @@ func TestUpdatesInstalledPreventsRepeatedInstallAndCheck(t *testing.T) {
 	requireUpdateStatus(t, u.Status(), want)
 	if checkCalls != 1 || installCalls != 1 {
 		t.Fatalf("安装后重复调用依赖：检查 %d 次，安装 %d 次", checkCalls, installCalls)
+	}
+}
+
+func TestUpdatesRestartRequiresInstalledUpdate(t *testing.T) {
+	u := newTestUpdates()
+	calls := 0
+	u.restartFn = func() { calls++ }
+	requireUpdateError(t, u.Restart(), "请先完成更新安装")
+	if calls != 0 {
+		t.Fatal("安装完成前调用了重启")
+	}
+	u.installed = true
+	if err := u.Restart(); err != nil || calls != 1 {
+		t.Fatalf("安装后未调用安全重启入口：%v，调用 %d 次", err, calls)
+	}
+}
+
+func TestUpdatesInstallReceivesProgressCallback(t *testing.T) {
+	u := newTestUpdates()
+	u.pending = &mygo.Update{Version: "1.1.0"}
+	u.installFn = func(_ context.Context, _ *mygo.Update, progress func(int64, int64)) error {
+		if progress == nil {
+			t.Fatal("安装未接入进度回调")
+		}
+		return nil
+	}
+	if _, err := u.Install(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

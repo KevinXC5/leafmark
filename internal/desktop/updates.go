@@ -12,6 +12,14 @@ import (
 // UpdateAvailable 通知页面展示可用版本的更新日志与升级确认。
 var UpdateAvailable = mygo.NewEvent[UpdateStatus]("updates:available")
 
+// UpdateProgress 将真实下载字节数发送给更新弹窗。
+var UpdateProgress = mygo.NewEvent[UpdateDownloadProgress]("updates:progress")
+
+type UpdateDownloadProgress struct {
+	Downloaded int64 `json:"downloaded"`
+	Total      int64 `json:"total"`
+}
+
 // Updates 将版本检查与签名安装交给 MyGo，界面只接收明确的更新状态。
 type Updates struct {
 	mu        sync.Mutex
@@ -23,7 +31,8 @@ type Updates struct {
 	versionFn func() string
 	enabledFn func() bool
 	checkFn   func(context.Context) (*mygo.Update, error)
-	installFn func(context.Context, *mygo.Update) error
+	installFn func(context.Context, *mygo.Update, func(int64, int64)) error
+	restartFn func()
 }
 
 func (u *Updates) version() string {
@@ -49,9 +58,28 @@ func (u *Updates) check(ctx context.Context) (*mygo.Update, error) {
 
 func (u *Updates) install(ctx context.Context, up *mygo.Update) error {
 	if u.installFn != nil {
-		return u.installFn(ctx, up)
+		return u.installFn(ctx, up, u.progress)
 	}
-	return up.Install(ctx, nil)
+	return up.Install(ctx, u.progress)
+}
+
+func (u *Updates) progress(downloaded, total int64) {
+	_ = UpdateProgress.Broadcast(UpdateDownloadProgress{Downloaded: downloaded, Total: total})
+}
+
+// Restart 仅允许安装成功后重启；桌面入口负责先完成文档关闭检查。
+func (u *Updates) Restart() error {
+	u.mu.Lock()
+	installed := u.installed
+	u.mu.Unlock()
+	if !installed {
+		return errors.New("请先完成更新安装")
+	}
+	if u.restartFn == nil {
+		return errors.New("当前窗口无法重启，请关闭应用后重新打开")
+	}
+	u.restartFn()
+	return nil
 }
 
 type UpdateStatus struct {
