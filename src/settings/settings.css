@@ -125,3 +125,8 @@
   .leafmark-settings .settings-segmented-theme button { padding: 8px 10px; }
 }
 @media (prefers-reduced-motion: reduce) { .leafmark-settings .settings-toggle::before { transition: none; } }
+/* 软件更新：版本与操作同一行，状态和更新说明另起一行，空内容不占位。 */
+.leafmark-settings .settings-update-actions { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.leafmark-settings .settings-group-body:has(.settings-update-note:not(:empty)) > .settings-row { border-bottom: 1px solid var(--settings-divider); }
+.leafmark-settings .settings-update-note { margin: 0; padding: 10px 0; }
+.leafmark-settings .settings-update-note:empty { display: none; }

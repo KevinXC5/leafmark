@@ -145,7 +145,7 @@ function runShortcut(action: ShortcutAction) {
     case "save": void perform(() => save(false)); break;
     case "saveAs": void perform(() => save(true)); break;
     case "open": void perform(open); break;
-    case "new": void perform(newNote); break;
+    case "new": createNote(); break;
     case "close": if (session.note.id) void perform(() => closeNote(session.note.id)); break;
     case "find": if (readingMode) toggleReading(); openSearchPanel(editor); break;
     case "bold": applyFormat(editor, "bold"); break;
@@ -351,10 +351,11 @@ async function open() {
 async function newNote() {
   await session.flush();
   loadNote(native ? await Files.new() : { id: crypto.randomUUID(), name: "未命名.md", path: "", content: "", dirty: false });
-  editor.focus();
 }
+// 操作期间正文处于锁定状态无法聚焦，等解锁后再把光标交给新文档。
+function createNote() { void perform(newNote).then(() => { if (!readingMode && session.note.id) editor.focus(); }); }
 element("save-file").addEventListener("click", () => void perform(() => save(false)));
-element("new-file").addEventListener("click", () => void perform(newNote));
+element("new-file").addEventListener("click", createNote);
 element("unsaved-dialog").addEventListener("cancel", () => { element<HTMLDialogElement>("unsaved-dialog").returnValue = "cancel"; });
 element("unsaved-dialog").querySelectorAll<HTMLButtonElement>("button").forEach(button => button.addEventListener("click", () => element<HTMLDialogElement>("unsaved-dialog").close(button.value)));
 function sidebar(show: boolean) {
@@ -392,12 +393,18 @@ element("theme-toggle").addEventListener("click", () => {
   settings.theme = dark ? "dark" : "light"; saveSettings(settings);
   theme(dark);
 });
+// 状态栏如实反映当前视图；阅读模式下按钮仍指向将要进入的编辑方式。
+function updateModeLabel() {
+  element("edit-mode").textContent = readingMode ? "阅读模式" : sourceMode ? "源码编辑" : "原位编辑";
+  element("mode-toggle").textContent = sourceMode ? "原位" : "源码";
+}
 element("mode-toggle").addEventListener("click", () => {
   sourceMode = !sourceMode;
   settings.liveRendering = !sourceMode; saveSettings(settings);
   editor.dispatch({ effects: live.reconfigure(editingExtensions()) });
-  element("edit-mode").textContent = sourceMode ? "源码编辑" : "原位编辑";
-  element("mode-toggle").textContent = sourceMode ? "原位" : "源码";
+  // 阅读模式下切换编辑方式时回到编辑器，让切换立即可见。
+  if (readingMode) toggleReading();
+  updateModeLabel();
   updateToolbar();
 });
 element("format-toolbar").addEventListener("mousedown", event => event.preventDefault());
@@ -471,7 +478,18 @@ const fileBrowser = mountFileBrowser(element("documents"), {
   getOpenPaths: () => [...sessions.values()].map(entry => entry.note.path).filter(Boolean),
   onError: showError,
 });
-async function refreshFolder() { setTimeout(() => { void fileBrowser.refresh().catch(showError); }, 0); }
+// 保存常发生在关闭标签等操作内部，等当前操作结束再刷新，避免文件导航把它当成冲突报错。
+let folderRefreshQueued = false;
+async function refreshFolder() {
+  if (folderRefreshQueued) return;
+  folderRefreshQueued = true;
+  const attempt = () => {
+    if (session.busy) { setTimeout(attempt, 50); return; }
+    folderRefreshQueued = false;
+    void fileBrowser.refresh().catch(showError);
+  };
+  setTimeout(attempt, 0);
+}
 
 let readingPromise: Promise<void> = Promise.resolve();
 function updateReading() {
@@ -514,6 +532,7 @@ function toggleReading() {
   element("reading-view").hidden = !readingMode;
   element("reading-toggle").textContent = readingMode ? "编辑" : "阅读";
   if (readingMode) updateReading(); else { editor.requestMeasure(); editor.focus(); }
+  updateModeLabel();
   updateToolbar();
 }
 function download(name: string, content: string, type: string) {
@@ -541,8 +560,7 @@ function applySettings(next: Settings) {
   root.style.setProperty("--reading-width", `${readingWidths[next.readingWidth]}px`);
   sourceMode = !next.liveRendering;
   editor.dispatch({ effects: live.reconfigure(editingExtensions()) });
-  element("edit-mode").textContent = sourceMode ? "源码编辑" : "原位编辑";
-  element("mode-toggle").textContent = sourceMode ? "原位" : "源码";
+  updateModeLabel();
   theme(next.theme === "dark" || next.theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   editor.requestMeasure();
   scheduleAutoSave();
@@ -562,7 +580,7 @@ function showMenu(anchor: HTMLElement, entries: [string, () => void][]) {
   menu.querySelector<HTMLButtonElement>("button")?.focus();
 }
 element("file-menu-toggle").onclick = () => showMenu(element("file-menu-toggle"), [
-  ["新建文档　⌘ / Ctrl+N", () => void perform(newNote)],
+  ["新建文档　⌘ / Ctrl+N", createNote],
   ["打开文件…　⌘ / Ctrl+O", () => void perform(open)],
   ["保存　⌘ / Ctrl+S", () => void perform(() => save(false))],
   ["另存为…", () => void perform(() => save(true))],
@@ -571,7 +589,7 @@ element("file-menu-toggle").onclick = () => showMenu(element("file-menu-toggle")
   ["导出 Markdown 副本", () => { if (!session.note.id) return; if (native) void perform(() => Files.exportMarkdown(session.note.id, editor.state.doc.toString())); else download(session.note.name || "未命名.md", editor.state.doc.toString(), "text/markdown;charset=utf-8"); }],
   ["复制 Markdown", () => { const text = editor.state.doc.toString(); void (native ? Workspace.copyText(text) : navigator.clipboard.writeText(text)).catch(showError); }],
   ["导出 HTML", () => void perform(async () => { const html = await makeExportHTML(); if (native) await Workspace.exportHTML(session.note.name, html); else download((session.note.name || "未命名.md").replace(/\.(md|markdown)$/i, "") + ".html", html, "text/html;charset=utf-8"); })],
-  ["打印 / 导出 PDF…", () => void perform(async () => { readingMode = true; element("editor").hidden = true; element("reading-view").hidden = false; updateReading(); await readingPromise; if (native) await Workspace.print(); else window.print(); })],
+  ["打印 / 导出 PDF…", () => void perform(async () => { readingMode = true; element("editor").hidden = true; element("reading-view").hidden = false; element("reading-toggle").textContent = "编辑"; updateModeLabel(); updateReading(); await readingPromise; if (native) await Workspace.print(); else window.print(); })],
   ["关闭当前标签", () => void perform(() => closeNote(session.note.id))],
 ]);
 function insertImage() {
@@ -606,7 +624,7 @@ element("more-actions").onclick = () => showMenu(element("more-actions"), [
   ["切换阅读模式", toggleReading],
   ["设置…", () => element("settings-toggle").click()],
 ]);
-element("welcome-new").onclick = () => void perform(newNote);
+element("welcome-new").onclick = createNote;
 element("welcome-open").onclick = () => void perform(open);
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (settings.theme === "system") applySettings(settings); });
 applySettings(settings);

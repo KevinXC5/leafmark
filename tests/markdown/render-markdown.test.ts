@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { exportHTML, isSafeURL, renderMarkdown } from "../../src/markdown/render-markdown";
+import { exportHTML, isSafeURL, renderInlineMarkdown, renderMarkdown } from "../../src/markdown/render-markdown";
 
 beforeAll(() => {
   // 仅为净化测试提供 DOM，生产模块仍使用浏览器自身的 DOM。
@@ -14,6 +14,15 @@ function parse(html: string) {
 }
 
 describe("Markdown 渲染", () => {
+  test("行内渲染不产生段落，并沿用同样的安全净化", () => {
+    const body = parse(renderInlineMarkdown("**粗** `code` ==亮== [链](https://example.com) [坏](javascript:alert(1)) <img src=x onerror=alert(1)>"));
+    expect(body.querySelector("p")).toBeNull();
+    expect(body.querySelector("strong")?.textContent).toBe("粗");
+    expect(body.querySelector("code")?.textContent).toBe("code");
+    expect(body.querySelector("mark")?.textContent).toBe("亮");
+    expect([...body.querySelectorAll("a")].map(link => link.getAttribute("href"))).toEqual(["https://example.com"]);
+    expect(body.querySelector("img")).toBeNull();
+  });
   test("表格、对齐、删除线、任务列表和链接", () => {
     const html = renderMarkdown("| A | B |\n| :--- | ---: |\n| 一 | 二 |\n\n- [ ] 未完成\n- [x] 已完成\n\n~~删除~~ [链接](https://example.com) https://example.com");
     const body = parse(html);

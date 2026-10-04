@@ -65,15 +65,10 @@
   font: 14px/1.75 var(--mono, ui-monospace, SFMono-Regular, Consolas, monospace);
 }
 .cm-editor .lm-block-content code { font: inherit; }
-.cm-editor .lm-block-content .hljs-keyword,
-.cm-editor .lm-block-content .hljs-selector-tag,
-.cm-editor .lm-block-content .hljs-literal { color: var(--syntax, var(--accent, #9865bd)); }
-.cm-editor .lm-block-content .hljs-string,
-.cm-editor .lm-block-content .hljs-title,
-.cm-editor .lm-block-content .hljs-number,
-.cm-editor .lm-block-content .hljs-attr { color: var(--link, var(--accent, #527ac1)); }
-.cm-editor .lm-block-content .hljs-comment,
-.cm-editor .lm-block-content .hljs-quote { color: var(--muted, #777); font-style: italic; }
+/* Mermaid 图形在原位直接成图；失败时保留源码并提示。 */
+.cm-editor .lm-block-content .mermaid-diagram { margin: 0; overflow-x: auto; }
+.cm-editor .lm-block-content .mermaid-diagram svg { display: block; width: 100%; max-width: 100%; height: auto; }
+.cm-editor .lm-block-content .mermaid-error { margin: 0 0 8px; font: 12px/1.6 "Inter", sans-serif; color: var(--code-muted, var(--muted)); }
 .cm-editor .lm-inline-math { display: inline; cursor: text; }
 .cm-editor .lm-inline-math math { vertical-align: baseline; }
 .cm-editor .lm-math-preview math[display="block"] { display: block; margin: 0.4rem 0; }

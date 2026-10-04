@@ -23,7 +23,7 @@ describe("设置校验与持久化", () => {
     for (const value of [null, undefined, [], "设置", 42, false]) expect(validateSettings(value)).toEqual(defaultSettings);
     const result = validateSettings(null);
     result.fontSize = 28;
-    expect(defaultSettings.fontSize).toBe(18);
+    expect(defaultSettings.fontSize).toBe(15);
     expect(AUTO_SAVE_DELAY).toBe(2000);
   });
 
@@ -37,6 +37,8 @@ describe("设置校验与持久化", () => {
 
   test("字号和行高接受边界，拒绝非有限数与越界数", () => {
     for (const fontSize of [12, 28]) expect(validateSettings({ fontSize }).fontSize).toBe(fontSize);
+    // 字号只取整数像素，历史数据中的小数就近取整。
+    expect(validateSettings({ fontSize: 15.5 }).fontSize).toBe(16);
     for (const lineHeight of [1.3, 2.2, 1.55]) expect(validateSettings({ lineHeight }).lineHeight).toBe(lineHeight);
     for (const fontSize of [11, 29, NaN, Infinity]) expect(validateSettings({ fontSize }).fontSize).toBe(defaultSettings.fontSize);
     for (const lineHeight of [1.2, 2.3, NaN, -Infinity]) expect(validateSettings({ lineHeight }).lineHeight).toBe(defaultSettings.lineHeight);

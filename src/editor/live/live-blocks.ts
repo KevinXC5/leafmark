@@ -6,6 +6,8 @@ import katex from "katex";
 import { Copy, createElement, Pencil } from "lucide";
 import { liveBlockRanges } from "./live-block-ranges";
 import { parseWikiReference } from "../../markdown/obsidian-syntax";
+import { renderDiagrams } from "../../markdown/diagrams";
+import { searchChanged, searchReveals } from "./search-reveal";
 import "./live-blocks.css";
 
 export interface LiveBlocksOptions {
@@ -189,6 +191,11 @@ class BlockPreview extends WidgetType {
         this.appendCode(content, doc);
       }
     } else this.appendCode(content, doc);
+    if (!this.block.math && this.block.language === "mermaid") {
+      // 图形异步生成，完成后请编辑器重新测量块高度；失败时保留源码与提示。
+      content.querySelector("code")!.classList.add("language-mermaid");
+      void renderDiagrams(content).then(() => { if (!removedWidgets.has(wrapper)) view.requestMeasure(); }).catch(() => {});
+    }
     wrapper.append(toolbar, content);
     return wrapper;
   }
@@ -221,7 +228,7 @@ function decorate(state: EditorState, blocks: readonly Block[], focused: boolean
       const line = state.doc.lineAt(selection.head);
       return block.inline ? block.from >= line.from && block.to <= line.to : selection.head >= block.from && selection.head <= block.to;
     });
-    if (selected || editing === block.from) continue;
+    if (selected || editing === block.from || searchReveals(state, block.from, block.to)) continue;
     ranges.push(Decoration.replace({ block: !block.inline, widget: block.inline ? new InlineMathPreview(block) : new BlockPreview(block, options.copyText) }).range(block.from, block.to));
   }
   return Decoration.set(ranges, true);
@@ -244,7 +251,7 @@ export function liveBlocks(options: LiveBlocksOptions = {}): Extension {
       const edited = blocks.find(block => block.from === editing);
       // 显式编辑只持续到选区离开该块或编辑器失焦，支持强制预览模式下编辑。
       if ((value.focused && !focused) || !edited || !tr.state.selection.ranges.some(range => range.from <= edited.to && range.to >= edited.from)) editing = null;
-      if (!tr.docChanged && !tr.selection && focused === value.focused && editing === value.editing) return value;
+      if (!tr.docChanged && !tr.selection && focused === value.focused && editing === value.editing && !searchChanged(tr)) return value;
       return { blocks, focused, editing, decorations: decorate(tr.state, blocks, focused, options, editing) };
     },
     provide: field => [

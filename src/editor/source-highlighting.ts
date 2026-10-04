@@ -1,5 +1,6 @@
 import { Prec, type Extension } from "@codemirror/state";
-import { defaultHighlightStyle, HighlightStyle, StreamLanguage, syntaxHighlighting, type Language } from "@codemirror/language";
+import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+import { defaultHighlightStyle, HighlightStyle, StreamLanguage, syntaxHighlighting, syntaxTree, type Language } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { tags } from "@lezer/highlight";
@@ -44,9 +45,35 @@ export const sourceHighlightStyle = HighlightStyle.define([
   { tag: [tags.propertyName, tags.attributeName], color: "var(--syntax-property, #51818f)" },
   { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: "var(--syntax-function, #51818f)" },
   { tag: [tags.operator, tags.punctuation, tags.processingInstruction], color: "var(--syntax-punctuation, var(--muted, #888))" },
-  { tag: [tags.monospace, tags.attributeValue], color: "var(--syntax-code, var(--accent))" },
+  { tag: tags.monospace, color: "var(--syntax-code, var(--accent))", fontFamily: "var(--mono, monospace)" },
+  { tag: tags.attributeValue, color: "var(--syntax-code, var(--accent))" },
   { tag: tags.invalid, textDecoration: "underline wavy", textDecorationColor: "var(--syntax-error, #b34b4b)" },
 ]);
+
+const sourceCodeLine = Decoration.line({ class: "md-source-code" });
+function codeLines(view: EditorView): DecorationSet {
+  const ranges: ReturnType<Decoration["range"]>[] = [];
+  let lastLine = 0;
+  for (const { from, to } of view.visibleRanges) {
+    syntaxTree(view.state).iterate({ from, to, enter(node) {
+      if (node.name !== "FencedCode" && node.name !== "CodeBlock") return;
+      const first = view.state.doc.lineAt(Math.max(node.from, from)).number;
+      const last = view.state.doc.lineAt(Math.min(node.to, to)).number;
+      for (let number = Math.max(first, lastLine + 1); number <= last; number++) ranges.push(sourceCodeLine.range(view.state.doc.line(number).from));
+      lastLine = Math.max(lastLine, last);
+      return false;
+    } });
+  }
+  return Decoration.set(ranges, true);
+}
+/** 给围栏和缩进代码的每一行加等宽样式；嵌套语言解析不改变行的归属。 */
+const sourceCodeLines = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+  constructor(view: EditorView) { this.decorations = codeLines(view); }
+  update(update: ViewUpdate) {
+    if (update.docChanged || update.viewportChanged || syntaxTree(update.startState) !== syntaxTree(update.state)) this.decorations = codeLines(update.view);
+  }
+}, { decorations: value => value.decorations });
 
 /** 挂在源码模式 compartment 中；优先使用带嵌套语言解析的 Markdown，移除后恢复原位模式。 */
 export function sourceHighlighting(): Extension {
@@ -54,5 +81,6 @@ export function sourceHighlighting(): Extension {
     Prec.high(markdown({ extensions: [GFM], codeLanguages: sourceCodeLanguage })),
     syntaxHighlighting(sourceHighlightStyle),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    sourceCodeLines,
   ];
 }

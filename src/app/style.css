@@ -114,23 +114,28 @@ svg { width: 16px; height: 16px; flex-shrink: 0; }
 #document-name { overflow: hidden; text-overflow: ellipsis; }
 #dirty-dot { color: var(--accent); font-size: 7px; }
 #editor { flex: 1; min-height: 0; }
-.cm-editor { height: 100%; font-size: var(--editor-size, 18px); font-family: var(--book); color: var(--ink); }
+.cm-editor { height: 100%; font-size: var(--editor-size, 15px); font-family: var(--book); color: var(--ink); }
 .cm-editor.cm-focused { outline: none; }
 .cm-scroller { font-family: inherit !important; overflow: auto; padding: 36px 40px 80px; }
 /* 限制 flex 增长，正文宽度才会遵循阅读设置；标题随用户字号按比例变化。 */
-.cm-editor .cm-content { flex: 0 1 auto; min-width: 0; width: min(100%, var(--reading-width, 856px)); margin: 0 auto; caret-color: var(--accent); line-height: var(--editor-line-height, 1.85); padding: 0; }
+.cm-editor .cm-content { flex: 0 1 auto; min-width: 0; width: min(100%, var(--reading-width, 856px)); margin: 0 auto; caret-color: var(--accent); line-height: var(--editor-line-height, 1.4); padding: 0; }
 .cm-editor .cm-line { padding: 0; }
-.cm-line.md-h1 { font-size: calc(var(--editor-size, 18px) * var(--heading-1)); color: var(--heading); font-weight: 500; line-height: 1.3; margin-top: 0; letter-spacing: -0.6px; }
-.cm-line.md-h2 { font-size: calc(var(--editor-size, 18px) * var(--heading-2)); color: var(--heading); font-weight: 500; line-height: 1.4; margin-top: 0; letter-spacing: -0.4px; }
-.cm-line.md-h3 { font-size: calc(var(--editor-size, 18px) * var(--heading-3)); color: var(--heading); font-weight: 500; line-height: 1.4; }
+.cm-line.md-h1 { font-size: calc(var(--editor-size, 15px) * var(--heading-1)); color: var(--heading); font-weight: 500; line-height: 1.3; margin-top: 0; letter-spacing: -0.6px; }
+.cm-line.md-h2 { font-size: calc(var(--editor-size, 15px) * var(--heading-2)); color: var(--heading); font-weight: 500; line-height: 1.4; margin-top: 0; letter-spacing: -0.4px; }
+.cm-line.md-h3 { font-size: calc(var(--editor-size, 15px) * var(--heading-3)); color: var(--heading); font-weight: 500; line-height: 1.4; }
 .cm-line.md-h4, .cm-line.md-h5, .cm-line.md-h6 { font-weight: 600; }
 .cm-editor .cm-line.md-quote { border-left: 3px solid var(--accent); border-radius: 4px; background: var(--surface); color: var(--quote); padding: 10px 16px; line-height: 1.7; }
+/* 连续的引用行连成一整块：左边线不断开，只在首尾保留圆角。 */
+.cm-editor .cm-line.md-quote:has(+ .cm-line.md-quote) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.cm-editor .cm-line.md-quote + .cm-line.md-quote { border-top-left-radius: 0; border-top-right-radius: 0; }
 .md-strong { font-weight: 700; }
 .md-emphasis { font-style: italic; }
 .md-strike { text-decoration: line-through; }
 .md-inline-code { font: 0.78em var(--mono); background: var(--surface); padding: 2px 3px; border-radius: 3px; }
 .cm-line.md-code-line { background: var(--surface); font-family: var(--mono); font-size: 14px; line-height: 1.75; padding-left: 18px; padding-right: 18px; }
 .cm-line.md-code-fence { color: var(--muted); font-size: 10px; padding-top: 4px; padding-bottom: 4px; }
+/* 源码模式下围栏内的代码与原位预览一样使用等宽字体。 */
+.cm-line.md-source-code { font-family: var(--mono); font-size: .82em; }
 /* 代码块首尾行补圆角，与渲染后的代码块外形一致。 */
 .cm-line.md-code-first { border-top-left-radius: var(--control-radius); border-top-right-radius: var(--control-radius); }
 .cm-line.md-code-last { border-bottom-left-radius: var(--control-radius); border-bottom-right-radius: var(--control-radius); }
@@ -208,6 +213,10 @@ dialog p { color: var(--muted); font-size: 13px; }
 }
 .file-tab { display: flex; align-items: center; flex: 0 0 auto; min-width: 0; max-width: 240px; height: 36px; border-radius: var(--control-radius); padding: 0 12px; overflow: hidden; font: 12px/15px "Inter", sans-serif; color: var(--tab-ink); white-space: nowrap; }
 .file-tab.active { background: var(--tab-active-bg); color: var(--tab-active-ink); font-weight: 500; }
+/* 悬停时整个标签（图标、名称、关闭按钮）一起变色，内部按钮不单独高亮。 */
+.file-tab:not(.active):hover { background: color-mix(in srgb, var(--tab-active-bg) 55%, transparent); color: var(--tab-active-ink); }
+.file-tab button:hover { background: transparent; }
+.file-tab .close-tab:hover { color: var(--ink); }
 .file-tab button { display: flex; align-items: center; gap: 8px; min-width: 0; height: 100%; padding: 0 8px 0 0; overflow: hidden; white-space: nowrap; }
 .file-tab-label, .file-tab-label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .file-tab svg { width: 12px; height: 12px; color: var(--tab-close); }
@@ -254,7 +263,7 @@ dialog p { color: var(--muted); font-size: 13px; }
 }
 .cm-searchMatch { border-radius: var(--control-radius); background: #bd785833; outline: 1px solid #bd785866; }
 .cm-searchMatch-selected { background: #bd785866; }
-#reading-view { overflow: auto; flex: 1; min-width: 0; min-height: 0; overflow-wrap: anywhere; padding: 36px max(40px, calc((100% - var(--reading-width, 856px)) / 2)) 80px; font: var(--editor-size, 18px)/var(--editor-line-height, 1.85) var(--book); }
+#reading-view { overflow: auto; flex: 1; min-width: 0; min-height: 0; overflow-wrap: anywhere; padding: 36px max(40px, calc((100% - var(--reading-width, 856px)) / 2)) 80px; font: var(--editor-size, 15px)/var(--editor-line-height, 1.4) var(--book); }
 .markdown-body h1 { font-size: calc(1em * var(--heading-1)); color: var(--heading); font-weight: 500; letter-spacing: -.03em; }
 .markdown-body h2 { font-size: calc(1em * var(--heading-2)); color: var(--heading); font-weight: 500; }
 .markdown-body h3 { font-size: calc(1em * var(--heading-3)); color: var(--heading); font-weight: 500; }
@@ -263,6 +272,9 @@ dialog p { color: var(--muted); font-size: 13px; }
 .markdown-body pre { padding: 18px; background: var(--surface); overflow: auto; border-radius: var(--control-radius); }
 .markdown-body code { font: .8em var(--mono); background: var(--surface); }
 .markdown-body pre code { background: none; font: 14px/1.75 var(--mono); color: var(--code-ink); }
+/* 代码语法配色由原位预览与阅读视图共用：语法成分用强调色，注释用弱化色。 */
+:is(.lm-block-content, .markdown-body pre) :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-string, .hljs-title, .hljs-number, .hljs-attr) { color: var(--accent); }
+:is(.lm-block-content, .markdown-body pre) :is(.hljs-comment, .hljs-quote) { color: var(--muted); font-style: italic; }
 /* 表格外框带圆角并裁切内容，单元格只画内部分隔线。 */
 .markdown-body table { display: block; width: fit-content; max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--control-radius); border-collapse: separate; border-spacing: 0; font-size: .85em; }
 .markdown-body td, .markdown-body th { min-width: 90px; }
@@ -318,7 +330,7 @@ dialog .table-grid select { max-width: 120px; padding: 6px; border: 1px solid va
   .file-tab { max-width: min(180px, calc(100vw - var(--tabs-start) - var(--window-controls) - 40px)); }
   .app-actions { padding-inline: 8px; }
   .cm-scroller { padding: 18px 12px 48px; }
-  .cm-line.md-h1 { font-size: calc(var(--editor-size, 18px) * 1.666667); }
+  .cm-line.md-h1 { font-size: calc(var(--editor-size, 15px) * 1.666667); }
   #reading-view { padding: 18px 20px 48px; }
   .markdown-body h1 { font-size: 1.6em; }
   .statusbar { padding: 4px 10px; gap: 4px 8px; }
@@ -342,5 +354,5 @@ dialog .table-grid select { max-width: 120px; padding: 6px; border: 1px solid va
 }
 
 :root[data-theme="dark"] .format-toolbar { background: #303238; border-color: #4d5159; }
-.sidebar .fb-node-row { min-height: 38px; font-size: 12px; }
+.sidebar .fb-node-row, .sidebar .fb-toolbar { min-height: 38px; font-size: 12px; }
 .sidebar .fb-node-open { padding-block: 10px; }

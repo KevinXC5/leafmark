@@ -15,8 +15,8 @@ export type Settings = {
 };
 
 export const defaultSettings: Readonly<Settings> = Object.freeze({
-  font: "newsreader", fontSize: 18, lineHeight: 1.6, readingWidth: "comfort",
-  liveRendering: true, showActiveSyntax: true, autoSave: false, theme: "system",
+  font: "newsreader", fontSize: 15, lineHeight: 1.4, readingWidth: "comfort",
+  liveRendering: true, showActiveSyntax: true, autoSave: true, theme: "system",
   focusMode: false, typewriter: false,
 });
 
@@ -42,7 +42,7 @@ export function validateSettings(value: unknown): Settings {
       Object.assign(result, { [key]: source[key] });
     }
   }
-  if (typeof source.fontSize === "number" && Number.isFinite(source.fontSize) && source.fontSize >= 12 && source.fontSize <= 28) result.fontSize = source.fontSize;
+  if (typeof source.fontSize === "number" && Number.isFinite(source.fontSize) && source.fontSize >= 12 && source.fontSize <= 28) result.fontSize = Math.round(source.fontSize);
   if (typeof source.lineHeight === "number" && Number.isFinite(source.lineHeight) && source.lineHeight >= 1.3 && source.lineHeight <= 2.2) result.lineHeight = source.lineHeight;
   for (const key of ["liveRendering", "showActiveSyntax", "autoSave", "focusMode", "typewriter"] as const) {
     if (typeof source[key] === "boolean") result[key] = source[key];
@@ -217,7 +217,7 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
     group.append(minus, input, node("span", "", "px"), plus);
     row(parent, "字号", "", group);
     const refresh = () => { input.value = String(current.fontSize); minus.disabled = current.fontSize <= 12; plus.disabled = current.fontSize >= 28; };
-    const update = (value: number) => { if (Number.isFinite(value)) { current.fontSize = Math.max(12, Math.min(28, value)); publish(); } refresh(); };
+    const update = (value: number) => { if (Number.isFinite(value)) { current.fontSize = Math.max(12, Math.min(28, Math.round(value))); publish(); } refresh(); };
     minus.addEventListener("click", () => update(current.fontSize - 1));
     plus.addEventListener("click", () => update(current.fontSize + 1));
     input.addEventListener("change", () => update(input.valueAsNumber));
@@ -264,8 +264,8 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
       toggle(writing, "showActiveSyntax", "显示当前语法", "编辑当前段落时保留 Markdown 标记。");
       toggle(writing, "autoSave", "自动保存", "停止输入两秒后保存已有路径的文档。");
       const personalize = section(panel, "个性化");
-      const appearance = destination(personalize, "外观", "Ember 主题 · 浅色 / 深色 / 跟随系统", "", 1, true);
-      const refreshAppearance = () => { appearance.querySelector("span:last-of-type")!.textContent = `Ember · ${{ light: "浅色", dark: "深色", system: "跟随系统" }[current.theme]}`; };
+      const appearance = destination(personalize, "外观", "Leafmark 主题 · 浅色 / 深色 / 跟随系统", "", 1, true);
+      const refreshAppearance = () => { appearance.querySelector("span:last-of-type")!.textContent = `Leafmark · ${{ light: "浅色", dark: "深色", system: "跟随系统" }[current.theme]}`; };
       bindings.push(refreshAppearance); refreshAppearance();
       destination(personalize, "快捷键", "查看并自定义书写快捷键。", "自定义", 2);
     } else if (id === "appearance") {
@@ -273,7 +273,7 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
       panel.append(node("p", "settings-intro", "让每一份 Markdown，都有适合阅读的样子。"));
       segmented(panel, "theme", "外观模式", [["light", "浅色"], ["dark", "深色"], ["system", "跟随系统"]]);
       const previews = node("div", "settings-theme-previews");
-      for (const [mode, label] of [["light", "Ember Light"], ["dark", "Ember Dark"]] as const) {
+      for (const [mode, label] of [["light", "Leafmark 浅色"], ["dark", "Leafmark 深色"]] as const) {
         const preview = node("article", `settings-theme-preview settings-theme-${mode}`);
         preview.append(node("span", "settings-theme-name", label), node("h4", "settings-preview-title", "在宁静中，\n看见清晰。"), node("p", "settings-preview-text", "写下一点，再读一遍。\n让下一个想法，慢慢成形。"), node("blockquote", "", "为重要的事，留一点空间。"), node("span", "settings-preview-link", "循着一个小小的念头 ↗"));
         previews.append(preview);
@@ -316,10 +316,12 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
         const group = section(panel, "软件更新");
         const check = node("button", "settings-reset", "检查更新"); check.type = "button";
         const install = node("button", "settings-reset", "安装更新"); install.type = "button"; install.hidden = true;
-        const version = node("p", "settings-description", "正在读取版本…");
-        const message = node("p", "settings-description"); message.setAttribute("role", "status");
-        const notes = node("p", "settings-description"); notes.style.whiteSpace = "pre-wrap";
-        group.append(version, check, install, message, notes);
+        const buttons = node("div", "settings-update-actions"); buttons.append(check, install);
+        row(group, "Leafmark", "正在读取版本…", buttons);
+        const version = group.querySelector<HTMLElement>(".settings-description")!;
+        const message = node("p", "settings-description settings-update-note"); message.setAttribute("role", "status");
+        const notes = node("p", "settings-description settings-update-note"); notes.style.whiteSpace = "pre-wrap";
+        group.append(message, notes);
         const render = (value: Awaited<ReturnType<typeof updates.status>>) => {
           version.textContent = `当前版本：${value.version || "开发版"}`;
           check.disabled = !value.enabled || value.installed;

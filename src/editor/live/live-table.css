@@ -81,3 +81,9 @@
   font-weight: 600;
   background: var(--surface, #8881);
 }
+
+/* 单元格内的行内格式与正文一致。 */
+.cm-editor .lm-table-preview :is(th, td) a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.18em; cursor: text; }
+.cm-editor .lm-table-preview :is(th, td) code { font: 0.78em var(--mono); background: var(--surface); padding: 2px 3px; border-radius: 3px; }
+.cm-editor .lm-table-preview :is(th, td) mark { background: color-mix(in srgb, #e9b949 35%, transparent); color: inherit; border-radius: 0.15em; }
+.cm-editor .lm-table-preview .lm-image-fallback { color: var(--muted); font-style: italic; }

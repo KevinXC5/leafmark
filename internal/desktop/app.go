@@ -32,6 +32,7 @@ func Run() {
 			opts.TrafficLightPosition = &mygo.Point{X: 20, Y: 18}
 		}
 		win := mygo.NewWindow(opts)
+		installTapClickFix()
 		startVerification(win, files)
 		installCloseHandler(win, files)
 		updates.start()

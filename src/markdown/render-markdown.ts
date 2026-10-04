@@ -210,16 +210,23 @@ function getPurifier(): DOMPurify {
   return purifier;
 }
 
+const sanitizeOptions = {
+  ALLOWED_TAGS: ["svg", "path", "circle", "line", "polyline", "rect", "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "strong", "em", "s", "a", "img", "pre", "code", "span", "table", "thead", "tbody", "tr", "th", "td", "input", "mark", "sub", "sup", "section", "details", "summary", "math", "semantics", "annotation", "mrow", "mi", "mn", "mo", "mtext", "mspace", "msup", "msub", "msubsup", "mfrac", "msqrt", "mroot", "mover", "munder", "munderover", "mtable", "mtr", "mtd", "menclose", "mstyle", "mpadded", "mphantom"],
+  ALLOWED_ATTR: ["viewBox", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "d", "cx", "cy", "r", "x", "y", "x1", "x2", "y1", "y2", "rx", "ry", "points", "aria-hidden", "href", "src", "alt", "title", "class", "id", "start", "align", "type", "checked", "disabled", "aria-label", "xmlns", "display", "encoding", "mathvariant", "mathsize", "mathcolor", "displaystyle", "scriptlevel", "stretchy", "fence", "separator", "lspace", "rspace", "minsize", "maxsize", "accent", "accentunder", "columnalign", "columnspacing", "rowspacing", "columnlines", "rowlines", "width", "height", "depth", "voffset", "notation", "linethickness"],
+  ALLOW_DATA_ATTR: false,
+  ALLOW_ARIA_ATTR: false,
+  // 表格对齐使用 align 属性，避免放开任意内联 style。
+  FORBID_ATTR: ["style"],
+};
+
 /** 返回可插入正文容器的安全 HTML 片段；需要浏览器 DOM。 */
 export function renderMarkdown(content: string): string {
-  return getPurifier().sanitize(markdown.render(content), {
-    ALLOWED_TAGS: ["svg", "path", "circle", "line", "polyline", "rect", "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "strong", "em", "s", "a", "img", "pre", "code", "span", "table", "thead", "tbody", "tr", "th", "td", "input", "mark", "sub", "sup", "section", "details", "summary", "math", "semantics", "annotation", "mrow", "mi", "mn", "mo", "mtext", "mspace", "msup", "msub", "msubsup", "mfrac", "msqrt", "mroot", "mover", "munder", "munderover", "mtable", "mtr", "mtd", "menclose", "mstyle", "mpadded", "mphantom"],
-    ALLOWED_ATTR: ["viewBox", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "d", "cx", "cy", "r", "x", "y", "x1", "x2", "y1", "y2", "rx", "ry", "points", "aria-hidden", "href", "src", "alt", "title", "class", "id", "start", "align", "type", "checked", "disabled", "aria-label", "xmlns", "display", "encoding", "mathvariant", "mathsize", "mathcolor", "displaystyle", "scriptlevel", "stretchy", "fence", "separator", "lspace", "rspace", "minsize", "maxsize", "accent", "accentunder", "columnalign", "columnspacing", "rowspacing", "columnlines", "rowlines", "width", "height", "depth", "voffset", "notation", "linethickness"],
-    ALLOW_DATA_ATTR: false,
-    ALLOW_ARIA_ATTR: false,
-    // 表格对齐使用 align 属性，避免放开任意内联 style。
-    FORBID_ATTR: ["style"],
-  });
+  return getPurifier().sanitize(markdown.render(content), sanitizeOptions);
+}
+
+/** 只渲染行内语法（加粗、链接、行内代码、高亮、公式等），供表格单元格这类单行内容使用。 */
+export function renderInlineMarkdown(content: string): string {
+  return getPurifier().sanitize(markdown.renderInline(content), sanitizeOptions);
 }
 
 // markdown-it 默认以 style 输出表格对齐，转成安全净化允许的 align。

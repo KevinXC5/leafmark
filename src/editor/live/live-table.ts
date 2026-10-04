@@ -4,6 +4,8 @@ import { parser, GFM } from "@lezer/markdown";
 import { createElement, Ellipsis } from "lucide";
 import { isolateHistory } from "@codemirror/commands";
 import { openTableEditor, parseTable, type MarkdownTable } from "../dialogs/table-editor";
+import { renderInlineMarkdown } from "../../markdown/render-markdown";
+import { searchChanged, searchReveals } from "./search-reveal";
 import "./live-table.css";
 
 export interface LiveTableOptions {
@@ -122,8 +124,19 @@ class TablePreview extends WidgetType {
       values.forEach((value, column) => {
         const cell = doc.createElement(heading ? "th" : "td");
         if (heading) cell.setAttribute("scope", "col");
-        // 使用 textContent：任意 HTML、链接和图片源文都不会执行或发起请求。
-        cell.textContent = value.replace(/\\\|/g, "|");
+        const text = value.replace(/\\\|/g, "|");
+        // 行内格式经安全净化后在惰性 template 中整理：图片换成替代文本，不发起任何请求。
+        try {
+          const template = doc.createElement("template");
+          template.innerHTML = renderInlineMarkdown(text);
+          for (const image of template.content.querySelectorAll("img")) {
+            const fallback = doc.createElement("span");
+            fallback.className = "lm-image-fallback";
+            fallback.textContent = image.getAttribute("alt") || "图片";
+            image.replaceWith(fallback);
+          }
+          cell.append(template.content);
+        } catch { cell.textContent = text; }
         const alignment = this.table.alignments[column];
         if (alignment) cell.style.textAlign = alignment;
         row.append(cell);
@@ -137,6 +150,8 @@ class TablePreview extends WidgetType {
     });
     table.append(head, body);
     table.addEventListener("dblclick", edit);
+    // 预览中的链接只作展示，点击不离开当前页面。
+    table.addEventListener("click", event => { if ((event.target as Element).closest("a")) event.preventDefault(); });
     const scroll = doc.createElement("div");
     scroll.className = "lm-table-scroll";
     scroll.append(table);
@@ -153,7 +168,7 @@ export function buildLiveTableDecorations(state: EditorState, focused: boolean, 
     const selected = focused && options.showActiveSyntax !== false && state.selection.ranges.some(selection => {
       return selection.from <= block.to && selection.to >= block.from;
     });
-    if (selected) continue;
+    if (selected || searchReveals(state, block.from, block.to)) continue;
     ranges.push(Decoration.replace({ block: true, widget: new TablePreview(block.raw, block.from, block.table) }).range(block.from, block.to));
   }
   return Decoration.set(ranges, true);
@@ -165,7 +180,7 @@ export function liveTable(options: LiveTableOptions = {}): Extension {
     update(value, transaction) {
       let focused = value.focused;
       for (const effect of transaction.effects) if (effect.is(tableFocus)) focused = effect.value;
-      if (!transaction.docChanged && !transaction.selection && focused === value.focused) return value;
+      if (!transaction.docChanged && !transaction.selection && focused === value.focused && !searchChanged(transaction)) return value;
       return { focused, decorations: buildLiveTableDecorations(transaction.state, focused, options) };
     },
     provide: field => EditorView.decorations.from(field, value => value.decorations),

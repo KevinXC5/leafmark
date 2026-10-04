@@ -66,7 +66,7 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   const searchBox = el("div", "fb-search-box");
   const search = el("input", "fb-search");
   search.type = "search";
-  search.placeholder = "搜索 Markdown…";
+  search.placeholder = "按文件名搜索…";
   search.setAttribute("aria-label", "搜索工作区文件或文件夹");
   searchBox.append(icon(Search), search);
   const status = el("p", "fb-status");
@@ -95,6 +95,7 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   let disposed = false;
   let busy = false;
   let menu: HTMLElement | null = null;
+  let menuAnchor: HTMLElement | null = null;
   let dialog: HTMLDialogElement | null = null;
   const expanded = new Set<string>();
   const listeners = new AbortController();
@@ -103,11 +104,12 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
   function report(error: unknown) {
     if (disposed) return;
     const message = error instanceof Error ? error.message : String(error);
+    // 同一条消息只出现一处：对话框开着就留在对话框里，否则显示在导航内；导航不可见时才交给主界面。
+    const validation = dialog?.querySelector<HTMLElement>(".fb-validation");
+    if (validation) { validation.textContent = message; return; }
     status.textContent = message;
     status.hidden = false;
-    const validation = dialog?.querySelector<HTMLElement>(".fb-validation");
-    if (validation) validation.textContent = message;
-    callbacks.onError?.(error);
+    if (!root.offsetParent) callbacks.onError?.(error);
   }
 
   async function run(action: () => Promise<void>): Promise<void> {
@@ -178,18 +180,20 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
     // 工作区名称兼作切换入口，避免重复堆叠名称、打开按钮与根目录提示。
     const workspaceLabel = el("span", "fb-node-label");
     workspaceLabel.textContent = workspace?.name ?? "打开文件夹…";
+    const query = search.value.trim().toLocaleLowerCase();
+    // 搜索时临时展开根目录，折叠状态下也能看到匹配结果。
+    const rootOpen = rootExpanded || Boolean(query);
     collapse.hidden = !workspace;
-    collapse.replaceChildren(icon(rootExpanded ? ChevronDown : ChevronRight));
-    collapse.setAttribute("aria-expanded", String(rootExpanded));
-    collapse.setAttribute("aria-label", rootExpanded ? "折叠工作区目录" : "展开工作区目录");
-    collapse.title = rootExpanded ? "折叠工作区目录" : "展开工作区目录";
-    tree.hidden = !rootExpanded;
-    choose.replaceChildren(icon(workspace && !rootExpanded ? Folder : FolderOpen), workspaceLabel);
+    collapse.replaceChildren(icon(rootOpen ? ChevronDown : ChevronRight));
+    collapse.setAttribute("aria-expanded", String(rootOpen));
+    collapse.setAttribute("aria-label", rootOpen ? "折叠工作区目录" : "展开工作区目录");
+    collapse.title = rootOpen ? "折叠工作区目录" : "展开工作区目录";
+    tree.hidden = !rootOpen;
+    choose.replaceChildren(icon(workspace && !rootOpen ? Folder : FolderOpen), workspaceLabel);
     choose.title = workspace ? `${workspace.path}\n点击切换工作区` : "选择 Markdown 文件夹";
     choose.setAttribute("aria-label", workspace ? `切换工作区：${workspace.name}` : "打开文件夹");
     searchBox.hidden = workspaceMore.hidden = !workspace;
     tree.replaceChildren();
-    const query = search.value.trim().toLocaleLowerCase();
     const matches = (node: FolderNode): boolean => node.path.toLocaleLowerCase().includes(query) ||
       node.name.toLocaleLowerCase().includes(query) || (node.children ?? []).some(matches);
     const append = (items: FolderNode[], parent: HTMLElement, showAll = false) => {
@@ -259,10 +263,15 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
     updateControls();
   }
 
-  function closeMenu() { menu?.remove(); menu = null; }
+  function closeMenu(restoreFocus = false) {
+    menu?.remove(); menu = null;
+    if (restoreFocus && menuAnchor?.isConnected) menuAnchor.focus();
+    menuAnchor = null;
+  }
 
   function showMenu(node: FolderNode, anchor: HTMLElement, x?: number, y?: number) {
     closeMenu();
+    menuAnchor = anchor;
     menu = el("div", "fb-menu");
     menu.setAttribute("role", "menu");
     const add = (label: string, action: () => unknown) => {
@@ -400,7 +409,7 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
     if (menu && !menu.contains(event.target as globalThis.Node)) closeMenu();
   }, { signal });
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && menu) { closeMenu(); event.preventDefault(); }
+    if (event.key === "Escape" && menu) { closeMenu(true); event.preventDefault(); }
     if (menu && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       const items = Array.from(menu.querySelectorAll<HTMLButtonElement>("button"));
       const index = items.indexOf(document.activeElement as HTMLButtonElement);
@@ -408,8 +417,8 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
       event.preventDefault();
     }
   }, { signal });
-  window.addEventListener("resize", closeMenu, { signal });
-  document.addEventListener("scroll", closeMenu, { signal, capture: true });
+  window.addEventListener("resize", () => closeMenu(), { signal });
+  document.addEventListener("scroll", () => closeMenu(), { signal, capture: true });
   render();
   const ready = native ? refresh() : Promise.resolve();
   return {

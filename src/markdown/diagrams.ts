@@ -146,8 +146,11 @@ export async function renderDiagrams(container: HTMLElement, options: DiagramOpt
         figure.style.margin = "1em 0";
         figure.style.overflowX = "auto";
         const image = figure.querySelector("svg")!;
-        image.style.maxWidth = "100%";
+        // 图形最多按自身尺寸显示并居中，宽于正文时等比缩小；小图不随容器放大。
+        const naturalWidth = Number(image.getAttribute("viewBox")?.trim().split(/[\s,]+/)[2]);
+        image.style.maxWidth = naturalWidth > 0 ? `min(100%, ${Math.ceil(naturalWidth)}px)` : "100%";
         image.style.height = "auto";
+        image.style.margin = "0 auto";
         if (options.copyText) figure.append(diagramCopyButton(container.ownerDocument, source, options.copyText));
         pre.replaceWith(figure);
       } catch (error) {

@@ -112,6 +112,10 @@ func TestCreateOpenAndPersist(t *testing.T) {
 	if err := s.CreateFile("missing/note.md"); err == nil {
 		t.Fatal("不应自动创建父文件夹")
 	}
+	// 上级不存在时给出可读提示，同时仍可按“不存在”判断。
+	if err := s.CreateFolder("missing/子目录"); !errors.Is(err, ErrParentMissing) || !errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("预期上级文件夹不存在的提示：%v", err)
+	}
 	if err := s.CreateFile("file.txt"); err == nil {
 		t.Fatal("不应创建非 Markdown 文件")
 	}

@@ -25,7 +25,9 @@ var (
 	ErrNoWorkspace = errors.New("请先选择工作区文件夹")
 	ErrInvalidPath = errors.New("路径必须是工作区内的可见相对路径，不能包含符号链接")
 	ErrExists      = errors.New("目标已存在，不能覆盖")
-	ErrScanLimit   = errors.New("工作区扫描超过限制，请选择较小的文件夹")
+	// ErrParentMissing 仍可用 errors.Is(err, os.ErrNotExist) 判断，文案直接面向用户。
+	ErrParentMissing error = parentMissingError{}
+	ErrScanLimit           = errors.New("工作区扫描超过限制，请选择较小的文件夹")
 )
 
 type Folder struct {
@@ -200,6 +202,14 @@ func (s *Store) root() (*os.Root, error) {
 	}
 	return root, nil
 }
+
+type parentMissingError struct{}
+
+func (parentMissingError) Error() string {
+	return "上级文件夹不存在，请先创建上级文件夹"
+}
+func (parentMissingError) Is(target error) bool { return target == os.ErrNotExist }
+
 func checked(root *os.Root, relative string, allowMissing bool) (string, error) {
 	path, err := validRelative(relative)
 	if err != nil {
@@ -211,6 +221,9 @@ func checked(root *os.Root, relative string, allowMissing bool) (string, error) 
 		info, err := root.Lstat(current)
 		if allowMissing && i == len(parts)-1 && errors.Is(err, os.ErrNotExist) {
 			return path, nil
+		}
+		if i < len(parts)-1 && errors.Is(err, os.ErrNotExist) {
+			return "", ErrParentMissing
 		}
 		if err != nil {
 			return "", err

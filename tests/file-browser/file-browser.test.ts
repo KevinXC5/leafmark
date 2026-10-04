@@ -306,3 +306,36 @@ test("刷新采用最新近期文件名称和路径元数据", async () => {
   h.click("已重命名.md", recent); await h.settle();
   expect(h.calls).toContainEqual({ name: "openRecent", args: ["/notes/已重命名.md"] });
 });
+
+test("根目录折叠时搜索仍显示匹配结果", async () => {
+  const h = harness(); await h.browser.ready;
+  const tree = h.container.querySelector<HTMLElement>(".fb-tree")!;
+  h.container.querySelector<HTMLButtonElement>(".fb-root-toggle")!.click();
+  expect(tree.hidden).toBe(true);
+  const search = h.container.querySelector<HTMLInputElement>(".fb-search")!;
+  expect(search.placeholder).toBe("按文件名搜索…");
+  search.value = "资料"; search.dispatchEvent(new h.dom.window.Event("input"));
+  expect(tree.hidden).toBe(false);
+  expect(tree.textContent).toContain("a.md");
+  search.value = ""; search.dispatchEvent(new h.dom.window.Event("input"));
+  expect(tree.hidden).toBe(true);
+});
+
+test("对话框内的操作失败只在对话框里提示", async () => {
+  const h = harness(); await h.browser.ready;
+  h.controls.folderError = new Error("上级文件夹不存在，请先创建上级文件夹");
+  h.click("新建文件夹"); h.submit("甲/乙"); await h.settle();
+  expect(h.dom.window.document.querySelector(".fb-validation")?.textContent).toBe("上级文件夹不存在，请先创建上级文件夹");
+  expect(h.container.querySelector<HTMLElement>(".fb-status")!.hidden).toBe(true);
+  expect(h.errors).toEqual([]);
+});
+
+test("菜单按 Escape 关闭后焦点回到触发按钮", async () => {
+  const h = harness(); await h.browser.ready;
+  const more = h.container.querySelector<HTMLButtonElement>(".fb-toolbar .fb-more")!;
+  more.click();
+  expect(h.dom.window.document.querySelector(".fb-menu")).not.toBeNull();
+  h.dom.window.document.dispatchEvent(new h.dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  expect(h.dom.window.document.querySelector(".fb-menu")).toBeNull();
+  expect(h.dom.window.document.activeElement).toBe(more);
+});

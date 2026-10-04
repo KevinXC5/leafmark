@@ -2,7 +2,11 @@
 .fb-browser button, .fb-menu button, .fb-dialog button { color: inherit; font: inherit; cursor: pointer; }
 .fb-browser button:disabled, .fb-dialog button:disabled { opacity: .45; cursor: default; }
 .fb-toolbar, .fb-recent-header, .fb-node-row { display: flex; align-items: center; gap: 4px; }
-.fb-toolbar { margin-top: 5px; }
+.fb-toolbar { margin-top: 5px; min-width: 0; border-radius: var(--control-radius); }
+/* 根目录行与文件树的行一致：悬停时整行（箭头、名称、更多操作）一起高亮。 */
+.fb-toolbar:hover { background: var(--surface); }
+.fb-toolbar button:hover, .fb-node-row button:hover { background: transparent; }
+.fb-browser .fb-more:hover { color: var(--ink) !important; }
 .fb-toolbar .fb-workspace-choose { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; padding: 8px 3px; text-align: left; font-size: 12px; font-weight: 600; }
 .fb-root-toggle { flex: 0 0 20px; display: flex; align-items: center; justify-content: center; width: 20px; min-height: 30px; padding: 0; }
 .fb-toolbar button, .fb-recent-header button { border: 0; border-radius: var(--control-radius); }
@@ -17,7 +21,7 @@
 .fb-search { appearance: none; box-sizing: border-box; min-width: 0; width: 100%; height: 29px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--ink); font: inherit; }
 .fb-search::placeholder { color: var(--muted); }
 .fb-search:focus { outline: none; }
-.fb-search-box:focus-within { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent); }
+.fb-search-box:focus-within { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent); }
 .fb-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fb-status { margin: 8px 0; padding: 8px; background: var(--highlight); color: var(--accent); border-radius: 5px; line-height: 1.6; overflow-wrap: anywhere; }
 .fb-status[hidden] { display: none; }
