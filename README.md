@@ -94,6 +94,7 @@
 | `bun run check` | 类型检查、前端测试和 Go 测试 |
 | `bun run check:release` | 在 `check` 之上增加竞态检测、`go vet` 和验证构建标签 |
 | `bun run verify:native` | 在真实 macOS WKWebView 中自动验收并截图，结果写入 `verification/` |
+| `bun run verify:full` | 完整原生验收：按批次在真实窗口中逐步操作、断言并截图，结果写入 `verification/full/`；可跟批次名只跑一部分 |
 | `bun run shots:site` | 用示例文档在真实 macOS 窗口中重新截取官网的四张应用截图 |
 | `bun run build:local` | 构建当前系统与架构的应用，产物位于 `build/<平台>-<架构>/` |
 | `bun run build -- -platform …` | 发布构建，例如 `darwin/universal,windows/amd64,windows/arm64` |
@@ -123,7 +124,8 @@ leafmark/
 │   │   └── mygo.ts         MyGo 自动生成的前后端接口，不手工编辑
 │   └── types/              第三方模块的类型声明
 ├── tests/                  前端测试，目录与 src/ 对应
-├── scripts/                构建、预览与浏览器验证脚本
+│   └── native/             完整原生验收的分批步骤与页面辅助函数
+├── scripts/                构建、预览、原生验收与浏览器验证脚本
 ├── site/                   官网静态页面
 ├── resources/              应用图标与许可证文件
 ├── verification/           原生验证输入与运行输出
@@ -147,6 +149,7 @@ leafmark/
 
 - 前端测试覆盖编辑、渲染安全、表格、会话、草稿恢复、设置与文件导航；Go 测试覆盖文档状态、编码、文件操作、路径授权与图片处理。
 - 原生验证覆盖中文与 emoji 输入、撤销重做、磁盘保存、多标签草稿、自动保存、工作区、相对图片和外部修改检测。
+- 完整原生验收（`bun run verify:full`）共六批一百余步，耗时数分钟，按需运行：工作区与文件树、设置与快捷键、表格与代码块编辑、模式切换与对话框、未保存关闭、指针交互（触控板轻触点击与悬停样式）。指针批次由验证程序向窗口投递原生鼠标事件，按下与抬起连续到达即等同“轻触点击”。每批使用重建的独立工作区，步骤写在 `tests/native/` 下按序号命名的文件里，`bun run verify:full settings editing` 这样可以只跑名称匹配的批次；任一步失败时命令以非零状态退出，逐步结果在 `verification/full/<批次>/results.json`，汇总在 `verification/full/summary.json`。运行期间会激活验证窗口并短暂占用剪贴板。
 - 以下内容需人工验收：输入法组合输入、系统打印、原生文件选择框，以及 Windows 实机运行。
 
 ### 发布

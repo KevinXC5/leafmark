@@ -67,7 +67,11 @@ func startVerification(win *mygo.Window, files *Files) {
 	win.Page().OnDidFinishLoad(func() { once.Do(func() { go verifyNative(win, files) }) })
 	// 超时退出，避免自动验证留下无人处理的窗口或无限等待。
 	go func() {
-		time.Sleep(45 * time.Second)
+		timeout := 45 * time.Second
+		if suiteScript() != "" {
+			timeout = suiteTimeout
+		}
+		time.Sleep(timeout)
 		fmt.Fprintln(os.Stderr, "原生验证超时")
 		mygo.App.Exit(1)
 	}()
@@ -100,6 +104,10 @@ func verifyNative(win *mygo.Window, files *Files) {
 	}
 	if err := wait("Boolean(window.leafmarkVerification && window.leafmarkVerification.document().path)"); err != nil {
 		fail(err)
+		return
+	}
+	if script := suiteScript(); script != "" {
+		runSuite(win, files, script)
 		return
 	}
 	if mode := siteShotMode(); mode != "" {
@@ -299,6 +307,13 @@ func verifyNative(win *mygo.Window, files *Files) {
 		fail(err)
 		return
 	}
+	result, err = eval(`const test=window.leafmarkVerification; const view=test.editor; const before=view.state.doc.toString(); const top=view.scrollDOM.scrollTop; const fence='\x60\x60\x60'; view.dispatch({changes:{from:0,insert:'| 列 |\n| --- |\n| **粗** [链](https://example.com) ![图](./图片验证.png) |\n\n'+fence+'js\nconst a = "s"; // c\nfunction f(){ return 1 }\n'+fence+'\n\n'},selection:{anchor:view.state.doc.length}}); view.scrollDOM.scrollTop=0; document.querySelector('#documents-tab').focus(); await new Promise(r=>setTimeout(r,200)); const cell=document.querySelector('.lm-table-preview td'); if(cell.querySelector('strong')?.textContent!=='粗' || cell.querySelector('a')?.getAttribute('href')!=='https://example.com' || cell.querySelector('.lm-image-fallback')?.textContent!=='图' || cell.querySelector('img')) throw Error('表格预览未渲染单元格行内格式：'+cell.innerHTML); const code=document.querySelector('.lm-code-preview code'); const colors=['keyword','string','number','comment','title'].map(name=>{const node=code.querySelector('.hljs-'+name); if(!node) throw Error('缺少高亮类别 '+name); return getComputedStyle(node).color;}); const [keyword,string,number,comment,title]=colors; if(new Set([keyword,string,number,title]).size!==1 || new Set([keyword,comment,getComputedStyle(code).color]).size!==3) throw Error('代码高亮配色不符：'+colors); view.dispatch({changes:{from:0,to:view.state.doc.length,insert:before},selection:{anchor:0}}); view.scrollDOM.scrollTop=top; document.querySelector('#documents-tab').focus(); await new Promise(r=>setTimeout(r,80)); if(view.state.doc.toString()!==before) throw Error('未还原文档'); return {tableInline:true,imageFallback:true,syntaxColors:colors.length};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["previewRendering"] = result
+	fmt.Println("通过：表格单元格行内格式与代码高亮")
 	result, err = eval(`const view=window.leafmarkVerification.editor; window.roundedVerificationOriginal=view.state.doc.toString(); const fence='\x60\x60\x60'; const source='| A | B |\n| --- | --- |\n| x | y |\n\n'+fence+'js\nconst a = 1;\n'+fence; view.dispatch({changes:{from:view.state.doc.length,insert:'\n\n'+source},selection:{anchor:0}}); document.querySelector('#documents-tab').focus(); await new Promise(r=>setTimeout(r,120)); const radius=getComputedStyle(document.documentElement).getPropertyValue('--control-radius').trim(); const corners=['borderTopLeftRadius','borderTopRightRadius','borderBottomLeftRadius','borderBottomRightRadius']; const rounded=(name,node)=>{ if(!node) throw Error('未渲染'+name); const style=getComputedStyle(node); for(const corner of corners) if(style[corner]!==radius) throw Error(name+'圆角不一致：'+style[corner]); if(style.overflowX==='visible') throw Error(name+'未裁切内容'); }; const scroll=document.querySelector('.lm-table-preview .lm-table-scroll'); const blocks=document.querySelectorAll('.lm-block-preview'); const block=blocks[blocks.length-1]; rounded('原位表格',scroll); rounded('原位代码块',block); const cell=getComputedStyle(scroll.querySelector('th')); if(cell.borderTopWidth!=='0px' || cell.borderLeftWidth!=='0px') throw Error('表格单元格仍绘制外侧边框'); block.scrollIntoView({block:'end'}); await new Promise(r=>setTimeout(r,80)); return {radius};`)
 	if err != nil {
 		fail(err)
