@@ -158,6 +158,17 @@ test("onAction 等待期间不访问 native；被主界面跳过的刷新可稍�
   h.controls.skip = false; await h.browser.refresh(); expect(h.calls).toHaveLength(4);
 });
 
+test("打开文件和刷新近期记录保留未变化的文件树节点", async () => {
+  const h = harness(); await h.browser.ready;
+  const nodes = [...h.container.querySelectorAll(".fb-tree button")];
+  h.state.recent = [{ name: "a.md", path: "/notes/a.md", openedAt: "刚刚" }];
+  h.click("· a.md"); await h.settle();
+  expect(h.opened).toHaveLength(1);
+  expect([...h.container.querySelectorAll(".fb-tree button")]).toEqual(nodes);
+  expect(nodes.every(node => node.isConnected)).toBe(true);
+  expect(h.container.querySelector(".fb-recent-list")!.textContent).toContain("a.md");
+});
+
 test("工作区和近期文件打开均在 onAction 内传递带 id 的文档", async () => {
   const h = harness(); await h.browser.ready;
   h.click("· a.md"); await h.settle();

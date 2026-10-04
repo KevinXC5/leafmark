@@ -1,6 +1,14 @@
 .fb-browser { min-width: 0; color: var(--ink); font-size: 11px; }
 .fb-browser button, .fb-menu button, .fb-dialog button { color: inherit; font: inherit; cursor: pointer; }
 .fb-browser button:disabled, .fb-dialog button:disabled { opacity: .45; cursor: default; }
+/* 操作锁只拦截重复点击，保持已有文件和目录的亮度。 */
+.fb-browser[aria-busy="true"] button:disabled { opacity: 1; }
+.fb-browser[aria-busy="true"] .fb-more:disabled { opacity: 0; }
+.fb-browser[aria-busy="true"] .fb-node-row:hover .fb-more:disabled,
+.fb-browser[aria-busy="true"] .fb-node-row:focus-within .fb-more:disabled,
+.fb-browser[aria-busy="true"] .fb-toolbar:hover .fb-more:disabled,
+.fb-browser[aria-busy="true"] .fb-toolbar:focus-within .fb-more:disabled { opacity: 1; }
+@media (hover: none) { .fb-browser[aria-busy="true"] .fb-more:disabled { opacity: 1; } }
 .fb-toolbar, .fb-recent-header, .fb-node-row { display: flex; align-items: center; gap: 4px; }
 .fb-toolbar { margin-top: 5px; min-width: 0; border-radius: var(--control-radius); }
 /* 根目录行与文件树的行一致：悬停时整行（箭头、名称、更多操作）一起高亮。 */

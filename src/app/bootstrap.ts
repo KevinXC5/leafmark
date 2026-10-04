@@ -70,7 +70,8 @@ let sourceMode = false;
 const session = createDocumentSession({
   native, initial: initialNote, files: Files,
   getState: () => editor.state,
-  setState: state => editor.setState(state),
+  // 切换前一次性配置目标状态，避免正文挂载后再次重建原位渲染。
+  setState: state => editor.setState(state.update({ effects: [live.reconfigure(editingExtensions()), editable.reconfigure(EditorView.editable.of(!session.busy)), shortcutKeys.reconfigure(keymap.of(shortcutBindings()))] }).state),
   createState: content => EditorState.create({ doc: content, extensions: extensions() }),
   setEditable: value => editor.dispatch({ effects: editable.reconfigure(EditorView.editable.of(value)) }),
   hasDialog: () => !!document.querySelector("dialog[open]"),
@@ -250,11 +251,9 @@ function updateDocumentUI() {
 
 function loadNote(next: NoteDocument) {
   session.loadNote(next);
-  editor.dispatch({ effects: [live.reconfigure(editingExtensions()), editable.reconfigure(EditorView.editable.of(!session.busy)), shortcutKeys.reconfigure(keymap.of(shortcutBindings()))] });
   element("welcome-view").hidden = true;
   element("editor").hidden = readingMode;
   element("reading-view").hidden = !readingMode;
-  if (readingMode) updateReading();
   element("format-toolbar").hidden = true;
   updateDocumentUI();
   scheduleAutoSave();
@@ -519,9 +518,15 @@ async function refreshFolder() {
 }
 
 let readingPromise: Promise<void> = Promise.resolve();
+let readingSignature = "";
 function updateReading() {
   const container = element("reading-view");
-  container.innerHTML = renderMarkdown(editor.state.doc.toString());
+  const content = editor.state.doc.toString();
+  const signature = JSON.stringify([session.note.id, session.note.path, content]);
+  // 状态栏或操作锁更新不应重复创建正文及异步图片、图表。
+  if (signature === readingSignature) return;
+  readingSignature = signature;
+  container.innerHTML = renderMarkdown(content);
   readingPromise = enrichReading(container);
   void readingPromise.catch(showError);
 }

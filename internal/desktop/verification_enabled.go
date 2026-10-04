@@ -261,6 +261,12 @@ func verifyNative(win *mygo.Window, files *Files) {
 		return
 	}
 	results["workspace"] = result
+	result, err = eval(`const test=window.leafmarkVerification; document.querySelector('#reading-toggle').click(); const button=[...document.querySelectorAll('.fb-tree .fb-node-open')].find(button=>button.title==='工作区验证.md'); const nodes=[...document.querySelectorAll('.fb-tree button')]; const state=test.editor.state; const before=getComputedStyle(button).opacity; const samples=[]; const observer=new MutationObserver(()=>{samples.push(getComputedStyle(button).opacity);}); observer.observe(document.querySelector('.fb-browser'),{subtree:true,attributes:true,attributeFilter:['disabled','aria-busy']}); button.click(); await new Promise(r=>setTimeout(r,250)); observer.disconnect(); if(!nodes.every(node=>node.isConnected)) throw Error('打开文档重建了未变化的文件树'); if(samples.some(value=>value!==before)) throw Error('打开文档时文件树亮度变化：'+samples); if(test.editor.state.doc!==state.doc) throw Error('重新打开已打开文档丢失了正文状态'); document.querySelector('#reading-toggle').click(); const reading=document.querySelector('#reading-view'); const heading=reading.querySelector('h1'); button.click(); await new Promise(r=>setTimeout(r,250)); if(!heading?.isConnected) throw Error('重新打开已打开文档重复渲染阅读正文'); return {stableTree:true,stableBrightness:true,preservedDocument:true,stableReading:true};`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	results["documentSwitchStability"] = result
 	result, err = eval(`const browser=document.querySelector('.fb-browser'); const search=browser.querySelector('.fb-search-box'); const toolbar=browser.querySelector('.fb-toolbar'); if(browser.querySelector('.fb-create-tools')) throw Error('常驻新建按钮仍存在'); if(!search.querySelector('svg') || search.nextElementSibling!==toolbar) throw Error('搜索框与目录行未遵循原型'); const input=search.querySelector('input'); input.focus(); const style=getComputedStyle(input); if(style.borderTopWidth!=='0px' || style.outlineStyle!=='none' || search.getBoundingClientRect().height>31) throw Error('搜索框样式不匹配'); input.blur(); toolbar.querySelector('.fb-more').click(); const menu=document.querySelector('.fb-menu'); if(!menu?.textContent.includes('在此新建文件…') || !menu.textContent.includes('在此新建文件夹…')) throw Error('目录创建菜单缺失'); document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); return {prototypeLayout:true,compactSearch:true,creationMenu:true};`)
 	if err != nil {
 		fail(err)

@@ -175,91 +175,102 @@ export function mountFileBrowser(container: HTMLElement, callbacks: FileBrowserC
     for (const action of root.querySelectorAll<HTMLButtonElement>(".fb-node-open, .fb-more")) action.disabled = busy;
   }
 
+  let treeSignature = "";
+  let recentSignature = "";
   function render() {
     closeMenu();
-    // 工作区名称兼作切换入口，避免重复堆叠名称、打开按钮与根目录提示。
-    const workspaceLabel = el("span", "fb-node-label");
-    workspaceLabel.textContent = workspace?.name ?? "打开文件夹…";
-    const query = search.value.trim().toLocaleLowerCase();
-    // 搜索时临时展开根目录，折叠状态下也能看到匹配结果。
-    const rootOpen = rootExpanded || Boolean(query);
-    collapse.hidden = !workspace;
-    collapse.replaceChildren(icon(rootOpen ? ChevronDown : ChevronRight));
-    collapse.setAttribute("aria-expanded", String(rootOpen));
-    collapse.setAttribute("aria-label", rootOpen ? "折叠工作区目录" : "展开工作区目录");
-    collapse.title = rootOpen ? "折叠工作区目录" : "展开工作区目录";
-    tree.hidden = !rootOpen;
-    choose.replaceChildren(icon(workspace && !rootOpen ? Folder : FolderOpen), workspaceLabel);
-    choose.title = workspace ? `${workspace.path}\n点击切换工作区` : "选择 Markdown 文件夹";
-    choose.setAttribute("aria-label", workspace ? `切换工作区：${workspace.name}` : "打开文件夹");
-    searchBox.hidden = workspaceMore.hidden = !workspace;
-    tree.replaceChildren();
-    const matches = (node: FolderNode): boolean => node.path.toLocaleLowerCase().includes(query) ||
-      node.name.toLocaleLowerCase().includes(query) || (node.children ?? []).some(matches);
-    const append = (items: FolderNode[], parent: HTMLElement, showAll = false) => {
-      for (const node of items) {
-        if (query && !showAll && !matches(node)) continue;
-        const row = el("div", "fb-node-row");
-        const open = button("", () => {
-          if (node.directory) {
-            selectedFolder = node.path;
-            if (expanded.has(node.path)) expanded.delete(node.path); else expanded.add(node.path);
-            render();
-          } else void run(async () => {
-            await callbacks.onOpen(await fileAPI.openWorkspace(node.path));
-            await refreshInside();
+    // 打开文件只改变近期记录，目录数据未变化时保留节点、焦点和悬停状态。
+    const nextTreeSignature = JSON.stringify([workspace, nodes, rootExpanded, [...expanded], selectedFolder, search.value, native]);
+    if (nextTreeSignature !== treeSignature) {
+      treeSignature = nextTreeSignature;
+      // 工作区名称兼作切换入口，避免重复堆叠名称、打开按钮与根目录提示。
+      const workspaceLabel = el("span", "fb-node-label");
+      workspaceLabel.textContent = workspace?.name ?? "打开文件夹…";
+      const query = search.value.trim().toLocaleLowerCase();
+      // 搜索时临时展开根目录，折叠状态下也能看到匹配结果。
+      const rootOpen = rootExpanded || Boolean(query);
+      collapse.hidden = !workspace;
+      collapse.replaceChildren(icon(rootOpen ? ChevronDown : ChevronRight));
+      collapse.setAttribute("aria-expanded", String(rootOpen));
+      collapse.setAttribute("aria-label", rootOpen ? "折叠工作区目录" : "展开工作区目录");
+      collapse.title = rootOpen ? "折叠工作区目录" : "展开工作区目录";
+      tree.hidden = !rootOpen;
+      choose.replaceChildren(icon(workspace && !rootOpen ? Folder : FolderOpen), workspaceLabel);
+      choose.title = workspace ? `${workspace.path}\n点击切换工作区` : "选择 Markdown 文件夹";
+      choose.setAttribute("aria-label", workspace ? `切换工作区：${workspace.name}` : "打开文件夹");
+      searchBox.hidden = workspaceMore.hidden = !workspace;
+      tree.replaceChildren();
+      const matches = (node: FolderNode): boolean => node.path.toLocaleLowerCase().includes(query) ||
+        node.name.toLocaleLowerCase().includes(query) || (node.children ?? []).some(matches);
+      const append = (items: FolderNode[], parent: HTMLElement, showAll = false) => {
+        for (const node of items) {
+          if (query && !showAll && !matches(node)) continue;
+          const row = el("div", "fb-node-row");
+          const open = button("", () => {
+            if (node.directory) {
+              selectedFolder = node.path;
+              if (expanded.has(node.path)) expanded.delete(node.path); else expanded.add(node.path);
+              render();
+            } else void run(async () => {
+              await callbacks.onOpen(await fileAPI.openWorkspace(node.path));
+              await refreshInside();
+            });
           });
-        });
-        open.className = "fb-node-open";
-        open.title = node.path;
-        const label = el("span", "fb-node-label");
-        label.textContent = node.name;
-        if (node.directory) {
-          const isExpanded = Boolean(query) || expanded.has(node.path);
-          open.append(icon(isExpanded ? ChevronDown : ChevronRight), icon(isExpanded ? FolderOpen : Folder));
-          open.setAttribute("aria-expanded", String(isExpanded));
-          row.classList.toggle("fb-selected", selectedFolder === node.path);
-        } else open.append(icon(FileText));
-        open.append(label);
-        const more = button("⋯", () => showMenu(node, more), `${node.name}的更多操作`);
-        more.className = "fb-more";
-        more.setAttribute("aria-haspopup", "menu");
-        row.append(open, more);
-        row.addEventListener("contextmenu", event => {
-          event.preventDefault();
-          if (!busy) showMenu(node, more, event.clientX, event.clientY);
-        });
-        parent.append(row);
-        if (node.directory && (query || expanded.has(node.path))) {
-          const children = el("div", "fb-children");
-          const folderMatches = node.path.toLocaleLowerCase().includes(query) || node.name.toLocaleLowerCase().includes(query);
-          append(node.children ?? [], children, showAll || Boolean(query && folderMatches));
-          if (!children.childElementCount) children.append(empty("空文件夹"));
-          parent.append(children);
+          open.className = "fb-node-open";
+          open.title = node.path;
+          const label = el("span", "fb-node-label");
+          label.textContent = node.name;
+          if (node.directory) {
+            const isExpanded = Boolean(query) || expanded.has(node.path);
+            open.append(icon(isExpanded ? ChevronDown : ChevronRight), icon(isExpanded ? FolderOpen : Folder));
+            open.setAttribute("aria-expanded", String(isExpanded));
+            row.classList.toggle("fb-selected", selectedFolder === node.path);
+          } else open.append(icon(FileText));
+          open.append(label);
+          const more = button("⋯", () => showMenu(node, more), `${node.name}的更多操作`);
+          more.className = "fb-more";
+          more.setAttribute("aria-haspopup", "menu");
+          row.append(open, more);
+          row.addEventListener("contextmenu", event => {
+            event.preventDefault();
+            if (!busy) showMenu(node, more, event.clientX, event.clientY);
+          });
+          parent.append(row);
+          if (node.directory && (query || expanded.has(node.path))) {
+            const children = el("div", "fb-children");
+            const folderMatches = node.path.toLocaleLowerCase().includes(query) || node.name.toLocaleLowerCase().includes(query);
+            append(node.children ?? [], children, showAll || Boolean(query && folderMatches));
+            if (!children.childElementCount) children.append(empty("空文件夹"));
+            parent.append(children);
+          }
         }
-      }
-    };
-    if (native && workspace) {
-      const entries = el("div", "fb-entries");
-      append(nodes, entries);
-      if (!entries.childElementCount) entries.append(empty(query ? "没有匹配的文件或文件夹。" : "工作区内没有 Markdown 文件或文件夹，可在此新建。"));
-      tree.append(entries);
-    } else tree.append(empty(native ? "选择一个文件夹，浏览并管理 Markdown 文档。" : "文件导航仅在桌面应用中可用。"));
-    recentList.replaceChildren();
-    for (const entry of recent) {
-      const row = el("div", "fb-node-row");
-      const open = button(entry.name, () => run(async () => {
-        await callbacks.onOpen(await fileAPI.openRecent(entry.path));
-        await refreshInside();
-      }));
-      open.className = "fb-node-open";
-      open.title = entry.path;
-      const reveal = button("↗", () => run(() => workspaceAPI.showInFolder(entry.path)), `在文件管理器中显示 ${entry.name}`);
-      reveal.className = "fb-more";
-      row.append(open, reveal);
-      recentList.append(row);
+      };
+      if (native && workspace) {
+        const entries = el("div", "fb-entries");
+        append(nodes, entries);
+        if (!entries.childElementCount) entries.append(empty(query ? "没有匹配的文件或文件夹。" : "工作区内没有 Markdown 文件或文件夹，可在此新建。"));
+        tree.append(entries);
+      } else tree.append(empty(native ? "选择一个文件夹，浏览并管理 Markdown 文档。" : "文件导航仅在桌面应用中可用。"));
     }
-    recentHeader.hidden = recentList.hidden = !recent.length;
+    const nextRecentSignature = JSON.stringify(recent);
+    if (nextRecentSignature !== recentSignature) {
+      recentSignature = nextRecentSignature;
+      recentList.replaceChildren();
+      for (const entry of recent) {
+        const row = el("div", "fb-node-row");
+        const open = button(entry.name, () => run(async () => {
+          await callbacks.onOpen(await fileAPI.openRecent(entry.path));
+          await refreshInside();
+        }));
+        open.className = "fb-node-open";
+        open.title = entry.path;
+        const reveal = button("↗", () => run(() => workspaceAPI.showInFolder(entry.path)), `在文件管理器中显示 ${entry.name}`);
+        reveal.className = "fb-more";
+        row.append(open, reveal);
+        recentList.append(row);
+      }
+      recentHeader.hidden = recentList.hidden = !recent.length;
+    }
     updateControls();
   }
 
