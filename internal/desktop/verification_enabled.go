@@ -245,6 +245,24 @@ func verifyNative(win *mygo.Window, files *Files) {
 		results["autoSave"] = true
 		fmt.Println("通过：两秒自动保存与磁盘内容")
 	}
+	// 模拟 Finder 拖入或“打开方式”交给应用的文档：后端排队后通知页面，页面在空闲时打开为新标签。
+	dropped := filepath.Join(filepath.Dir(verificationPath), "拖入验证.md")
+	if err := os.WriteFile(dropped, []byte("# 拖入验证\n\n系统交给应用的文档 🌿\n"), 0644); err != nil {
+		fail(err)
+		return
+	}
+	tabs, err := eval(`return document.querySelectorAll('.file-tab').length;`)
+	if err != nil {
+		fail(err)
+		return
+	}
+	_ = OpenRequested.Emit(win, files.requestOpen([]string{dropped, filepath.Join(filepath.Dir(dropped), "图片验证.png")}))
+	if err := wait(fmt.Sprintf("window.leafmarkVerification.document().path.endsWith('拖入验证.md') && window.leafmarkVerification.editor.state.doc.toString().includes('系统交给应用的文档') && document.querySelectorAll('.file-tab').length===%v+1", tabs)); err != nil {
+		fail(err)
+		return
+	}
+	results["openRequested"] = true
+	fmt.Println("通过：系统交给应用的 Markdown 文档打开为新标签，忽略非 Markdown 文件")
 	result, err = eval(`document.querySelector('#documents-tab').click(); await new Promise(r=>setTimeout(r,100)); const button=[...document.querySelectorAll('#documents button')].find(button=>button.textContent.includes('工作区验证.md')); if(!button) throw Error('工作区文件树未显示 '+document.querySelector('#documents').innerText); window.leafmarkVerification.editor.focus(); const down=new MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}); button.dispatchEvent(down); if(!down.defaultPrevented) throw Error('文件导航未保留首次点击'); button.click(); await new Promise(r=>setTimeout(r,150)); if(!window.leafmarkVerification.document().path.endsWith('工作区验证.md')) throw Error('工作区文件未加载'); document.querySelector('#reading-toggle').click(); await new Promise(r=>setTimeout(r,200)); const image=document.querySelector('#reading-view img'); if(!image?.src.startsWith('data:image/png')) throw Error('本地相对图片未解析'); return {folderTree:true,workspaceOpen:true,relativeImage:true};`)
 	if err != nil {
 		fail(err)

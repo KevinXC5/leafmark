@@ -10,6 +10,7 @@ export default defineConfig({
     deltas: 0,
     changelog: ".github/release-notes.md",
   },
+  fileAssociations: [{ ext: ["md", "markdown"], name: "Markdown 文档", role: "Editor" }],
   devUrl: "http://localhost:5173",
   devCommand: "bun run dev:web",
   buildCommand: "bun run build:web",

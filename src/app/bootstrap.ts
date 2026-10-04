@@ -25,7 +25,7 @@ import { createIcons, FileText, PanelLeft, Plus, Folder, FolderOpen, Save, Sun, 
 import { currentWindow, isMyGo, runtime } from "mygo-runtime";
 import { renderDiagrams } from "../markdown/diagrams";
 import { mountFileBrowser } from "../file-browser/file-browser";
-import { Files, Workspace, Assets, Updates, type Document as NoteDocument } from "../platform/mygo";
+import { Files, Workspace, Assets, Updates, events, type Document as NoteDocument } from "../platform/mygo";
 import { liveMarkdown } from "../editor/live/live-markdown";
 import { liveTable } from "../editor/live/live-table";
 import { liveBlocks } from "../editor/live/live-blocks";
@@ -348,6 +348,32 @@ async function open() {
   const next = await Files.open();
   if (next) loadNote(next);
 }
+// Finder 打开方式、拖入窗口的文档先在后端排队，等当前操作和对话框结束后逐个打开，避免请求被忙碌状态丢弃。
+let pendingOpenQueued = false;
+function openPending() {
+  if (!native || pendingOpenQueued) return;
+  pendingOpenQueued = true;
+  const attempt = () => {
+    if (session.busy || document.querySelector("dialog[open]")) { setTimeout(attempt, 100); return; }
+    pendingOpenQueued = false;
+    void perform(async () => {
+      for (;;) {
+        await session.flush();
+        const next = await Files.openPending();
+        if (!next) break;
+        loadNote(next);
+      }
+    });
+  };
+  setTimeout(attempt, 0);
+}
+if (native) {
+  events.filesOpenRequested.on(openPending);
+  // 拖入的文件由后端按文档打开，阻止编辑器把文件内容插入正文。
+  window.addEventListener("drop", event => {
+    if (event.dataTransfer?.types.includes("Files")) { event.preventDefault(); event.stopPropagation(); }
+  }, true);
+}
 async function newNote() {
   await session.flush();
   loadNote(native ? await Files.new() : { id: crypto.randomUUID(), name: "未命名.md", path: "", content: "", dirty: false });
@@ -471,6 +497,7 @@ async function initialize() {
 }
 
 const initialization = initialize().catch(showError).finally(session.unlock);
+void initialization.then(openPending);
 const fileBrowser = mountFileBrowser(element("documents"), {
   native,
   onAction: async action => { await initialization; return perform(action); },

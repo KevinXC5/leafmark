@@ -3,15 +3,65 @@ package desktop
 import (
 	"context"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/egoist/mygo"
 	"leafmark/internal/documents"
 )
 
-// Files 仅提供用户通过原生文件选择框授权的文档操作。
+// OpenRequested 通知页面有系统交给应用的文档等待打开，载荷为排队数量。
+var OpenRequested = mygo.NewEvent[int]("files:open-requested")
+
+// Files 仅提供用户授权的文档操作：原生文件选择框，或经 Finder 打开、拖入窗口交给应用的文档。
 type Files struct {
 	store     *documents.Store
 	workspace *Workspace
+
+	mu      sync.Mutex
+	pending []string
+}
+
+// requestOpen 记录系统交给应用的 Markdown 文档（Finder 打开方式、拖入窗口或 Dock 图标），
+// 路径只来自原生事件，页面不能指定；返回排队数量，由页面在空闲时调用 OpenPending 逐个取用。
+func (f *Files) requestOpen(paths []string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, path := range paths {
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".md" && ext != ".markdown" {
+			continue
+		}
+		if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		f.pending = append(f.pending, path)
+	}
+	return len(f.pending)
+}
+
+// OpenPending 打开下一份排队的文档，队列为空时返回 nil。
+func (f *Files) OpenPending() (*documents.Document, error) {
+	f.mu.Lock()
+	if len(f.pending) == 0 {
+		f.mu.Unlock()
+		return nil, nil
+	}
+	path := f.pending[0]
+	f.pending = f.pending[1:]
+	f.mu.Unlock()
+	doc, err := f.store.Load(path)
+	if err != nil {
+		return nil, err
+	}
+	if f.workspace != nil {
+		if err := f.workspace.rememberAuthorized(doc.Path); err != nil {
+			log.Printf("记录近期文件失败：%v", err)
+		}
+	}
+	return &doc, nil
 }
 
 func (f *Files) OpenWorkspace(relative string) (documents.Document, error) {

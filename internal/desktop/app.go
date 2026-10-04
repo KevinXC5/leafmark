@@ -20,6 +20,12 @@ func Run() {
 	mygo.Bind(NewAssets(files))
 	updates := &Updates{}
 	mygo.Bind(updates)
+	// 启动前注册，才能收到双击或“打开方式”启动应用时带来的文档；窗口尚未创建时由页面初始化后主动取用。
+	mygo.App.OnOpenFile(func(path string) {
+		if n := files.requestOpen([]string{path}); n > 0 {
+			_ = OpenRequested.Broadcast(n)
+		}
+	})
 	mygo.App.WhenReady(func() {
 		opts := mygo.WindowOptions{
 			Title: "Leafmark · 叶笺", URL: "/", Width: 1200, Height: 900,
@@ -32,6 +38,11 @@ func Run() {
 			opts.TrafficLightPosition = &mygo.Point{X: 20, Y: 18}
 		}
 		win := mygo.NewWindow(opts)
+		win.OnFileDrop(func(e *mygo.FileDropEvent) {
+			if n := files.requestOpen(e.Paths); n > 0 {
+				_ = OpenRequested.Emit(win, n)
+			}
+		})
 		installTapClickFix()
 		startVerification(win, files)
 		installCloseHandler(win, files)
