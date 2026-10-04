@@ -92,6 +92,7 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
   if (activePage?.isConnected) { activePage.querySelector<HTMLElement>('[aria-selected="true"]')?.focus(); return; }
   let current = validateSettings(settings);
   let afterClose: (() => void) | undefined;
+  let updateDialog: HTMLDialogElement | null = null;
   const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const prefix = `leafmark-settings-${++pageSequence}`;
   const page = node("section", "leafmark-settings");
@@ -101,6 +102,7 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
   const app = document.querySelector<HTMLElement>("#app");
   const wasInert = app?.inert ?? false;
   const closePage = () => {
+    updateDialog?.close(); updateDialog?.remove(); updateDialog = null;
     page.remove(); if (activePage === page) activePage = null;
     document.body.classList.remove("settings-open");
     if (app) app.inert = wasInert;
@@ -315,22 +317,57 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
         const updates = options.updates;
         const group = section(panel, "软件更新");
         const check = node("button", "settings-reset", "检查更新"); check.type = "button";
-        const install = node("button", "settings-reset", "安装更新"); install.type = "button"; install.hidden = true;
+        const install = node("button", "settings-reset", "查看更新"); install.type = "button"; install.hidden = true;
         const buttons = node("div", "settings-update-actions"); buttons.append(check, install);
         row(group, "Leafmark", "正在读取版本…", buttons);
         const version = group.querySelector<HTMLElement>(".settings-description")!;
         const message = node("p", "settings-description settings-update-note"); message.setAttribute("role", "status");
-        const notes = node("p", "settings-description settings-update-note"); notes.style.whiteSpace = "pre-wrap";
-        group.append(message, notes);
+        group.append(message);
+        let latest: Awaited<ReturnType<typeof updates.status>> | undefined;
         const render = (value: Awaited<ReturnType<typeof updates.status>>) => {
+          latest = value;
           version.textContent = `当前版本：${value.version || "开发版"}`;
           check.disabled = !value.enabled || value.installed;
           install.hidden = !value.available || value.installed;
           install.disabled = false;
-          notes.textContent = value.notes;
           message.textContent = value.installed ? "更新已安装，下次启动生效。请先保存文档后再关闭应用。"
             : !value.enabled ? "开发版或安装目录不可写时无法自动更新。"
             : value.available ? `新版本 ${value.available} 可供安装。` : "";
+        };
+        const showUpdate = () => {
+          if (!page.isConnected || !latest?.available || latest.installed || updateDialog?.open) return;
+          const dialog = node("dialog", "settings-update-dialog"); updateDialog = dialog;
+          const title = node("h2", "", `发现新版本 ${latest.available}`); title.id = `${prefix}-update-title`;
+          dialog.setAttribute("aria-labelledby", title.id);
+          const summary = node("p", "", `当前版本：${latest.version || "开发版"}`);
+          const notesTitle = node("h3", "", "更新日志");
+          // 远端日志仅作为文本展示，保留换行，不执行其中的 HTML。
+          const notes = node("div", "settings-update-log", latest.notes.trim() || "此版本未提供更新日志。");
+          notes.tabIndex = 0; notes.setAttribute("role", "region"); notes.setAttribute("aria-label", "更新日志");
+          const hint = node("p", "", "升级后下次启动生效，不会关闭当前文档。请保存文档后再退出应用。");
+          const actions = node("div", "dialog-actions");
+          const cancel = node("button", "", "取消"); cancel.type = "button";
+          const confirm = node("button", "primary", "确定升级"); confirm.type = "button";
+          actions.append(cancel, confirm); dialog.append(title, summary, notesTitle, notes, hint, actions);
+          cancel.addEventListener("click", () => dialog.close());
+          confirm.addEventListener("click", async () => {
+            if (confirm.disabled) return;
+            confirm.disabled = true;
+            dialog.close();
+            check.disabled = true; install.disabled = true; message.textContent = "正在下载并安装更新，请稍候…";
+            try { render(await updates.install()); }
+            catch (error) { message.textContent = error instanceof Error ? error.message : String(error); check.disabled = false; install.disabled = false; }
+          });
+          dialog.addEventListener("keydown", event => {
+            if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dialog.close(); }
+            else if (event.metaKey || event.ctrlKey) { event.preventDefault(); event.stopPropagation(); }
+          }, true);
+          dialog.addEventListener("close", () => {
+            dialog.remove(); if (updateDialog === dialog) updateDialog = null;
+            if (page.isConnected) install.focus({ preventScroll: true });
+          }, { once: true });
+          // 放在设置页之外，避免 Escape 被设置页的捕获监听器当作返回书写。
+          document.body.append(dialog); dialog.showModal(); cancel.focus();
         };
         check.disabled = true;
         void updates.status().then(render).catch(() => { message.textContent = "无法读取更新状态，请重新打开设置。"; });
@@ -338,14 +375,11 @@ export function openSettings(settings: Settings, onChange: (settings: Settings) 
           check.disabled = true; install.disabled = true; message.textContent = "正在检查更新…";
           try {
             const value = await updates.check(); render(value);
-            if (!value.available) message.textContent = "已是最新版本。";
+            if (value.available && !value.installed) showUpdate();
+            else if (!value.installed) message.textContent = "已是最新版本。";
           } catch (error) { message.textContent = error instanceof Error ? error.message : String(error); check.disabled = false; install.disabled = false; }
         });
-        install.addEventListener("click", async () => {
-          check.disabled = true; install.disabled = true; message.textContent = "正在下载并安装更新，请稍候…";
-          try { render(await updates.install()); }
-          catch (error) { message.textContent = error instanceof Error ? error.message : String(error); check.disabled = false; install.disabled = false; }
-        });
+        install.addEventListener("click", showUpdate);
       }
       const habits = section(panel, "书写习惯");
       toggle(habits, "focusMode", "专注模式", "淡化当前段落之外的文字。");

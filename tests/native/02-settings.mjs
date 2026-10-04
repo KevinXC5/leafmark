@@ -1,4 +1,4 @@
-import { page, selectFolder, shell } from "./steps.mjs";
+import { page, selectFolder, shell, tap } from "./steps.mjs";
 
 // 设置页、外观、快捷键与持久化。
 export default ({ workspace, workspace2, out }) => [
@@ -457,10 +457,10 @@ export default ({ workspace, workspace2, out }) => [
       for (const [label, item] of Object.entries(out)) {
         if (!item.shown || !item.cancelled || !item.hiddenAfter || !item.status.includes("完成")) throw Error(label + " 流程不符 " + JSON.stringify(item));
       }
-      // 软件更新：版本说明与按钮同在一行；“安装更新”只在有可用更新时出现，并排在“检查更新”右侧。
+      // 软件更新：版本说明与按钮同在一行；有可用更新时展示“查看更新”。
       const row = rowOf("Leafmark");
       const buttons = [...row.querySelectorAll(".settings-update-actions button")];
-      eq(buttons.map(button => button.textContent).join(), "检查更新,安装更新", "更新按钮");
+      eq(buttons.map(button => button.textContent).join(), "检查更新,查看更新", "更新按钮");
       const [check, install] = buttons.map(button => button.getBoundingClientRect());
       const description = row.querySelector(".settings-description").getBoundingClientRect();
       if (check.left < description.right || check.bottom < description.top || check.top > description.bottom)
@@ -472,6 +472,62 @@ export default ({ workspace, workspace2, out }) => [
     },
     { shot: "b10-general" },
   ),
+  page("准备独立更新服务", async () => {
+    await closeS();
+    const state = { version: "0.2.0", enabled: true, available: "0.3.0", installed: false,
+      notes: "本次 v0.3.0 重点修复了 macOS 触控板轻触点击及编辑、导航、设置中的多处问题。\n\n- 修复触控板轻触点击失效\n- 完善编辑与导航体验\n- 统一设置界面与默认排版\n\n<img src=x onerror=alert(1)>" };
+    window.updateTest = { installs: 0, fail: true, state };
+    T.openSettings({ updates: {
+      status: async () => ({ ...state, available: "", notes: "" }),
+      check: async () => ({ ...state }),
+      install: async () => {
+        window.updateTest.installs++;
+        if (window.updateTest.fail) throw Error("安装更新失败，请稍后重试");
+        state.installed = true; return { ...state };
+      },
+    } });
+    await tab("通用");
+  }),
+  tap("检查更新并弹出日志", () => $(".settings-update-actions button")),
+  page("更新日志与确认按钮", async () => {
+    await until(() => $(".settings-update-dialog[open]"), "更新弹窗");
+    const dialog = $(".settings-update-dialog");
+    eq(dialog.querySelector("h2").textContent, "发现新版本 0.3.0", "新版本标题");
+    eq([...dialog.querySelectorAll("button")].map(b => b.textContent).join(), "取消,确定升级", "更新选择");
+    eq(dialog.querySelector(".settings-update-log").textContent, window.updateTest.state.notes, "完整日志");
+    if (dialog.querySelector("img")) throw Error("更新日志执行了 HTML");
+    eq(window.updateTest.installs, 0, "确认前未安装");
+    eq(document.activeElement.textContent, "取消", "默认焦点");
+  }, { shot: "b10-update-dialog" }),
+  tap("取消升级", () => $(".settings-update-dialog button")),
+  page("取消保留稍后升级入口", async () => {
+    await until(() => !$(".settings-update-dialog"), "关闭更新弹窗");
+    eq(window.updateTest.installs, 0, "取消未安装");
+    if (!S() || $(".settings-update-actions button:last-child").hidden) throw Error("取消后丢失设置或查看入口");
+  }),
+  tap("再次查看更新", () => $(".settings-update-actions button:last-child")),
+  page("Escape 只关闭更新弹窗", async () => {
+    $(".settings-update-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await until(() => !$(".settings-update-dialog"), "Escape 关闭");
+    if (!S()) throw Error("Escape 关闭了设置页");
+    eq(window.updateTest.installs, 0, "Escape 未安装");
+  }),
+  tap("查看更新准备升级", () => $(".settings-update-actions button:last-child")),
+  tap("确定升级遇到安装失败", () => $(".settings-update-dialog .primary")),
+  page("安装失败允许重试", async () => {
+    await until(() => $(".settings-update-note").textContent.includes("安装更新失败"), "安装错误");
+    eq(window.updateTest.installs, 1, "确认后安装一次");
+    if ($(".settings-update-actions button:last-child").disabled) throw Error("安装失败后无法重试");
+    window.updateTest.fail = false;
+  }),
+  tap("重新查看更新", () => $(".settings-update-actions button:last-child")),
+  tap("确定升级成功", () => $(".settings-update-dialog .primary")),
+  page("升级完成与设置清理", async () => {
+    await until(() => $(".settings-update-note").textContent.includes("下次启动生效"), "升级完成");
+    eq(window.updateTest.installs, 2, "重试安装次数");
+    if (!$(".settings-update-actions button:last-child").hidden) throw Error("升级完成仍展示安装入口");
+    await closeS(); delete window.updateTest;
+  }),
   page("设置页内 ⌘S/⌘N 不穿透", async () => {
     await openS();
     const tabs = $$(".file-tab").length;

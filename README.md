@@ -8,7 +8,7 @@
 
 从[官网](https://kevinxc5.github.io/leafmark/)或 [GitHub Releases](https://github.com/KevinXC5/leafmark/releases) 下载：macOS 按芯片选择 arm64 或 amd64 的 DMG，Windows 按架构选择 Setup 安装程序。
 
-- 应用会自动检查更新，也可在“设置 → 通用 → 软件更新”手动检查；更新包经过签名校验，安装后下次启动生效。
+- 应用会自动检查更新，也可在“设置 → 通用 → 软件更新”手动检查；发现新版本时弹出更新日志，点击“确定升级”下载安装，点击“取消”可稍后通过“查看更新”再次打开。更新包经过签名校验，安装后下次启动生效。
 - 安装包尚未配置 Apple 公证与 Windows 代码签名，首次运行时系统可能显示来源验证提示。
 
 ## 功能
@@ -168,7 +168,7 @@ git push origin main v0.2.0
 3. **发布**：检查与构建都通过后，核对更新清单、生成 `checksums.txt` 并公开发布。
 
 - 需要两个 Actions Secret：`DEEPSEEK_API_KEY` 和 `MYGO_UPDATER_PRIVATE_KEY`（更新包的 Ed25519 签名私钥，公钥在 `mygo.config.ts` 中）。
-- 应用内的更新提示取自更新日志开头的概述，由构建任务写入 `.github/release-notes.md` 的 `## 版本号` 小节；仓库中的该文件只保存固定的下载与安装说明。
+- 应用内的更新日志包含发布说明中的概述与完整变更条目，由构建任务写入 `.github/release-notes.md` 的 `## 版本号` 小节，日志内的标题降低一级；仓库中的该文件只保存固定的下载与安装说明。
 - 已公开的版本不会被覆盖，对它重新运行流程会直接成功结束。流程也可以手动触发，用于重试尚未公开的标签。
 
 ### 官网

@@ -636,5 +636,6 @@ if (import.meta.env.MODE === "verification") {
   Object.assign(window, { leafmarkVerification: {
     editor, document: () => ({ ...session.note }), flush: session.flush,
     undo: () => undo(editor), redo: () => redo(editor),
+    openSettings: (options: Parameters<typeof openSettings>[2]) => openSettings(settings, applySettings, options),
   } });
 }

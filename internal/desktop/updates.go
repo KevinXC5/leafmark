@@ -137,8 +137,8 @@ func (u *Updates) start() {
 			if err == nil && status.Available != "" && !status.Installed {
 				res, err := mygo.Dialog.Message(mygo.MessageOptions{
 					Type: mygo.MessageInfo, Message: "Leafmark " + status.Available + " 可供更新",
-					Detail:  "当前版本：" + status.Version + "\n安装后下次启动生效，不会关闭当前文档。\n\n" + status.Notes,
-					Buttons: []string{"安装更新", "稍后"}, DefaultButton: 0, CancelButton: 1,
+					Detail:  "当前版本：" + status.Version + "\n升级后下次启动生效，不会关闭当前文档。\n\n更新日志\n" + status.Notes,
+					Buttons: []string{"确定升级", "取消"}, DefaultButton: 1, CancelButton: 1,
 				})
 				if err == nil && res.Button == 0 {
 					if _, err := u.Install(context.Background()); err != nil {
