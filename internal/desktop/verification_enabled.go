@@ -212,6 +212,18 @@ func verifyNative(win *mygo.Window, files *Files) {
 	fmt.Println("通过：源码切换、选区工具栏和加粗")
 
 	expected := files.store.Current().Content
+	originalRaw, err := os.ReadFile(verificationPath)
+	if err != nil {
+		fail(err)
+		return
+	}
+	// 按原文件编码比较磁盘字节，同时验证 Windows CRLF 与 BOM 保留。
+	if strings.Contains(string(originalRaw), "\r\n") {
+		expected = strings.ReplaceAll(expected, "\n", "\r\n")
+	}
+	if strings.HasPrefix(string(originalRaw), string(rune(0xfeff))) {
+		expected = string(rune(0xfeff)) + expected
+	}
 	result, err = eval(`document.querySelector('#save-file').click(); return true;`)
 	if err != nil {
 		fail(err)
