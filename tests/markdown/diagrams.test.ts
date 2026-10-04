@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { fileURLToPath } from "node:url";
 // Mermaid 自身的 DOMPurify 在模块加载时检查浏览器环境。
 Object.defineProperty(globalThis, "window", { value: new JSDOM("").window, configurable: true, writable: true });
 const { DIAGRAM_LIMITS, DIAGRAM_PALETTES, diagramConfig, renderDiagrams, sanitizeDiagramSVG, validateDiagramSource } = await import("../../src/markdown/diagrams");
@@ -62,7 +63,7 @@ describe("Mermaid 安全和资源边界", () => {
       await renderDiagrams(container);
       if (container.querySelectorAll("figure").length !== 1 || w.document.body.children.length !== 1) throw new Error("重复渲染或临时节点未清理");
     `;
-    const result = Bun.spawnSync([process.execPath, "-e", script], { cwd: new URL("../..", import.meta.url).pathname });
+    const result = Bun.spawnSync([process.execPath, "-e", script], { cwd: fileURLToPath(new URL("../..", import.meta.url)) });
     expect(result.exitCode, result.stderr.toString()).toBe(0);
   });
   test("无效输入保留源码并显示中文，重复调用不重复提示", async () => {
