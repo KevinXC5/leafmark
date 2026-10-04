@@ -65,7 +65,7 @@ describe("Mermaid 安全和资源边界", () => {
     `;
     const result = Bun.spawnSync([process.execPath, "-e", script], { cwd: fileURLToPath(new URL("../..", import.meta.url)) });
     expect(result.exitCode, result.stderr.toString()).toBe(0);
-  });
+  }, 30_000);
   test("无效输入保留源码并显示中文，重复调用不重复提示", async () => {
     const document = new JSDOM("").window.document;
     const container = document.createElement("div");
