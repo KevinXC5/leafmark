@@ -47,6 +47,7 @@ func Run() {
 		})
 		startNativeVerification(win, app)
 		updates.restartFn = installNativeCloseHandler(win, app)
+		app.watchUpdates()
 		updates.start()
 		app.boot()
 	})

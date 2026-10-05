@@ -182,6 +182,10 @@ type nativeApp struct {
 	// 设置页的临时状态。
 	updateNote        string
 	updateOpen        bool
+	updateDownloading bool // 正在下载或安装，弹窗显示进度条
+	updateDownloaded  int64
+	updateTotal       int64
+	updateError       string
 	confirmClear      string
 	settingsStatus    string
 	shortcutOpen      bool
@@ -1154,6 +1158,41 @@ func (a *nativeApp) checkUpdate(install bool) {
 			} else {
 				a.updateNote = "已是最新版本。"
 				a.notice = "当前已是最新版本"
+			}
+		})
+	}()
+}
+
+// watchUpdates 把更新服务的后台通知接到界面：自动检查发现新版本时弹出更新窗口，下载时刷新进度。
+func (a *nativeApp) watchUpdates() {
+	if a.updates == nil {
+		return
+	}
+	a.updates.availableFn = func(UpdateStatus) {
+		a.update(func() {
+			if !a.updateDownloading {
+				a.updateOpen, a.updateError = true, ""
+			}
+		})
+	}
+	a.updates.progressFn = func(downloaded, total int64) {
+		a.update(func() { a.updateDownloaded, a.updateTotal = downloaded, total })
+	}
+}
+
+// installUpdate 下载并安装已发现的新版本；进度与结果显示在更新窗口里。
+func (a *nativeApp) installUpdate() {
+	if a.updates == nil || a.updateDownloading {
+		return
+	}
+	a.updateDownloading, a.updateBusy = true, true
+	a.updateDownloaded, a.updateTotal, a.updateError = 0, 0, ""
+	go func() {
+		_, err := a.updates.Install(context.Background())
+		a.update(func() {
+			a.updateDownloading, a.updateBusy = false, false
+			if err != nil {
+				a.updateError = err.Error()
 			}
 		})
 	}()

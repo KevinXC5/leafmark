@@ -9,17 +9,6 @@ import (
 	"github.com/egoist/mygo"
 )
 
-// UpdateAvailable 通知页面展示可用版本的更新日志与升级确认。
-var UpdateAvailable = mygo.NewEvent[UpdateStatus]("updates:available")
-
-// UpdateProgress 将真实下载字节数发送给更新弹窗。
-var UpdateProgress = mygo.NewEvent[UpdateDownloadProgress]("updates:progress")
-
-type UpdateDownloadProgress struct {
-	Downloaded int64 `json:"downloaded"`
-	Total      int64 `json:"total"`
-}
-
 // Updates 将版本检查与签名安装交给 MyGo，界面只接收明确的更新状态。
 type Updates struct {
 	mu        sync.Mutex
@@ -33,6 +22,11 @@ type Updates struct {
 	checkFn   func(context.Context) (*mygo.Update, error)
 	installFn func(context.Context, *mygo.Update, func(int64, int64)) error
 	restartFn func()
+
+	// 界面在启动时接上这两个回调：自动检查发现新版本，以及下载的真实字节数。
+	// 它们在后台协程里被调用。
+	availableFn func(UpdateStatus)
+	progressFn  func(downloaded, total int64)
 }
 
 func (u *Updates) version() string {
@@ -64,7 +58,9 @@ func (u *Updates) install(ctx context.Context, up *mygo.Update) error {
 }
 
 func (u *Updates) progress(downloaded, total int64) {
-	_ = UpdateProgress.Broadcast(UpdateDownloadProgress{Downloaded: downloaded, Total: total})
+	if u.progressFn != nil {
+		u.progressFn(downloaded, total)
+	}
 }
 
 // Restart 仅允许安装成功后重启；桌面入口负责先完成文档关闭检查。
@@ -165,8 +161,8 @@ func (u *Updates) start() {
 		<-timer.C
 		for {
 			status, err := u.Check(context.Background())
-			if err == nil && status.Available != "" && !status.Installed {
-				_ = UpdateAvailable.Broadcast(status)
+			if err == nil && status.Available != "" && !status.Installed && u.availableFn != nil {
+				u.availableFn(status)
 			}
 			// 检查失败时保持安静，手动检查入口可以随时重试。
 			timer.Reset(24 * time.Hour)

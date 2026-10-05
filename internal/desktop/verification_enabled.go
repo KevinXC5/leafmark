@@ -403,6 +403,30 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 		}
 		mygo.RunOnMain(func() { app.settingsOn, app.settingsSection = false, "" })
 		results["settingsPages"] = len(settingsTabs)
+		// 更新窗口：用一条虚构的新版本截取下载中与安装完成两种状态，随后复原。
+		for _, state := range []string{"downloading", "installed"} {
+			mygo.RunOnMain(func() {
+				app.updates.mu.Lock()
+				app.updates.pending = &mygo.Update{Version: "9.9.9", Notes: "验收用的更新日志，概述一句。\n\n## 新增功能\n\n- 支持**公式排版**与流程图。\n- 新增源码模式。\n\n## 问题修复\n\n- 修复若干问题。\n"}
+				app.updates.installed = state == "installed"
+				app.updates.mu.Unlock()
+				app.updateOpen, app.updateDownloading = true, state == "downloading"
+				app.updateDownloaded, app.updateTotal = 45, 100
+			})
+			win.Invalidate()
+			refreshVerificationWindow(win)
+			time.Sleep(150 * time.Millisecond)
+			if shot, captureErr := win.CapturePage(); captureErr == nil {
+				_ = os.WriteFile("verification/native-update-"+state+".png", shot, 0644)
+			}
+		}
+		mygo.RunOnMain(func() {
+			app.updates.mu.Lock()
+			app.updates.pending, app.updates.installed = nil, false
+			app.updates.mu.Unlock()
+			app.updateOpen, app.updateDownloading, app.updateDownloaded, app.updateTotal = false, false, 0, 0
+		})
+		results["updateDialog"] = true
 		// 导出走与菜单相同的生成路径，只是把结果写进验证目录而不弹保存框。
 		var exportName, exportBody string
 		mygo.RunOnMain(func() { exportName, exportBody, _ = app.exportBody() })

@@ -1,7 +1,7 @@
 {
   "name": "Leafmark",
   "identifier": "dev.leafmark.app",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "out": "build",
   "updates": {
     "github": "KevinXC5/leafmark",

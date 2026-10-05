@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"runtime"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
+	"leafmark/internal/richtext"
 )
 
 // settingsPalette 是设置页自己的一套颜色，与书写界面的纸色略有区别。
@@ -47,7 +50,7 @@ var settingsTabs = []struct{ id, label, icon, intro string }{
 }
 
 func (a *nativeApp) closeSettings() {
-	a.settingsOn, a.shortcutOpen, a.updateOpen, a.confirmClear = false, false, false, ""
+	a.settingsOn, a.shortcutOpen, a.confirmClear = false, false, ""
 	a.persistSettings()
 }
 
@@ -123,7 +126,6 @@ func (a *nativeApp) viewSettings(c *ui.Context) {
 		})
 	})
 	a.viewShortcutDialog(c, p)
-	a.viewUpdateDialog(c, p)
 }
 
 func (a *nativeApp) viewSettingsSidebar(c *ui.Context, p settingsPalette, section int, narrow, compact bool) {
@@ -562,12 +564,80 @@ func (a *nativeApp) clearData(label string) {
 	}()
 }
 
-// viewUpdateDialog 展示新版本的更新日志，确认后下载安装。
-func (a *nativeApp) viewUpdateDialog(c *ui.Context, p settingsPalette) {
-	if a.updates == nil {
+// viewReleaseNotes 把 Markdown 写成的更新日志排成小标题、段落与列表，不露出标记符号。
+func viewReleaseNotes(c *ui.Context, markdown string) {
+	plain := func(runs []richtext.Run) string {
+		var b strings.Builder
+		for _, r := range runs {
+			b.WriteString(r.Text)
+		}
+		return b.String()
+	}
+	ui.Column(c).FillWidth().Gap(8).Children(func() {
+		for i, b := range richtext.Parse(markdown).Blocks() {
+			text := plain(b.Runs)
+			switch b.Kind {
+			case richtext.Heading:
+				top := float32(10)
+				if i == 0 {
+					top = 0
+				}
+				ui.Text(c, text).FontSize(14).FontWeight(600).LineHeight(1.5).Margin(top, 0, 0, 0)
+			case richtext.List, richtext.Task:
+				marker := "•"
+				if b.Ordered {
+					marker = strconv.Itoa(max(1, b.Start)) + "."
+				}
+				ui.Row(c).Key("note:"+strconv.Itoa(i)).FillWidth().Gap(8).Padding(0, 0, 0, float32(6+max(b.Level-1, 0)*16)).Children(func() {
+					ui.Text(c, marker).FontSize(13).LineHeight(1.8).Shrink(0)
+					ui.Text(c, text).FontSize(13).LineHeight(1.8).Grow(1).MinWidth(0)
+				})
+			case richtext.Code:
+				ui.Text(c, strings.TrimRight(b.Code, "\n")).Font(sourceFontFamily).FontSize(12).LineHeight(1.7)
+			case richtext.Horizontal, richtext.Image:
+			case richtext.Raw:
+				ui.Text(c, strings.TrimSpace(b.Raw)).FontSize(13).LineHeight(1.8)
+			default:
+				if text != "" {
+					ui.Text(c, text).FontSize(13).LineHeight(1.8)
+				}
+			}
+		}
+	})
+}
+
+// updateProgress 返回更新窗口的提示文字与进度（0–1）。shown 为 false 时不画进度条，
+// fraction 为负表示还不知道总大小。
+func (a *nativeApp) updateProgress(installed bool) (hint string, fraction float64, shown bool) {
+	switch {
+	case installed:
+		return "更新已安装，重启应用即可使用新版本。", 1, true
+	case a.updateError != "":
+		return a.updateError, 0, false
+	case !a.updateDownloading:
+		return "安装完成后可重启应用以使用新版本，重启前会检查未保存的文档。", 0, false
+	case a.updateTotal <= 0 && a.updateDownloaded <= 0:
+		return "正在连接下载，请稍候…", -1, true
+	case a.updateTotal <= 0:
+		return "正在下载更新，请稍候…", -1, true
+	case a.updateDownloaded >= a.updateTotal:
+		// 下载结束不代表安装成功：保留满格进度，等待签名校验与替换完成。
+		return "下载完成，正在校验并安装更新…", 1, true
+	}
+	fraction = float64(a.updateDownloaded) / float64(a.updateTotal)
+	return fmt.Sprintf("正在下载更新… %d%%", int(fraction*100)), fraction, true
+}
+
+// viewUpdateDialog 展示新版本的更新日志；确认后下载安装并显示进度，装好后可直接重启。
+// 它挂在主视图上，书写界面和设置页里都能弹出。
+func (a *nativeApp) viewUpdateDialog(c *ui.Context) {
+	if a.updates == nil || !a.updateOpen {
 		return
 	}
-	ui.Modal(c, &a.updateOpen, func() {
+	p := settingsColors(c.Theme().Dark)
+	// 下载期间不能用 Escape 或点击空白关掉窗口。
+	open := true
+	ui.Modal(c, &open, func() {
 		status := a.updates.Status()
 		version := status.Version
 		if version == "" {
@@ -581,29 +651,51 @@ func (a *nativeApp) viewUpdateDialog(c *ui.Context, p settingsPalette) {
 		ui.Text(c, "当前版本："+version).FontSize(12).TextColor(p.muted)
 		ui.Text(c, "更新日志").FontSize(13).FontWeight(600)
 		ui.Scroll(c).Width(500).MaxHeight(320).Padding(16).Radius(8).Border(1, p.line).Background(p.control).Children(func() {
-			ui.Text(c, notes).FontSize(13).LineHeight(1.8)
+			viewReleaseNotes(c, notes)
 		})
-		hint := "安装完成后可重启应用以使用新版本，重启前会检查未保存的文档。"
-		if a.updateBusy {
-			hint = "正在下载并安装更新…"
+		hint, fraction, shown := a.updateProgress(status.Installed)
+		ui.Text(c, hint).FontSize(12).LineHeight(1.6).TextColor(p.muted).Width(500)
+		if shown {
+			accent := c.Theme().Accent
+			now := c.Now()
+			if fraction < 0 {
+				c.After(40 * time.Millisecond) // 总大小未知时来回滑动
+			}
+			ui.Box(c).Width(500).Height(6).Label("更新下载进度").Draw(func(painter *ui.Painter, r ui.Rect) {
+				painter.Fill(r, p.line, 3)
+				bar := ui.Rect{X: r.X, Y: r.Y, W: r.W * float32(fraction), H: r.H}
+				if fraction < 0 {
+					phase := float32(now.UnixMilli()%1400) / 1400
+					bar.W = r.W * .3
+					bar.X = r.X + (r.W-bar.W)*phase
+				}
+				if bar.W > 0 {
+					painter.Fill(bar, accent, 3)
+				}
+			})
 		}
-		ui.Text(c, hint).FontSize(12).TextColor(p.muted)
-		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			if ui.Button(c, "取消").Clicked() {
+		ui.Row(c).Width(500).Gap(8).Justify(ui.End).Children(func() {
+			later := "取消"
+			if status.Installed {
+				later = "稍后"
+			}
+			if ui.Button(c, later).Disabled(a.updateDownloading).Clicked() {
 				a.updateOpen = false
 			}
 			if status.Installed {
 				if ui.PrimaryButton(c, "重启应用").Clicked() {
-					a.updateOpen = false
 					if err := a.updates.Restart(); err != nil {
-						a.notice = err.Error()
+						a.updateError = err.Error()
 					}
 				}
-			} else if ui.PrimaryButton(c, "确定升级").Disabled(a.updateBusy).Clicked() {
-				a.checkUpdate(true)
+			} else if ui.PrimaryButton(c, "确定升级").Disabled(a.updateDownloading).Clicked() {
+				a.installUpdate()
 			}
 		})
 	})
+	if !open && !a.updateDownloading {
+		a.updateOpen = false
+	}
 }
 
 // viewShortcutDialog 是快捷键设置对话框：选择动作、录制组合键、校验冲突后应用。

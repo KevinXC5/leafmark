@@ -105,6 +105,7 @@ func (a *nativeApp) View(c *ui.Context) {
 	}
 	a.viewPrompt(c)
 	a.viewRawEditor(c)
+	a.viewUpdateDialog(c)
 	// 验证只在真实帧构建完成后插入操作，不走网页。
 	if a.verifyStep != nil {
 		a.verifyStep(c)
