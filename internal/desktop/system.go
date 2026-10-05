@@ -1,7 +1,6 @@
 package desktop
 
 import (
-	"context"
 	"errors"
 	"net/url"
 	"strings"
@@ -50,17 +49,5 @@ func (w *Workspace) CopyText(text string) error {
 		return errors.New("复制内容必须是 16 MB 以内的 UTF-8 文本")
 	}
 	mygo.Clipboard.WriteText(text)
-	return nil
-}
-
-func (w *Workspace) Print(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	win := mygo.CallerWindow(ctx)
-	if win == nil {
-		return errors.New("找不到调用窗口")
-	}
-	win.Page().Print()
 	return nil
 }

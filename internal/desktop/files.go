@@ -42,6 +42,18 @@ func (f *Files) requestOpen(paths []string) int {
 	return len(f.pending)
 }
 
+// takePending 取出下一份已登记路径，不读取磁盘，也不改变当前标签。
+func (f *Files) takePending() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.pending) == 0 {
+		return ""
+	}
+	path := f.pending[0]
+	f.pending = f.pending[1:]
+	return path
+}
+
 // OpenPending 打开下一份排队的文档，队列为空时返回 nil。
 func (f *Files) OpenPending() (*documents.Document, error) {
 	f.mu.Lock()

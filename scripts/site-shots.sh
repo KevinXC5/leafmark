@@ -10,7 +10,6 @@ if ! command -v cwebp >/dev/null; then
   exit 1
 fi
 
-bunx vite build --mode verification --outDir .verification-web
 for mode in edit read; do
   LEAFMARK_SITE_SHOT="$mode" go run -tags verification .
 done

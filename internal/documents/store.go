@@ -39,11 +39,13 @@ type Store struct {
 	sessions map[string]snapshot
 	order    []string
 	mu       sync.Mutex
-	doc      Document
-	saved    string
-	digest   [32]byte
-	crlf     bool
-	bom      bool
+	// 写盘串行化覆盖准备、冲突检查与回写，避免另存为和自动保存交错。
+	saveMu sync.Mutex
+	doc    Document
+	saved  string
+	digest [32]byte
+	crlf   bool
+	bom    bool
 }
 
 func NewStore(name, content string) *Store {
@@ -204,6 +206,52 @@ func (s *Store) LoadSnapshot(path string, raw []byte) (Document, error) {
 	s.saved, s.digest = text, sha256.Sum256(raw)
 	return s.doc, nil
 }
+
+// ReadSnapshot 后台只读取已授权文档，不改变当前标签或草稿。
+func (s *Store) ReadSnapshot(id string) (string, []byte, error) {
+	s.mu.Lock()
+	entry, err := s.openedLocked(id)
+	s.mu.Unlock()
+	if err != nil {
+		return "", nil, err
+	}
+	raw, err := readAuthorizedFile(entry.doc.Path)
+	return entry.doc.Path, raw, err
+}
+
+// ReloadSnapshot 在主线程确认后提交已读取字节，保留标签 ID 和当前选择。
+func (s *Store) ReloadSnapshot(id, path string, raw []byte, discardDirty bool) (Document, error) {
+	if err := validate(string(raw)); err != nil {
+		return Document{}, err
+	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.remember()
+	entry, err := s.openedLocked(id)
+	if err != nil {
+		return Document{}, err
+	}
+	if path != entry.doc.Path {
+		return Document{}, ErrStale
+	}
+	if entry.doc.Dirty && !discardDirty {
+		return Document{}, ErrDirty
+	}
+	entry.bom = strings.HasPrefix(string(raw), "\ufeff")
+	text := strings.TrimPrefix(string(raw), "\ufeff")
+	entry.crlf = strings.Contains(text, "\r\n")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	entry.doc.Content, entry.doc.Dirty = text, false
+	entry.saved, entry.digest = text, sha256.Sum256(raw)
+	s.sessions[id] = entry
+	if s.doc.ID == id {
+		s.doc, s.saved, s.digest, s.crlf, s.bom = entry.doc, entry.saved, entry.digest, entry.crlf, entry.bom
+	}
+	return entry.doc, nil
+}
+
 func (s *Store) Draft(id, content string) error {
 	if err := validate(content); err != nil {
 		return err
@@ -226,52 +274,114 @@ func (s *Store) Draft(id, content string) error {
 	return nil
 }
 func (s *Store) Save(id, content, path string) (Document, error) {
-	if err := validate(content); err != nil {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	prepared, err := s.prepareSave(id, content, path, true)
+	if err != nil {
 		return Document{}, err
+	}
+	if err := writePrepared(prepared); err != nil {
+		return Document{}, err
+	}
+	return s.finishSave(prepared)
+}
+
+// SaveSnapshot 按指定标签的编码和摘要写盘，不要求它仍是当前标签。
+// 磁盘读写在锁外完成；完成后只更新该标签，前台当前标签保持不变。
+func (s *Store) SaveSnapshot(id, content, path string) (Document, error) {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	prepared, err := s.prepareSave(id, content, path, false)
+	if err != nil {
+		return Document{}, err
+	}
+	if err := writePrepared(prepared); err != nil {
+		return Document{}, err
+	}
+	return s.finishSave(prepared)
+}
+
+type preparedSave struct {
+	id      string
+	content string
+	path    string
+	name    string
+	raw     []byte
+}
+
+func (s *Store) prepareSave(id, content, path string, requireCurrent bool) (preparedSave, error) {
+	if err := validate(content); err != nil {
+		return preparedSave{}, err
 	}
 	path, err := filepath.Abs(path)
 	if err != nil {
-		return Document{}, err
+		return preparedSave{}, err
 	}
 	if actual, err := filepath.EvalSymlinks(path); err == nil {
 		path = actual
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.doc.ID != id {
-		return Document{}, ErrStale
-	}
 	s.remember()
-	for key, entry := range s.sessions {
-		if key != id && entry.doc.Path != "" && sameFilePath(path, entry.doc.Path) {
-			return Document{}, errors.New("目标文件已经在另一个标签中打开，请切换到该标签或选择其他文件名")
+	entry, exists := s.sessions[id]
+	current := s.doc.ID == id
+	others := []string{}
+	for key, item := range s.sessions {
+		if key != id && item.doc.Path != "" {
+			others = append(others, item.doc.Path)
 		}
 	}
-	if path == s.doc.Path {
+	s.mu.Unlock()
+	if !exists || (requireCurrent && !current) {
+		return preparedSave{}, ErrStale
+	}
+	for _, other := range others {
+		if sameFilePath(path, other) {
+			return preparedSave{}, errors.New("目标文件已经在另一个标签中打开，请切换到该标签或选择其他文件名")
+		}
+	}
+	if path == entry.doc.Path {
 		raw, err := readFile(path)
 		if err != nil {
-			return Document{}, err
+			return preparedSave{}, err
 		}
-		if sha256.Sum256(raw) != s.digest {
-			return Document{}, ErrConflict
+		if sha256.Sum256(raw) != entry.digest {
+			return preparedSave{}, ErrConflict
 		}
 	}
-	raw := content
-	if s.crlf {
-		raw = strings.ReplaceAll(raw, "\n", "\r\n")
+	encoded := content
+	if entry.crlf {
+		encoded = strings.ReplaceAll(encoded, "\n", "\r\n")
 	}
-	if s.bom {
-		raw = "\ufeff" + raw
+	if entry.bom {
+		encoded = string(rune(0xfeff)) + encoded
 	}
-	if err := atomicWrite(path, []byte(raw)); err != nil {
-		return Document{}, err
-	}
-	s.doc.Path, s.doc.Name = path, filepath.Base(path)
-	s.saved, s.digest = content, sha256.Sum256([]byte(raw))
-	// 保存进行时收到的新输入仍然保留为未保存草稿。
-	s.doc.Dirty = s.doc.Content != content
-	return s.doc, nil
+	return preparedSave{id: id, content: content, path: path, name: filepath.Base(path), raw: []byte(encoded)}, nil
 }
+
+func writePrepared(prepared preparedSave) error {
+	return atomicWrite(prepared.path, prepared.raw)
+}
+
+func (s *Store) finishSave(prepared preparedSave) (Document, error) {
+	digest := sha256.Sum256(prepared.raw)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.remember()
+	entry, exists := s.sessions[prepared.id]
+	if !exists {
+		return Document{}, ErrStale
+	}
+	entry.doc.Path, entry.doc.Name = prepared.path, prepared.name
+	entry.saved, entry.digest = prepared.content, digest
+	// 写盘期间到达的新正文仍保留为未保存草稿。
+	entry.doc.Dirty = entry.doc.Content != prepared.content
+	s.sessions[prepared.id] = entry
+	if s.doc.ID == prepared.id {
+		s.doc, s.saved, s.digest = entry.doc, entry.saved, entry.digest
+	}
+	return entry.doc, nil
+}
+
 func sameFilePath(a, b string) bool {
 	if a == b {
 		return true

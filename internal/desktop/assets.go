@@ -39,15 +39,25 @@ func (a *Assets) ReadImage(id, resource string) (string, error) {
 	return assets.ReadImage(doc.Path, resource)
 }
 
+// ImportImageIn 与 ImportImage 相同，但对话框挂在调用方给出的窗口上。
+// 原生界面没有网页调用上下文，不能依赖 CallerWindow。
+func (a *Assets) ImportImageIn(win *mygo.Window, id string) (*assets.ImportResult, error) {
+	return a.importImage(context.Background(), win, id)
+}
+
 func (a *Assets) ImportImage(ctx context.Context, id string) (*assets.ImportResult, error) {
-	if _, err := a.document(id); err != nil {
-		return nil, err
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	return a.importImage(ctx, mygo.CallerWindow(ctx), id)
+}
+
+func (a *Assets) importImage(ctx context.Context, win *mygo.Window, id string) (*assets.ImportResult, error) {
+	if _, err := a.document(id); err != nil {
+		return nil, err
+	}
 	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-		Parent: mygo.CallerWindow(ctx), Title: "选择图片",
+		Parent: win, Title: "选择图片",
 		Filters: []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg", "gif", "webp"}}},
 	})
 	if err != nil || len(paths) == 0 {

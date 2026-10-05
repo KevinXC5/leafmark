@@ -13,8 +13,8 @@ if [[ -n "$LEAFMARK_MAKENSIS_REAL" ]]; then
   export PATH="$project_root/scripts/tools:$PATH"
 fi
 
-# 支持直接传 MyGo 参数，也兼容 bun run build -- -platform ... 的分隔符。
+# MyGo 命令行由 go.mod 的 tool 指令固定版本，参数原样传给 mygo build。
 if [[ "${1:-}" == "--" ]]; then
   shift
 fi
-exec bun "$project_root/node_modules/mygo-cli/bin/mygo.js" build "$@"
+exec go tool mygo build "$@"

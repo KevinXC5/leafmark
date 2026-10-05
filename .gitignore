@@ -1,15 +1,9 @@
-node_modules/
-dist/
 build/
 .mygo/
 
 # MyGo 生成的 Windows 资源与验证构建产物
 mygo_windows_*.syso
-.verification-web/
 .verification-data/
-
-# 单文件预览由 `bun run preview:export` 生成
-Leafmark-preview.html
 
 # 验证输出：仅保留输入样例 verification/输入验证.md
 verification/*

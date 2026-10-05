@@ -19,16 +19,22 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      - run: bun install --frozen-lockfile
-      - name: 类型检查、全量测试、竞态与静态检查
-        run: bun run check:release
-      - name: Windows WebView2 原生验收
+      - name: 全量测试、竞态与静态检查
+        shell: bash
         run: |
-          bun run verify:native
+          go test ./...
+          go test -tags desktoptest ./internal/desktop
+          go test -race ./...
+          go test -race -tags desktoptest ./internal/desktop
+          go vet ./...
+          go vet -tags desktoptest ./internal/desktop
+          go vet -tags verification ./internal/desktop
+      - name: Windows Native UI 原生验收
+        run: |
+          go run -tags verification .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $result = Get-Content verification/native-results.json -Raw | ConvertFrom-Json
-          if ($result.passed -ne $true -or $result.platform -ne 'Windows WebView2') {
+          if ($result.passed -ne $true -or $result.platform -ne 'Windows Native UI') {
             throw 'Windows 原生验收未通过'
           }
           if (!(Test-Path verification/native-window.png)) {

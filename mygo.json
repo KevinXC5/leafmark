@@ -1,0 +1,15 @@
+{
+  "name": "Leafmark",
+  "identifier": "dev.leafmark.app",
+  "version": "0.5.0",
+  "out": "build",
+  "updates": {
+    "github": "KevinXC5/leafmark",
+    "publicKey": "arFeLNqUcZDj4bjo7f1FiZ3ndod0Ghgu6B15b/BKUH8=",
+    "deltas": 0,
+    "changelog": ".github/release-notes.md"
+  },
+  "fileAssociations": [
+    { "ext": ["md", "markdown"], "name": "Markdown 文档", "role": "Editor" }
+  ]
+}

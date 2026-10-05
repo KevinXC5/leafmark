@@ -36,7 +36,7 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          test "$TAG" = "v$(jq -r .version package.json)"
+          test "$TAG" = "v$(jq -r .version mygo.json)"
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$TAG^{commit}")"
           git merge-base --is-ancestor HEAD origin/main
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -118,9 +118,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      - run: bun install --frozen-lockfile
-      - run: bun run check:release
+      - run: make check-release
 
   windows-check:
     needs: prepare
@@ -147,8 +145,6 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      - run: bun install --frozen-lockfile
       - name: 安装 Windows 打包工具
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y nsis
@@ -163,7 +159,7 @@ jobs:
           notes=$(gh release view "$version" --repo "$GITHUB_REPOSITORY" --json body --jq .body | awk '/^\[完整变更记录\]/ {exit} /^##/ {sub(/^#/, "##")} {print}')
           test -n "${notes//[[:space:]]/}" || notes="此版本未提供更新日志。"
           printf '## %s\n\n%s\n' "${version#v}" "$notes" > .github/release-notes.md
-          bun run build -- -platform "${{ matrix.platform }}" -skip-notarize
+          bash scripts/build-desktop.sh -platform "${{ matrix.platform }}" -skip-notarize
           python3 - <<'PY'
           import pathlib
           import os, subprocess

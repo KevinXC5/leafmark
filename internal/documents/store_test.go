@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -105,5 +106,104 @@ func TestSymlinkSavePreservesLink(t *testing.T) {
 	raw, _ := os.ReadFile(target)
 	if string(raw) != "修改" {
 		t.Fatal("未更新链接目标")
+	}
+}
+
+func TestSaveSnapshotKeepsSelectionEncodingAndNewerDraft(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "甲.md")
+	if err := os.WriteFile(path, []byte("\ufeff原文\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s := NewStore("欢迎", "")
+	first, err := s.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := s.New("乙", "乙")
+	if err := s.Draft(first.ID, "新输入\n"); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.SaveSnapshot(first.ID, "快照\n", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Current().ID != second.ID {
+		t.Fatal("后台保存改变当前标签")
+	}
+	if saved.Content != "新输入\n" || !saved.Dirty {
+		t.Fatalf("新草稿丢失：%+v", saved)
+	}
+	raw, _ := os.ReadFile(path)
+	if string(raw) != "\ufeff快照\r\n" {
+		t.Fatalf("编码丢失：%q", raw)
+	}
+	if _, err := s.Save(first.ID, "旧接口", path); !errors.Is(err, ErrStale) {
+		t.Fatalf("前台接口应拒绝非当前标签：%v", err)
+	}
+}
+
+func TestConcurrentSnapshotSaveAndSaveAsRemainConsistent(t *testing.T) {
+	s := NewStore("甲.md", "原文")
+	id := s.Current().ID
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "甲.md"), filepath.Join(dir, "乙.md")
+	var wg sync.WaitGroup
+	errs := make(chan error, 32)
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			path := a
+			if i%2 == 1 {
+				path = b
+			}
+			_, err := s.SaveSnapshot(id, "保存正文", path)
+			errs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	doc := s.Current()
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := s.SavedContent(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline != string(raw) {
+		t.Fatalf("磁盘与保存基线不一致：%q %q", raw, baseline)
+	}
+	if state, err := s.CheckExternal(id); err != nil || state.Changed {
+		t.Fatalf("并行保存产生虚假冲突：%+v %v", state, err)
+	}
+}
+
+func TestReloadSnapshotRejectsNewDraftAndKeepsSelection(t *testing.T) {
+	s := NewStore("甲", "")
+	path := filepath.Join(t.TempDir(), "甲.md")
+	os.WriteFile(path, []byte("磁盘"), 0600)
+	doc, err := s.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := s.New("乙", "")
+	_, raw, err := s.ReadSnapshot(doc.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Draft(doc.ID, "新输入")
+	if _, err := s.ReloadSnapshot(doc.ID, doc.Path, raw, false); !errors.Is(err, ErrDirty) {
+		t.Fatalf("未保护新输入：%v", err)
+	}
+	if s.Current().ID != other.ID {
+		t.Fatal("后台读取改变选择")
 	}
 }
