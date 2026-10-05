@@ -67,12 +67,28 @@ func TestUpdateDialogShowsProgressAndRestart(t *testing.T) {
 			t.Fatalf("下载中应显示进度条与“%s”", step.hint)
 		}
 	}
-	// 下载期间不能关掉窗口，也不能重复点击。
+	// 下载期间可用 Escape 取消，取消信号必须传到后台请求。
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	app.updateCancel = cancel
 	view.Key(0, ui.KeyEscape)
 	view.Frame()
-	if !app.updateOpen {
-		t.Fatal("下载期间窗口不应被关闭")
+	if app.updateOpen || ctx.Err() != context.Canceled {
+		t.Fatal("Escape 应退出窗口并取消下载")
 	}
+	app.updateOpen = true
+	ctx, cancelButton := context.WithCancel(context.Background())
+	defer cancelButton()
+	app.updateCancel = cancelButton
+	view.Frame()
+	if err := view.Click("取消"); err != nil {
+		t.Fatal(err)
+	}
+	view.Frame()
+	if app.updateOpen || ctx.Err() != context.Canceled {
+		t.Fatal("取消按钮应退出窗口并取消下载")
+	}
+	app.updateOpen = true
 
 	// 安装失败：收起进度条并说明原因，可以重试。
 	app.updateDownloading, app.updateError = false, "安装更新失败，当前版本仍可继续使用，请稍后重试"

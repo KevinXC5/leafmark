@@ -65,6 +65,24 @@ func verifyNativeUpdateFlow(win *mygo.Window, app *nativeApp) error {
 		return fmt.Errorf("手动检查未直接弹窗：%w", err)
 	}
 	mygo.RunOnMain(app.installUpdate)
+	select {
+	case steps <- 12:
+	case <-time.After(3 * time.Second):
+		return fmt.Errorf("取消验收的下载未开始")
+	}
+	if err := wait(func() bool { return app.updateDownloaded == 12 }); err != nil {
+		return err
+	}
+	mygo.RunOnMain(app.dismissUpdate)
+	if err := wait(func() bool {
+		return !app.updateOpen && !app.updateDownloading && !app.updateBusy && app.updateCancel == nil && app.updateError == "更新已取消，可稍后重试" && !app.updates.Status().Installed
+	}); err != nil {
+		return fmt.Errorf("取消未结束后台下载：%w", err)
+	}
+	mygo.RunOnMain(func() {
+		app.updateOpen = true
+		app.installUpdate()
+	})
 	for _, downloaded := range []int64{25, 75, 100} {
 		select {
 		case steps <- downloaded:

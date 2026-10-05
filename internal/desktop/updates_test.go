@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -257,6 +258,76 @@ func TestUpdatesInstallReceivesProgressCallback(t *testing.T) {
 	}
 	if _, err := u.Install(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUpdatesCancelAllowsRetry(t *testing.T) {
+	u := newTestUpdates()
+	u.pending = &mygo.Update{Version: "1.1.0"}
+	started := make(chan struct{})
+	u.installFn = func(ctx context.Context, _ *mygo.Update, progress func(int64, int64)) error {
+		progress(12, 100)
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { _, err := u.Install(ctx); done <- err }()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("下载未开始")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		requireUpdateError(t, err, "更新已取消，可稍后重试")
+	case <-time.After(3 * time.Second):
+		t.Fatal("取消未终止下载")
+	}
+	if u.Status().Installed {
+		t.Fatal("取消后不能标记为已安装")
+	}
+	u.installFn = func(context.Context, *mygo.Update, func(int64, int64)) error { return nil }
+	if status, err := u.Install(context.Background()); err != nil || !status.Installed {
+		t.Fatalf("取消后未能重试：%+v，%v", status, err)
+	}
+}
+
+func TestUpdatesStalledDownloadTimesOut(t *testing.T) {
+	for _, total := range []int64{0, 100} {
+		t.Run(fmt.Sprint(total), func(t *testing.T) {
+			u := newTestUpdates()
+			u.installFn = func(ctx context.Context, _ *mygo.Update, progress func(int64, int64)) error {
+				progress(12, total)
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			err := u.installWithTimeout(ctx, &mygo.Update{}, 20*time.Millisecond)
+			if !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+				t.Fatalf("无进展应触发下载超时：%v，父上下文：%v", err, ctx.Err())
+			}
+		})
+	}
+}
+
+func TestUpdatesIdleTimeoutDoesNotInterruptInstallation(t *testing.T) {
+	u := newTestUpdates()
+	u.installFn = func(ctx context.Context, _ *mygo.Update, progress func(int64, int64)) error {
+		progress(100, 100)
+		select {
+		case <-time.After(60 * time.Millisecond):
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if err := u.installWithTimeout(context.Background(), &mygo.Update{}, 20*time.Millisecond); err != nil {
+		t.Fatalf("下载完成后的安装不应受下载空闲超时影响：%v", err)
 	}
 }
 

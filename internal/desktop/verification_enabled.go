@@ -449,8 +449,42 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 		_ = os.WriteFile("verification/native-export.pdf", pdf, 0644)
 		results["exportHTML"] = true
 		results["exportPDFBytes"] = len(pdf)
-		// 源码模式截图，随后切回原位编辑。
+		// 在真实窗口验证源码文本域贴右边，以及标题定位不修改原文。
 		mygo.RunOnMain(func() { app.command("source") })
+		refreshVerificationWindow(win)
+		time.Sleep(100 * time.Millisecond)
+		mygo.RunOnMain(func() {
+			source := app.active().editor.(*sourceEditor)
+			w, _ := win.ContentSize()
+			if source.bounds.X+source.bounds.W < float32(w)-1 {
+				err = fmt.Errorf("源码滚动区域未贴到窗口右侧：%+v，窗口宽度 %v", source.bounds, w)
+				return
+			}
+			headings := nativeSourceOutline(source.text)
+			if len(headings) < 2 {
+				err = fmt.Errorf("示例文档缺少大纲标题")
+				return
+			}
+			source.SetSelection(headings[len(headings)-1].at, headings[len(headings)-1].at)
+		})
+		for range 5 {
+			refreshVerificationWindow(win)
+			time.Sleep(40 * time.Millisecond)
+		}
+		mygo.RunOnMain(func() {
+			source := app.active().editor.(*sourceEditor)
+			if source.jump || source.scroll.Y <= 0 || source.Changed() {
+				err = fmt.Errorf("源码大纲未完成滚动或修改了原文")
+			}
+			source.SetSelection(0, 0)
+		})
+		if err != nil {
+			finishNativeVerification(results, err)
+			return
+		}
+		results["sourceOutlineScroll"] = true
+		results["sourceScrollRightEdge"] = true
+		// 源码模式截图，随后切回原位编辑。
 		win.Invalidate()
 		refreshVerificationWindow(win)
 		time.Sleep(200 * time.Millisecond)

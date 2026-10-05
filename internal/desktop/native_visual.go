@@ -7,6 +7,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 	"leafmark/internal/richtext"
 	"leafmark/internal/workspace"
 )
@@ -227,6 +230,36 @@ func nativeOutline(markdown string) []nativeHeading {
 	}
 	return out
 }
+
+// nativeSourceOutline 使用解析器的源码位置，避免代码围栏里的 # 被误认为标题。
+func nativeSourceOutline(markdown string) []nativeHeading {
+	raw := []byte(markdown)
+	// 复用文档模型识别的 YAML 属性块，保留字节位置但不参与标题解析。
+	if blocks := richtext.Parse(markdown).Blocks(); strings.HasPrefix(markdown, "---") && len(blocks) > 0 && blocks[0].Kind == richtext.Raw && strings.HasPrefix(markdown, blocks[0].Raw) {
+		for i := range len(blocks[0].Raw) {
+			if raw[i] != '\n' && raw[i] != '\r' {
+				raw[i] = ' '
+			}
+		}
+	}
+	root := goldmark.New().Parser().Parse(text.NewReader(raw))
+	out := []nativeHeading{}
+	_ = ast.Walk(root, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		h, ok := node.(*ast.Heading)
+		if !entering || !ok || h.Lines().Len() == 0 {
+			return ast.WalkContinue, nil
+		}
+		at := h.Lines().At(0).Start
+		// 跳到标题整行的起点，包含 ATX 标记；Setext 标题同样适用。
+		for at > 0 && raw[at-1] != '\n' {
+			at--
+		}
+		out = append(out, nativeHeading{string(h.Text(raw)), h.Level, utf8.RuneCountInString(markdown[:at])})
+		return ast.WalkContinue, nil
+	})
+	return out
+}
+
 func nativeBlockRunes(b richtext.Block) int {
 	n := 0
 	count := func(runs []richtext.Run) {
@@ -265,9 +298,14 @@ func (a *nativeApp) viewOutline(c *ui.Context) {
 		return
 	}
 	markdown := tab.editor.Markdown()
-	if markdown != a.outlineMarkdown || a.outlineHeadings == nil {
-		a.outlineMarkdown = markdown
-		a.outlineHeadings = nativeOutline(markdown)
+	isSource := sourceMode(tab)
+	if markdown != a.outlineMarkdown || isSource != a.outlineSource || a.outlineHeadings == nil {
+		a.outlineMarkdown, a.outlineSource = markdown, isSource
+		if isSource {
+			a.outlineHeadings = nativeSourceOutline(markdown)
+		} else {
+			a.outlineHeadings = nativeOutline(markdown)
+		}
 	}
 	headings := a.outlineHeadings
 	start, _ := tab.editor.Selection()

@@ -62,6 +62,61 @@ func TestSourceModeTogglesWithoutChangingDocument(t *testing.T) {
 	}
 }
 
+func TestSourceOutlineScrollsFullWidthEditor(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	markdown := "# 开头\n\n" + strings.Repeat("中文正文 abc\n\n", 100) + "## 目标章节\n\n正文\n"
+	app.adopt(app.files.Current(), markdown)
+	app.toggleSource()
+	source := app.active().editor.(*sourceEditor)
+	view := ui.NewTester(app.View, 1500, 760)
+	for range 3 {
+		view.Frame()
+	}
+	if source.bounds.X+source.bounds.W < 1499 {
+		t.Fatalf("源码文本域未贴到编辑区右侧：%+v", source.bounds)
+	}
+	// 通过大纲按钮验证实际滚动，而不只检查定位请求。
+	if err := view.Click("大纲：目标章节"); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		view.Frame()
+	}
+	if source.scroll.Y <= 1000 || source.jump {
+		t.Fatalf("大纲未滚动到目标章节：滚动=%v，待跳转=%v", source.scroll.Y, source.jump)
+	}
+	if source.Markdown() != markdown || source.Changed() {
+		t.Fatal("大纲跳转不应修改原文")
+	}
+	if err := view.Click("大纲：开头"); err != nil {
+		t.Fatal(err)
+	}
+	for range 4 {
+		view.Frame()
+	}
+	if source.scroll.Y != 0 {
+		t.Fatalf("首个标题未回到顶部：%v", source.scroll.Y)
+	}
+}
+
+func TestSourceOutlineUsesSourceOffsets(t *testing.T) {
+	markdown := "---\ntitle: 标题\n---\n\n```md\n# 假标题\n```\n\n# 同名\n\n正文😀\n\n# 同名\n\nSetext 标题\n===\n"
+	headings := nativeSourceOutline(markdown)
+	if len(headings) != 3 {
+		t.Fatalf("源码标题数错误：%+v", headings)
+	}
+	for _, h := range headings {
+		tail := string([]rune(markdown)[h.at:])
+		if !strings.HasPrefix(tail, "# 同名") && !strings.HasPrefix(tail, "Setext 标题") {
+			t.Fatalf("标题偏移不在源码行首：%+v，%q", h, tail)
+		}
+	}
+	if headings[0].at == headings[1].at {
+		t.Fatal("同名标题应保留独立源码位置")
+	}
+}
+
 func TestFormatMenuReachesBlockCommands(t *testing.T) {
 	app, _ := newTestApp(t)
 	useStubEditors(t)

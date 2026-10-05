@@ -127,6 +127,7 @@ type nativeApp struct {
 	navQuery        string
 	settingsSection string
 	outlineMarkdown string
+	outlineSource   bool
 	statsMarkdown   string // 状态栏字数对应的原文
 	statsWords      int
 	outlineHeadings []nativeHeading
@@ -183,6 +184,7 @@ type nativeApp struct {
 	updateNote        string
 	updateOpen        bool
 	updateDownloading bool // 正在下载或安装，弹窗显示进度条
+	updateCancel      context.CancelFunc
 	updateDownloaded  int64
 	updateTotal       int64
 	updateError       string
@@ -1181,15 +1183,28 @@ func (a *nativeApp) installUpdate() {
 	}
 	a.updateDownloading, a.updateBusy = true, true
 	a.updateDownloaded, a.updateTotal, a.updateError = 0, 0, ""
+	ctx, cancel := context.WithCancel(context.Background())
+	a.updateCancel = cancel
+	updates := a.updates
 	go func() {
-		_, err := a.updates.Install(context.Background())
+		defer cancel()
+		_, err := updates.Install(ctx)
 		a.update(func() {
+			a.updateCancel = nil
 			a.updateDownloading, a.updateBusy = false, false
 			if err != nil {
 				a.updateError = err.Error()
 			}
 		})
 	}()
+}
+
+// dismissUpdate 取消当前下载并退出弹窗；后台结束前仍阻止重复安装。
+func (a *nativeApp) dismissUpdate() {
+	if a.updateCancel != nil {
+		a.updateCancel()
+	}
+	a.updateOpen = false
 }
 
 func (a *nativeApp) persistSettings() {

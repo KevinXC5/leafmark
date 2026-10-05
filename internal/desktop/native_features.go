@@ -17,9 +17,14 @@ import (
 
 // sourceEditor 是源码模式的编辑器：一个等宽的纯文本域，直接编辑 Markdown。
 type sourceEditor struct {
-	text    string
-	size    float32
-	changed bool
+	text       string
+	size       float32
+	changed    bool
+	scroll     ui.ScrollState
+	start, end int
+	jump       bool
+	measuring  bool
+	bounds     ui.Rect
 }
 
 const sourceFontFamily = `"Geist Mono", "SFMono-Regular", "Consolas", monospace`
@@ -29,13 +34,29 @@ func (s *sourceEditor) View(c *ui.Context) {
 	if size <= 0 {
 		size = 14
 	}
-	ui.Scroll(c).Fill().MinHeight(0).Children(func() {
-		ui.Row(c).FillWidth().Justify(ui.Center).Padding(36, 40, 80, 40).Children(func() {
-			area := ui.TextAreaBase(c, &s.text).Grow(1).MaxWidth(856).MinHeight(240).Font(sourceFontFamily).FontSize(size - 1).LineHeight(1.7).Label("Markdown 源码")
-			if area.Changed() {
-				s.changed = true
+	ui.Box(c).Fill().MinHeight(0).Children(func() {
+		area := ui.TextAreaBase(c, &s.text).Fill().MinHeight(0).Font(sourceFontFamily).FontSize(size - 1).LineHeight(1.7).Label("Markdown 源码").TrackScroll(&s.scroll)
+		s.bounds = area.Bounds()
+		width := s.bounds.W
+		if width <= 0 {
+			width, _ = c.Size()
+		}
+		// 留白属于文本域内部，滚动条始终贴编辑区域右侧。
+		padding := max(float32(40), (width-856)/2)
+		area.Padding(36, padding, 80, padding)
+		if area.Changed() {
+			s.changed = true
+		}
+		if s.jump {
+			prefix := string([]rune(s.text)[:s.start])
+			measure := ui.Text(c, prefix).Absolute().Top(0).Width(max(1, width-padding*2)).Font(sourceFontFamily).FontSize(size - 1).LineHeight(1.7).Opacity(0).Label("源码跳转测量")
+			if prefix == "" || (s.measuring && measure.Bounds().H > 0) {
+				s.scroll.Y = max(0, measure.Bounds().H)
+				s.jump = false
 			}
-		})
+			s.measuring = true
+			c.Invalidate()
+		}
 	})
 }
 func (s *sourceEditor) Markdown() string { return s.text }
@@ -47,12 +68,16 @@ func (s *sourceEditor) Changed() bool {
 }
 
 // 撤销、重做由文本域自己处理；排版命令在源码模式下不生效。
-func (s *sourceEditor) Undo()                                       {}
-func (s *sourceEditor) Redo()                                       {}
-func (s *sourceEditor) Format(string)                               {}
-func (s *sourceEditor) SetReadImage(func(string) *ui.Bitmap)        {}
-func (s *sourceEditor) Selection() (int, int)                       { return 0, 0 }
-func (s *sourceEditor) SetSelection(int, int)                       {}
+func (s *sourceEditor) Undo()                                {}
+func (s *sourceEditor) Redo()                                {}
+func (s *sourceEditor) Format(string)                        {}
+func (s *sourceEditor) SetReadImage(func(string) *ui.Bitmap) {}
+func (s *sourceEditor) Selection() (int, int)                { return s.start, s.end }
+func (s *sourceEditor) SetSelection(start, end int) {
+	n := len([]rune(s.text))
+	s.start, s.end = max(0, min(start, n)), max(0, min(end, n))
+	s.jump, s.measuring = true, false
+}
 func (s *sourceEditor) HandleInput(*ui.Context, ui.InputEvent) bool { return false }
 func (s *sourceEditor) FontSize(size float32)                       { s.size = size }
 func (s *sourceEditor) Find(query string) bool                      { return query != "" && strings.Contains(s.text, query) }

@@ -635,7 +635,7 @@ func (a *nativeApp) viewUpdateDialog(c *ui.Context) {
 		return
 	}
 	p := settingsColors(c.Theme().Dark)
-	// 下载期间不能用 Escape 或点击空白关掉窗口。
+	// 取消按钮、Escape 和点击空白统一取消下载并退出弹窗。
 	open := true
 	ui.Modal(c, &open, func() {
 		status := a.updates.Status()
@@ -679,8 +679,8 @@ func (a *nativeApp) viewUpdateDialog(c *ui.Context) {
 			if status.Installed {
 				later = "稍后"
 			}
-			if ui.Button(c, later).Disabled(a.updateDownloading).Clicked() {
-				a.updateOpen = false
+			if ui.Button(c, later).Clicked() {
+				a.dismissUpdate()
 			}
 			if status.Installed {
 				if ui.PrimaryButton(c, "重启应用").Clicked() {
@@ -693,8 +693,8 @@ func (a *nativeApp) viewUpdateDialog(c *ui.Context) {
 			}
 		})
 	})
-	if !open && !a.updateDownloading {
-		a.updateOpen = false
+	if !open {
+		a.dismissUpdate()
 	}
 }
 

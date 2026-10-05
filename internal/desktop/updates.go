@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -50,11 +51,11 @@ func (u *Updates) check(ctx context.Context) (*mygo.Update, error) {
 	return mygo.Updater.Check(ctx)
 }
 
-func (u *Updates) install(ctx context.Context, up *mygo.Update) error {
+func (u *Updates) install(ctx context.Context, up *mygo.Update, progress func(int64, int64)) error {
 	if u.installFn != nil {
-		return u.installFn(ctx, up, u.progress)
+		return u.installFn(ctx, up, progress)
 	}
-	return up.Install(ctx, u.progress)
+	return up.Install(ctx, progress)
 }
 
 func (u *Updates) progress(downloaded, total int64) {
@@ -142,13 +143,76 @@ func (u *Updates) Install(ctx context.Context) (UpdateStatus, error) {
 	// 更新不关闭窗口，不中断书写；替换成功后在下次启动使用新版本。
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
-	if err := u.install(ctx, up); err != nil {
-		return UpdateStatus{}, errors.New("安装更新失败，当前版本仍可继续使用，请稍后重试")
+	if err := u.installWithTimeout(ctx, up, time.Minute); err != nil {
+		switch {
+		case errors.Is(err, context.Canceled):
+			return UpdateStatus{}, errors.New("更新已取消，可稍后重试")
+		case errors.Is(err, context.DeadlineExceeded):
+			return UpdateStatus{}, errors.New("更新下载或安装超时，请检查网络连接后重试")
+		default:
+			return UpdateStatus{}, errors.New("安装更新失败，当前版本仍可继续使用，请稍后重试")
+		}
 	}
 	u.mu.Lock()
 	u.installed = true
 	u.mu.Unlock()
 	return u.Status(), nil
+}
+
+// installWithTimeout 在连接或下载长时间无进展时取消请求；总大小未知也按实际字节判断。
+func (u *Updates) installWithTimeout(ctx context.Context, up *mygo.Update, idle time.Duration) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var timedOut atomic.Bool
+	var mu sync.Mutex
+	var downloaded, total int64
+	finished, complete := false, false
+	lastProgress := time.Now()
+	var timer *time.Timer
+	timer = time.AfterFunc(idle, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if finished || complete {
+			return
+		}
+		if remaining := idle - time.Since(lastProgress); remaining > 0 {
+			timer.Reset(remaining)
+			return
+		}
+		timedOut.Store(true)
+		cancel()
+	})
+	defer func() {
+		mu.Lock()
+		finished = true
+		timer.Stop()
+		mu.Unlock()
+	}()
+	err := u.install(ctx, up, func(n, size int64) {
+		mu.Lock()
+		if !finished && (n > downloaded || size != total) {
+			downloaded, total = n, size
+			lastProgress = time.Now()
+			complete = size > 0 && n >= size
+			// 下载完成后留给签名校验和替换安装包的时间由总超时控制。
+			if complete {
+				timer.Stop()
+			} else {
+				timer.Reset(idle)
+			}
+		}
+		mu.Unlock()
+		u.progress(n, size)
+	})
+	if err != nil {
+		if timedOut.Load() {
+			return context.DeadlineExceeded
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	return err
 }
 
 func (u *Updates) start() {
