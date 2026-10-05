@@ -451,8 +451,16 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 		results["exportPDFBytes"] = len(pdf)
 		// 在真实窗口验证源码文本域贴右边，以及标题定位不修改原文。
 		mygo.RunOnMain(func() { app.command("source") })
-		refreshVerificationWindow(win)
-		time.Sleep(100 * time.Millisecond)
+		// Windows 的窗口刷新是异步的，等待源码视图真正完成布局再读取边界。
+		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+			refreshVerificationWindow(win)
+			time.Sleep(40 * time.Millisecond)
+			ready := false
+			mygo.RunOnMain(func() { ready = app.active().editor.(*sourceEditor).bounds.W > 0 })
+			if ready {
+				break
+			}
+		}
 		mygo.RunOnMain(func() {
 			source := app.active().editor.(*sourceEditor)
 			w, _ := win.ContentSize()
@@ -467,9 +475,17 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 			}
 			source.SetSelection(headings[len(headings)-1].at, headings[len(headings)-1].at)
 		})
-		for range 5 {
+		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
 			refreshVerificationWindow(win)
 			time.Sleep(40 * time.Millisecond)
+			ready := false
+			mygo.RunOnMain(func() {
+				source := app.active().editor.(*sourceEditor)
+				ready = !source.jump && source.scroll.Y > 0
+			})
+			if ready {
+				break
+			}
 		}
 		mygo.RunOnMain(func() {
 			source := app.active().editor.(*sourceEditor)
