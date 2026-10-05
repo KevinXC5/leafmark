@@ -193,7 +193,8 @@ func (a *nativeApp) viewSidebar(c *ui.Context) {
 				}
 			}
 		})
-		ui.Scroll(c).Grow(1).MinHeight(0).Children(func() {
+		// 滚动区向右伸进面板的内边距，滚动条贴着面板边缘，不压在文件名上。
+		ui.Scroll(c).Grow(1).MinHeight(0).Margin(0, -13, 0, 0).Padding(0, 13, 0, 0).Children(func() {
 			if a.sidebarMode == "documents" {
 				a.viewDocuments(c)
 			} else {

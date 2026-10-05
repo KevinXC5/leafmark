@@ -1132,19 +1132,13 @@ func (a *nativeApp) setFont(size float32) {
 	a.changeSettings(func(s *nativeSettings) { s.FontSize = max(12, min(28, size)) })
 }
 
-func (a *nativeApp) checkUpdate(install bool) {
+func (a *nativeApp) checkUpdate() {
 	if a.updates == nil || a.updateBusy {
 		return
 	}
 	a.updateBusy = true
 	go func() {
-		var status UpdateStatus
-		var err error
-		if install {
-			status, err = a.updates.Install(context.Background())
-		} else {
-			status, err = a.updates.Check(context.Background())
-		}
+		status, err := a.updates.Check(context.Background())
 		a.update(func() {
 			a.updateBusy = false
 			a.updateNote = ""
@@ -1154,7 +1148,7 @@ func (a *nativeApp) checkUpdate(install bool) {
 			} else if status.Installed {
 				a.notice = "更新已安装，重启后生效"
 			} else if status.Available != "" {
-				a.notice = "有新版本可安装：" + status.Available
+				a.updateOpen, a.updateError = true, ""
 			} else {
 				a.updateNote = "已是最新版本。"
 				a.notice = "当前已是最新版本"

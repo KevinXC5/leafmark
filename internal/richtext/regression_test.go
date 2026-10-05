@@ -511,3 +511,63 @@ func TestOrderedListItemNumbersPersistAfterEditing(t *testing.T) {
 		}
 	}
 }
+
+func TestThematicBreakFollowedByContentKeepsSource(t *testing.T) {
+	for _, source := range []string{"上文\n\n---\n\n下文\n", "---\n\n# 标题\n\n***\n正文\n", "一\r\n\r\n___\r\n\r\n二\r\n", "正文\n\n---"} {
+		d := Parse(source)
+		if d.Markdown() != source {
+			t.Fatalf("分隔线原文变化：%q -> %q", source, d.Markdown())
+		}
+		found := false
+		for _, b := range d.Blocks() {
+			found = found || b.Kind == Horizontal
+		}
+		if !found {
+			t.Fatalf("分隔线未识别：%q %+v", source, d.Blocks())
+		}
+		d.Insert(d.Len(), "尾")
+		d.Undo()
+		if d.Markdown() != source {
+			t.Fatalf("分隔线后编辑撤销丢原文：%q", d.Markdown())
+		}
+	}
+	d := Parse("上文\n\n---\n\n下文\n")
+	d.Insert(d.Len(), "尾")
+	if d.Markdown() != "上文\n\n---\n\n下文尾\n" {
+		t.Fatalf("分隔线后的段落回写错误：%q", d.Markdown())
+	}
+}
+
+func TestFrontMatterStaysRawAndBodyRemainsEditable(t *testing.T) {
+	for _, source := range []string{
+		"---\ntitle: 笔记\ntags:\n  - 甲\n---\n\n# 标题\n\n正文\n\n---\n\n尾段\n",
+		"---\r\ntitle: 笔记\r\n---\r\n正文\r\n",
+		"---\ntitle: 只有属性\n---\n",
+		"---\na: 1\n...\n\n正文\n",
+	} {
+		d := Parse(source)
+		blocks := d.Blocks()
+		if blocks[0].Kind != Raw || !strings.HasPrefix(blocks[0].Raw, "---") || d.Markdown() != source {
+			t.Fatalf("文档属性未原样保留：%q %+v", d.Markdown(), blocks)
+		}
+		for _, b := range blocks[1:] {
+			if b.Kind == Heading && b.Level == 2 && strings.Contains(plainRuns(b.Runs), "title") {
+				t.Fatalf("文档属性被当成标题：%+v", blocks)
+			}
+		}
+		d.Insert(d.Len(), "尾")
+		if !strings.HasPrefix(d.Markdown(), blocks[0].Raw) {
+			t.Fatalf("编辑正文改动了文档属性：%q", d.Markdown())
+		}
+		d.Undo()
+		if d.Markdown() != source {
+			t.Fatalf("撤销未恢复原文：%q", d.Markdown())
+		}
+	}
+	// 首行的分隔线后面没有成对的结束行时仍是普通分隔线。
+	for _, source := range []string{"---\n\n正文\n", "---\n---\n", "--- 文字\n"} {
+		if d := Parse(source); d.Markdown() != source || d.Blocks()[0].Kind == Raw && strings.Contains(source, "正文") {
+			t.Fatalf("普通分隔线误判为文档属性：%q %+v", source, d.Blocks())
+		}
+	}
+}

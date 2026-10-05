@@ -475,7 +475,7 @@ func (a *nativeApp) viewSettingsGeneral(c *ui.Context, p settingsPalette) {
 					if disabled := !status.Enabled || status.Installed || a.updateBusy; disabled {
 						check.Disabled(true).Opacity(.45)
 					} else if check.Clicked() {
-						a.checkUpdate(false)
+						a.checkUpdate()
 					}
 					switch {
 					case status.Installed:
@@ -650,7 +650,7 @@ func (a *nativeApp) viewUpdateDialog(c *ui.Context) {
 		ui.Text(c, "发现新版本 "+status.Available).Bold().FontSize(18)
 		ui.Text(c, "当前版本："+version).FontSize(12).TextColor(p.muted)
 		ui.Text(c, "更新日志").FontSize(13).FontWeight(600)
-		ui.Scroll(c).Width(500).MaxHeight(320).Padding(16).Radius(8).Border(1, p.line).Background(p.control).Children(func() {
+		ui.Scroll(c).Width(500).MinHeight(0).MaxHeight(320).Padding(16).Radius(8).Border(1, p.line).Background(p.control).Children(func() {
 			viewReleaseNotes(c, notes)
 		})
 		hint, fraction, shown := a.updateProgress(status.Installed)
@@ -661,7 +661,7 @@ func (a *nativeApp) viewUpdateDialog(c *ui.Context) {
 			if fraction < 0 {
 				c.After(40 * time.Millisecond) // 总大小未知时来回滑动
 			}
-			ui.Box(c).Width(500).Height(6).Label("更新下载进度").Draw(func(painter *ui.Painter, r ui.Rect) {
+			ui.Box(c).Width(500).Height(6).Shrink(0).Label("更新下载进度").Draw(func(painter *ui.Painter, r ui.Rect) {
 				painter.Fill(r, p.line, 3)
 				bar := ui.Rect{X: r.X, Y: r.Y, W: r.W * float32(fraction), H: r.H}
 				if fraction < 0 {
@@ -674,7 +674,7 @@ func (a *nativeApp) viewUpdateDialog(c *ui.Context) {
 				}
 			})
 		}
-		ui.Row(c).Width(500).Gap(8).Justify(ui.End).Children(func() {
+		ui.Row(c).Width(500).Shrink(0).Gap(8).Justify(ui.End).Children(func() {
 			later := "取消"
 			if status.Installed {
 				later = "稍后"

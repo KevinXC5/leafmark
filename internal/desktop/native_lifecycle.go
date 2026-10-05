@@ -140,6 +140,9 @@ func (a *nativeApp) applyTheme(c *ui.Context) {
 		base.Border = ui.Hex("#3d4046")
 		base.Accent = ui.Hex("#a6b7c8")
 	}
+	// 滚动条用细而淡的墨色，悬停在滚动区上才出现。
+	base.Scrollbar = base.TextMuted.Alpha(0.3)
+	base.ScrollbarWidth = 4
 	// 正文字号由编辑器设置，工具栏和文件导航保持紧凑。
 	base.Font = "Inter"
 	base.FontSize = 12

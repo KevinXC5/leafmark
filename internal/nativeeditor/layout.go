@@ -769,6 +769,8 @@ func placeTable(box *blockBox, table *richtext.TableData, fontSize float32, cach
 func rawContentLabel(source string) string {
 	s := strings.TrimSpace(source)
 	switch {
+	case strings.HasPrefix(s, "---\n") || strings.HasPrefix(s, "---\r\n"):
+		return "文档属性 · 原文保留"
 	case strings.Contains(s, "```mermaid"):
 		return "Mermaid 图表 · 原文保留"
 	case strings.HasPrefix(s, "$$") || strings.Contains(s, "$"):

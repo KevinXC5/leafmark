@@ -403,6 +403,11 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 		}
 		mygo.RunOnMain(func() { app.settingsOn, app.settingsSection = false, "" })
 		results["settingsPages"] = len(settingsTabs)
+		if err := verifyNativeUpdateFlow(win, app); err != nil {
+			finishNativeVerification(results, err)
+			return
+		}
+		results["updateCallbacks"] = true
 		// 更新窗口：用一条虚构的新版本截取下载中与安装完成两种状态，随后复原。
 		for _, state := range []string{"downloading", "installed"} {
 			mygo.RunOnMain(func() {

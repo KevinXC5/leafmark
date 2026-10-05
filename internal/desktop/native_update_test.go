@@ -131,3 +131,26 @@ func TestUpdateCallbacksReachBackend(t *testing.T) {
 		t.Fatalf("下载进度未送达：%v", seen)
 	}
 }
+
+func TestUpdateProgressRemainsVisibleWithLongNotes(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "正文")
+	app.updates = &Updates{
+		pending:   &mygo.Update{Version: "9.9.9", Notes: strings.Repeat("## 更新内容\n\n- 一项较长的更新说明。\n\n", 80)},
+		versionFn: func() string { return "0.5.1" },
+		enabledFn: func() bool { return true },
+	}
+	app.updateOpen, app.updateDownloading = true, true
+	app.updateDownloaded, app.updateTotal = 25, 100
+	view := ui.NewTester(app.View, 760, 560)
+	view.Frame()
+	bar, ok := view.Find("更新下载进度")
+	if !ok || bar.H < 6 || bar.Y < 0 || bar.Y+bar.H > 560 {
+		t.Fatalf("长日志挤掉了进度条：%+v，存在=%v", bar, ok)
+	}
+	button, ok := view.Find("确定升级")
+	if !ok || button.H <= 0 || button.Y+button.H > 560 {
+		t.Fatalf("长日志挤掉了升级按钮：%+v，存在=%v", button, ok)
+	}
+}

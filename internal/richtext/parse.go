@@ -24,6 +24,48 @@ var md = goldmark.New(
 
 // Parse 把 Markdown 解析成文档。空字符串得到一个空段落。
 func Parse(markdown string) *Document {
+	front := frontMatterLen(markdown)
+	if front == 0 {
+		return parseBody(markdown)
+	}
+	// 文首的 YAML 属性整段原样保留，不按正文解析成分隔线和标题。
+	d := parseBody(markdown[front:])
+	raw := rawBlock(markdown[:front])
+	raw.gap, d.prefix = d.prefix, ""
+	if front == len(markdown) {
+		d.blocks = nil
+	}
+	d.blocks = append([]editBlock{raw}, d.blocks...)
+	d.reindex()
+	return d
+}
+
+// frontMatterLen 返回文首 YAML 属性块的字节数，没有时为 0。
+// 属性块以首行的 --- 开始，到下一行单独的 --- 或 ... 结束，中间至少有一行内容。
+func frontMatterLen(markdown string) int {
+	rest, ok := strings.CutPrefix(markdown, "---")
+	if !ok {
+		return 0
+	}
+	at := 3
+	for line := range strings.SplitAfterSeq(rest, "\n") {
+		text := strings.TrimRight(line, " \t\r\n")
+		if at == 3 {
+			if text != "" {
+				return 0
+			}
+		} else if text == "---" || text == "..." {
+			if at == 3+len(strings.SplitAfterN(rest, "\n", 2)[0]) {
+				return 0
+			}
+			return at + len(line)
+		}
+		at += len(line)
+	}
+	return 0
+}
+
+func parseBody(markdown string) *Document {
 	src := []byte(markdown)
 	reader := text.NewReader(src)
 	root := md.Parser().Parse(reader)
@@ -41,6 +83,8 @@ func Parse(markdown string) *Document {
 		if start < covered {
 			start = covered
 		}
+		// 区间算不出来或落在已处理内容之前时不能越界，退化成空区间。
+		stop = max(stop, start)
 		if start > covered {
 			// 块与块之间的空白（含空行）记在前一块上，保证回写逐字节一致。
 			gap := string(src[covered:start])
@@ -111,7 +155,19 @@ func nodeSpan(n ast.Node, src []byte) (int, int) {
 	case *ast.HTMLBlock:
 		return htmlSpan(v, src)
 	case *ast.ThematicBreak:
-		return blockLines(v.Lines(), src)
+		// 分隔线没有行内容，只有起始位置，区间取它所在的整行。
+		start := v.Pos()
+		if start < 0 || start > len(src) {
+			return -1, -1
+		}
+		for start > 0 && src[start-1] != '\n' {
+			start--
+		}
+		stop := start
+		for stop < len(src) && src[stop] != '\n' {
+			stop++
+		}
+		return start, min(stop+1, len(src))
 	case *ast.Heading:
 		return blockLines(v.Lines(), src)
 	case *ast.Paragraph:
