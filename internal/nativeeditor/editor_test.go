@@ -279,7 +279,7 @@ func TestWordAndHome(t *testing.T) {
 	ed, tt := newTest(t, "hello world")
 	ed.SetSelection(11, 11)
 	tt.Frame()
-	tt.Key(ui.Alt, ui.KeyLeft)
+	tt.Key(wordModifier(), ui.KeyLeft) // 按词移动的修饰键随平台不同
 	s, _ := ed.Selection()
 	if s != 6 {
 		t.Fatalf("词移动应到 6，实际 %d", s)

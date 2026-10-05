@@ -247,7 +247,7 @@ func sampleDiagrams(t *testing.T) []string {
 		t.Fatal(err)
 	}
 	var out []string
-	for _, m := range regexp.MustCompile("(?s)```mermaid\n(.*?)```").FindAllStringSubmatch(string(data), -1) {
+	for _, m := range regexp.MustCompile("(?s)```mermaid\r?\n(.*?)```").FindAllStringSubmatch(string(data), -1) {
 		out = append(out, m[1])
 	}
 	if len(out) == 0 {
