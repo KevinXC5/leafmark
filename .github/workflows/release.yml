@@ -193,7 +193,7 @@ jobs:
           test -f artifacts/update-windows-amd64.json
           test -f artifacts/update-windows-arm64.json
           python3 - <<'PY'
-          import hashlib, json, pathlib
+          import json, pathlib
           root = pathlib.Path('artifacts')
           for manifest in root.glob('update-*.json'):
               data = json.loads(manifest.read_text())
@@ -201,8 +201,23 @@ jobs:
               archive = root / unquote(urlparse(data['url']).path.split('/')[-1])
               assert archive.is_file() and archive.stat().st_size == data['size']
               assert data['signature']
-          files = sorted(p for p in root.iterdir() if p.is_file())
-          (root / 'checksums.txt').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
           PY
-          gh release upload "$TAG" artifacts/checksums.txt --repo "$GITHUB_REPOSITORY" --clobber
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
+  # 未能公开的版本不留草稿：检查或构建失败、运行被取消时删除草稿，标签保留以便重试。
+  cleanup:
+    needs: [prepare, check, windows-check, build, publish]
+    if: always() && needs.prepare.outputs.published != 'true' && needs.publish.result != 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 删除未公开的草稿
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)
+          if [ "$draft" = true ]; then
+            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes
+          fi

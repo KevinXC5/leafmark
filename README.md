@@ -128,6 +128,7 @@
 | `make check-release` | 在 `check` 之上增加竞态检测、`go vet` 和验证构建标签 |
 | `make verify` | 执行 `go run -tags verification .`，在真实 GPU 原生窗口中验收 |
 | `make shots` | 用示例文档在真实原生窗口中截取浅色、深色官网应用图 |
+| `make site` | 在 `http://127.0.0.1:4173` 预览官网 |
 | `make build-local` | 构建当前系统与架构的应用，产物位于 `build/<平台>-<架构>/` |
 | `make build ARGS="-platform …"` | 发布构建，例如 `darwin/arm64,darwin/amd64,windows/amd64,windows/arm64` |
 
@@ -150,7 +151,7 @@ leafmark/
 │   ├── workspace/          工作区目录树、路径授权与近期文件
 │   └── assets/             图片验证、读取与文档附件导入
 ├── tests/fixtures/samples/ 统一的示例文档
-├── scripts/                构建与截图脚本
+├── scripts/                构建与截图脚本，`tools/` 是构建与官网预览用的 Go 小工具
 ├── site/                   官网静态页面
 ├── resources/              应用图标与许可证文件
 ├── verification/           原生验证输入与运行输出
@@ -196,18 +197,20 @@ git push origin main v0.2.0
 
 1. **准备**：核对标签与版本号，用 DeepSeek 把上一版本以来的提交说明整理成更新日志，创建发布草稿。
 2. **检查与构建**（并行）：在 macOS 与 Windows 运行发布前检查，Windows 额外运行原生窗口验收；同时在 macOS 构建两个架构的 DMG，在 Ubuntu 构建两个架构的 Windows 安装程序，上传到草稿。
-3. **发布**：检查与构建都通过后，核对更新清单、生成 `checksums.txt` 并公开发布。
+3. **发布**：检查与构建都通过后，核对更新清单并公开发布。
+4. **清理**：检查或构建失败、运行被取消时删除草稿，标签保留。
 
 - 需要两个 Actions Secret：`DEEPSEEK_API_KEY` 和 `MYGO_UPDATER_PRIVATE_KEY`（更新包的 Ed25519 签名私钥，公钥在 `mygo.json` 中）。
 - 应用内的更新日志包含发布说明中的概述与完整变更条目，由构建任务写入 `.github/release-notes.md` 的 `## 版本号` 小节，日志内的标题降低一级；仓库中的该文件只保存固定的下载与安装说明。
-- 已公开的版本不会被覆盖，对它重新运行流程会直接成功结束。流程也可以手动触发，用于重试尚未公开的标签。
+- 发布的资产是四个安装包，以及自动更新读取的 `update-*.json` 清单和 `.tar.gz` 更新包；各文件的 SHA-256 由 GitHub 在资产列表中给出。
+- 已公开的版本不会被覆盖，对它重新运行流程会直接成功结束。失败的版本不留草稿，修复后手动触发流程或重新运行全部任务即可重试，草稿会重新创建。
 
 ### 官网
 
 官网源码在 `site/`，是没有依赖和构建步骤的静态页面，`site/` 有变化时由 `.github/workflows/pages.yml` 发布到 GitHub Pages。本地预览：
 
 ```bash
-python3 -m http.server 4173 -d site
+make site
 ```
 
 - 版本号和安装包直链在浏览器中从最新 Release 读取，发布新版本后无需修改官网；安装包文件名需保持 `darwin-arm64.dmg`、`windows-amd64.exe` 这类结尾。

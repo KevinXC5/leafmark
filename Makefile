@@ -1,6 +1,6 @@
 # Leafmark 的开发入口。全部命令只依赖 Go 工具链；MyGo 命令行由 go.mod 的 tool 指令固定版本。
 
-.PHONY: dev build build-local check check-release verify shots doctor
+.PHONY: dev build build-local check check-release verify shots site doctor
 
 # 启动桌面开发应用，Go 代码变化后重新编译。
 dev:
@@ -34,6 +34,10 @@ verify:
 # 用示例文档重新截取官网的应用截图。
 shots:
 	bash scripts/site-shots.sh
+
+# 在本机预览官网，地址为 http://127.0.0.1:4173。
+site:
+	go run ./scripts/tools/siteserver
 
 doctor:
 	go tool mygo doctor
