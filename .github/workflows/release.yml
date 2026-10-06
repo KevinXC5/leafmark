@@ -36,7 +36,6 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          test "$TAG" = "v$(jq -r .version mygo.json)"
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$TAG^{commit}")"
           git merge-base --is-ancestor HEAD origin/main
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -167,6 +166,9 @@ jobs:
           # MyGo 只读取当前版本的二级标题小节：把历史版本的说明按三级标题一并写入，
           # 说明内的标题降两级，应用内据此列出用户当前版本之后的全部变化。
           version="${{ needs.prepare.outputs.tag }}"
+          # 版本号取自标签：仓库里的 version 只用于本机构建。
+          jq --arg v "${version#v}" '.version = $v' mygo.json > "$RUNNER_TEMP/mygo.json"
+          mv "$RUNNER_TEMP/mygo.json" mygo.json
           section() {
             gh release view "$1" --repo "$GITHUB_REPOSITORY" --json body --jq .body |
               awk '/^\[完整变更记录\]/ || /^## 下载与安装/ {exit} /^## v?[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$/ {next} /^##/ {sub(/^#/, "###")} {print}'

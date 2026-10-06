@@ -1,6 +1,8 @@
 # Leafmark · 叶笺
 
-面向 macOS / Windows 的轻量本地 Markdown 编辑器。桌面窗口由原生界面直接绘制，支持所见即所得编辑、多标签和本地文件夹导航。
+面向 macOS / Windows 的轻量本地 Markdown 编辑器，支持所见即所得编辑、多标签和本地文件夹导航。
+
+**界面不使用 WebView**（No WebView）：没有 Electron、Tauri 或任何内嵌浏览器，整个窗口由 Go 代码经 GPU 原生绘制，编辑器、公式和图表都是自绘的。
 
 官网：<https://kevinxc5.github.io/leafmark/>
 
@@ -115,7 +117,7 @@
 | MyGo 0.2.8 | 原生窗口、GPU 绘制、系统对话框、打包与签名更新 |
 | goldmark 1.8.6 | CommonMark / GFM 结构识别 |
 
-整个项目只有 Go 代码。应用没有远程服务端，桌面窗口不加载网页；只有导出 PDF 时临时借用系统网页引擎分页。运行已打包的应用无需安装任何开发工具。
+整个项目只有 Go 代码。应用没有远程服务端，桌面窗口不使用 WebView、不加载网页；只有导出 PDF 时在不可见窗口里临时借用系统网页引擎分页。运行已打包的应用无需安装任何开发工具。
 
 ### 环境与命令
 
@@ -132,14 +134,14 @@
 | `make build-local` | 构建当前系统与架构的应用，产物位于 `build/<平台>-<架构>/` |
 | `make build ARGS="-platform …"` | 发布构建，例如 `darwin/arm64,darwin/amd64,windows/amd64,windows/arm64` |
 
-应用名称、标识、版本号、文件关联与更新源在 `mygo.json` 中配置。
+应用名称、标识、文件关联与更新源在 `mygo.json` 中配置；其中的 `version` 只用于本机构建，正式版本号取自发布标签。
 
 ### 项目结构
 
 ```text
 leafmark/
 ├── main.go                 调用 desktop.Run
-├── mygo.json               应用名称、版本、文件关联与更新配置
+├── mygo.json               应用名称、文件关联与更新配置
 ├── Makefile                开发、测试、验收与构建入口
 ├── internal/
 │   ├── desktop/            原生窗口装配：界面、设置、快捷键、导出、保存与恢复
@@ -183,27 +185,6 @@ leafmark/
 - `ui.Tester` 在进程内驱动界面，用于 Go 测试，不是原生窗口验收。
 - `.github/workflows/windows.yml` 在 Windows runner 上运行全部检查与原生窗口验收，并核对 `platform` 为 `Windows Native UI`。
 - 以下内容需人工验收：输入法组合输入、系统文件对话框和消息框、右键菜单、安装与文件关联、真实拖放，以及升级后重启。
-
-### 发布
-
-`mygo.json` 的 `version` 是版本号的唯一来源。更新版本号并提交后，推送同名标签即可发布：
-
-```bash
-git tag v0.2.0
-git push origin main v0.2.0
-```
-
-`.github/workflows/release.yml` 的流程：
-
-1. **准备**：核对标签与版本号，用 DeepSeek 把上一个已公开版本以来的提交说明整理成更新日志，创建发布草稿；发布失败的版本没有发布说明，它的提交并入下一次的日志。
-2. **检查与构建**（并行）：在 macOS 与 Windows 运行发布前检查，Windows 额外运行原生窗口验收；同时在 macOS 构建两个架构的 DMG，在 Ubuntu 构建两个架构的 Windows 安装程序，上传到草稿。
-3. **发布**：检查与构建都通过后，核对更新清单并公开发布。
-4. **清理**：检查或构建失败、运行被取消时删除草稿，标签保留。
-
-- 需要两个 Actions Secret：`DEEPSEEK_API_KEY` 和 `MYGO_UPDATER_PRIVATE_KEY`（更新包的 Ed25519 签名私钥，公钥在 `mygo.json` 中）。
-- 应用内的更新日志包含发布说明中的概述与完整变更条目，由构建任务写入 `.github/release-notes.md` 的 `## 版本号` 小节：本次与历史各版本的说明各占一个 `### 版本号` 分节，说明内的标题降低两级。应用只显示比已安装版本新的分节，跨版本升级时能看到中间每个版本的变化；仓库中的该文件只保存固定的下载与安装说明。
-- 发布的资产是四个安装包，以及自动更新读取的 `update-*.json` 清单和 `.tar.gz` 更新包；各文件的 SHA-256 由 GitHub 在资产列表中给出。
-- 已公开的版本不会被覆盖，对它重新运行流程会直接成功结束。失败的版本不留草稿，修复后手动触发流程或重新运行全部任务即可重试，草稿会重新创建。
 
 ### 官网
 

@@ -11,7 +11,7 @@
 
 ## 开发与构建
 
-- 整个项目只有 Go 代码，不需要 Node.js 或 Bun。命令入口是 `Makefile`；MyGo 命令行由 `go.mod` 的 `tool` 指令固定版本，通过 `go tool mygo` 调用。应用名称、版本号、文件关联与更新源在 `mygo.json` 中配置，`version` 是版本号的唯一来源。
+- 整个项目只有 Go 代码，不需要 Node.js 或 Bun。命令入口是 `Makefile`；MyGo 命令行由 `go.mod` 的 `tool` 指令固定版本，通过 `go tool mygo` 调用。应用名称、文件关联与更新源在 `mygo.json` 中配置。正式版本号取自发布标签，发布流程在构建前把它写入 `mygo.json`；仓库里的 `version` 只用于本机构建，发版时不需要修改。
 - 桌面应用由 `desktop.Run` 启动，窗口内容是 MyGo GPU 绘制的原生界面，不加载网页。编辑器在 `internal/nativeeditor`，文档模型在 `internal/richtext`，公式排版在 `internal/mathlayout`，流程图在 `internal/diagram`，窗口装配在 `internal/desktop`。
 - 日常查看桌面效果运行 `make dev`。它执行 `go tool mygo dev`，Go 代码变化后重新编译。
 - 本机独立应用运行 `make build-local`，默认仅构建当前系统与架构，跳过 DMG 和公证，统一复用 `build/<平台>-<架构>/`，不为验证批次创建 `fast-check`、`refinement` 等输出目录。发布构建使用 `make build ARGS="-platform ..."`，仅在交付对应产物时构建多架构、跨平台或安装包；macOS 按架构分别构建，仅在用户明确要求时生成通用包。
