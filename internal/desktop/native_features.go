@@ -72,7 +72,7 @@ func (s *sourceEditor) View(c *ui.Context) {
 }
 
 // Bounds 返回编辑区边界。View 尚未布局时为零。
-func (s *sourceEditor) Bounds() ui.Rect { return s.bounds }
+func (s *sourceEditor) Bounds() ui.Rect { return s.ed.Bounds() }
 
 // Scroll 返回内容滚动偏移，数值来自编辑器自己的滚动状态。
 func (s *sourceEditor) Scroll() (x, y float32) { return s.ed.Scroll() }

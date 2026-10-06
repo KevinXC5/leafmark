@@ -497,7 +497,13 @@ func verifySourceFind(win *mygo.Window, app *nativeApp, out map[string]any) erro
 			refreshVerificationWindow(win)
 			time.Sleep(40 * time.Millisecond)
 			ready := false
-			mygo.RunOnMain(func() { ready = !app.active().editor.(*sourceEditor).Jumping() })
+			mygo.RunOnMain(func() {
+				source := app.active().editor.(*sourceEditor)
+				at, _ := source.Selection()
+				_, caretY, lineH := source.ed.PointForOffset(at)
+				_, y := source.Scroll()
+				ready = !source.Jumping() && y > 0 && caretY >= y-1 && caretY+lineH <= y+source.Bounds().H+1
+			})
 			if ready {
 				break
 			}

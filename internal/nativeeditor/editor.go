@@ -63,8 +63,10 @@ type Editor struct {
 	wantFocus      bool // 下一帧把键盘焦点交还给正文
 	focusMode      bool // 淡化光标所在块之外的内容
 	editRaw        func(index int, source string)
-	typewriter     bool // 光标所在行保持在视口中部
-	readOnly       bool // 阅读模式：只能选择、复制、查找和点击链接
+	typewriter     bool    // 光标所在行保持在视口中部
+	revealed       bool    // 滚动位置来自上一次光标定位
+	revealY        float32 // 上一次定位得到的纵向滚动
+	readOnly       bool    // 阅读模式：只能选择、复制、查找和点击链接
 	openLink       func(url string)
 	hand           bool // 指针下是可点击内容，显示小手
 	pressHot       hot  // 按下时指针下的可点击内容，松开时仍在其上且没有拖选才触发
@@ -387,7 +389,8 @@ func (e *Editor) View(c *ui.Context) {
 	if width <= 0 || height <= 0 {
 		width, height = c.Size()
 	}
-	if abs32(width-e.width) > .5 || abs32(height-e.viewH) > .5 {
+	resized := abs32(width-e.width) > .5 || abs32(height-e.viewH) > .5
+	if resized {
 		c.Invalidate()
 	}
 	e.width, e.viewH = width, height
@@ -430,6 +433,12 @@ func (e *Editor) View(c *ui.Context) {
 		}
 		e.keepCaretVisible()
 		e.reveal = false
+		e.revealed, e.revealY = true, e.scroll.Y
+	} else if resized && e.revealed && e.scroll.Y == e.revealY {
+		// 上次定位用的是旧视口尺寸（新建编辑器的首帧还没有真实边界）。
+		// 用户没有自己滚动过时按新尺寸重算，不展开折叠块，也不打断手动滚动。
+		e.keepCaretVisible()
+		e.revealY = e.scroll.Y
 	}
 	if e.wantFocus {
 		box.Focus()
