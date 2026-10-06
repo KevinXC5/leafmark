@@ -103,6 +103,13 @@
   $$("kbd[data-shift]").forEach(key => { key.textContent = isMac ? "⇧" : "Shift"; });
   $$("#demo code").forEach(code => { code.textContent = isMac ? "⌘⇧R" : "Ctrl+Shift+R"; });
 
+  // 首屏下载按钮：换成当前系统的标识、名称与外形；其他系统保持通用文案。
+  const osButton = $("[data-os-button]");
+  if (osButton && (isMac || isWindows)) {
+    osButton.dataset.os = isMac ? "mac" : "win";
+    $("[data-os-label]", osButton).textContent = isMac ? "下载 macOS 版" : "下载 Windows 版";
+  }
+
   // 下载：标出适合当前设备的安装包。Safari 不暴露芯片架构，macOS 默认推荐 Apple 芯片。
   const recommend = arch => {
     const os = isMac ? "darwin" : isWindows ? "windows" : "";

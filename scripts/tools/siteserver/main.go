@@ -19,5 +19,10 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("官网预览：http://%s\n", listener.Addr())
-	log.Fatal(http.Serve(listener, http.FileServer(http.Dir(*dir))))
+	files := http.FileServer(http.Dir(*dir))
+	// 预览时每次都向服务端校验，避免浏览器拿缓存的旧脚本配新页面。
+	log.Fatal(http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		files.ServeHTTP(w, r)
+	})))
 }

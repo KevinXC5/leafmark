@@ -68,6 +68,11 @@ h3 { font: 500 20px/1.4 var(--serif); color: var(--ink); letter-spacing: .01em; 
 }
 .btn:hover { background: var(--green-deep); transform: translateY(-2px); box-shadow: 0 1px 0 #ffffff2e inset, 0 16px 28px -14px #1d3027d0; }
 .btn-meta { font: 400 13px/1 var(--mono); opacity: .72; padding-left: 10px; border-left: 1px solid #ffffff3d; }
+/* 首屏下载按钮按访客系统换标识与外形：macOS 保持胶囊，Windows 改为小圆角。 */
+.btn .os { display: none; width: 18px; height: 18px; fill: currentColor; flex: none; }
+.btn[data-os="mac"] .os-mac { display: block; margin-top: -3px; }
+.btn[data-os="win"] .os-win { display: block; width: 16px; height: 16px; }
+.btn[data-os="win"] { border-radius: 8px; }
 .btn-ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
 .btn-ghost:hover { background: var(--paper-hi); box-shadow: inset 0 0 0 1px #c9bca6; }
 .btn-small { min-height: 38px; padding: 0 18px; font-size: 14px; }
@@ -124,14 +129,28 @@ h3 { font: 500 20px/1.4 var(--serif); color: var(--ink); letter-spacing: .01em; 
 @keyframes leaf-sway { from { transform: translateX(calc(var(--sway) * -1)); } to { transform: translateX(var(--sway)); } }
 
 .hero-top { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 40px; align-items: start; }
-.eyebrow { display: flex; align-items: center; gap: 10px; font: 500 13.5px/1 var(--sans); letter-spacing: .16em; color: var(--muted); }
-.eyebrow .mk { letter-spacing: 0; font-size: 15px; }
+/* 标题上方的一排印记：实心的朱文印标出“无 WebView”，其余为同色线框。 */
+.eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.stamp {
+  padding: 7px 9px 6px 11px; border-radius: 5px; font: 500 15px/1 var(--serif); letter-spacing: .16em; white-space: nowrap;
+  color: #fbf3ea; background: var(--seal); box-shadow: inset 0 0 0 1.5px var(--seal), inset 0 0 0 3px #fbf3ea66; rotate: -2deg; opacity: .92;
+}
+.stamp-line { color: var(--seal); background: none; box-shadow: inset 0 0 0 1.5px var(--seal); rotate: none; }
 .hero-title { margin: 26px 0 30px; font: 500 clamp(54px, 8.6vw, 128px)/1.08 var(--serif); color: var(--ink); letter-spacing: -.01em; white-space: nowrap; }
 .hero-title > span { display: block; }
 .hero-title .accent { color: var(--green); padding-left: .72em; }
+/* 钤在标题首行右侧的大印，字号随标题缩放；入场时像盖章一样落下。 */
+.title-seal {
+  display: inline-block; writing-mode: vertical-rl; vertical-align: .02em; margin-left: .22em; padding: .4em .36em .22em; border-radius: .16em;
+  font: 500 .25em/1 "Songti SC", "Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun", serif; letter-spacing: .14em; color: #fbf3ea; background: var(--seal);
+  box-shadow: inset 0 0 0 .07em var(--seal), inset 0 0 0 .14em #fbf3ea73, 0 .5em .9em -.5em #b4472f99; rotate: 5deg;
+  animation: seal-press .5s cubic-bezier(.3, 1.4, .5, 1) 1s both;
+}
+@keyframes seal-press { from { opacity: 0; scale: 1.7; } }
 .caret { display: inline-block; width: .028em; height: .8em; margin-left: .05em; background: var(--copper); vertical-align: -.06em; animation: blink 1.15s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 .lede { max-width: 33em; font-size: clamp(17px, 1.5vw, 19px); line-height: 1.85; color: var(--ink-2); }
+.lede strong { font-weight: 500; color: var(--ink); box-shadow: inset 0 -.5em #b4472f24; }
 .lede code, .hint code { font: 500 .9em var(--mono); color: var(--copper-deep); background: #bd78581c; padding: 2px 6px; border-radius: 6px; }
 .hero-cta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 32px; }
 .hero-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 24px; font: 400 13px/1.4 var(--mono); color: var(--muted); }
@@ -425,7 +444,7 @@ kbd[data-mod], kbd[data-shift] { font-family: var(--sans); font-size: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .rise, .caret, .hint-arrow, .dl.active::after, .hero-branch { animation: none; }
+  .rise, .caret, .title-seal, .hint-arrow, .dl.active::after, .hero-branch { animation: none; }
   .leaffall { display: none; }
   .js .reveal { opacity: 1; transform: none; transition: none; }
   .btn, .card, .dl-card { transition: none; }

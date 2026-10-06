@@ -59,14 +59,23 @@
 
       <div class="wrap hero-top">
         <div class="hero-copy">
-          <p class="eyebrow rise" style="--d: 0"><span class="mk">#</span> 轻量 · 本地 · Markdown 编辑器</p>
+          <p class="eyebrow rise" style="--d: 0">
+            <span class="stamp">无 WebView</span>
+            <span class="stamp stamp-line">轻量</span>
+            <span class="stamp stamp-line">本地</span>
+          </p>
           <h1 class="hero-title">
-            <span class="rise" style="--d: 1">落笔，</span>
+            <span class="rise" style="--d: 1">落笔，<b class="title-seal" aria-hidden="true">纯原生</b></span>
             <span class="rise accent" style="--d: 2">即成文。<i class="caret" aria-hidden="true"></i></span>
           </h1>
-          <p class="lede rise" style="--d: 3">叶笺是一款面向 macOS 与 Windows 的 Markdown 编辑器。标题、列表、表格与公式都在原处成形，而文档始终是你磁盘上的一份 <code>.md</code> 文件。</p>
+          <p class="lede rise" style="--d: 3">叶笺是一款面向 macOS 与 Windows 的 Markdown 编辑器，界面<strong>纯原生绘制，不含 WebView</strong>。标题、列表、表格与公式都在原处成形，而文档始终是你磁盘上的一份 <code>.md</code> 文件。</p>
           <div class="hero-cta rise" style="--d: 4">
-            <a class="btn" href="#download">免费下载 <span class="btn-meta" data-version>最新版</span></a>
+            <a class="btn" href="#download" data-os-button>
+              <svg class="os os-mac" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" /></svg>
+              <svg class="os os-win" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 2h9.5v9.5H2zM12.5 2H22v9.5h-9.5zM2 12.5h9.5V22H2zM12.5 12.5H22V22h-9.5z" /></svg>
+              <span data-os-label>免费下载</span>
+              <span class="btn-meta" data-version>最新版</span>
+            </a>
             <a class="btn btn-ghost" href="https://github.com/KevinXC5/leafmark" target="_blank" rel="noopener">查看源码 <span aria-hidden="true">↗</span></a>
           </div>
           <p class="hero-meta rise" style="--d: 5">macOS · Windows<span class="dot"></span>免费<span class="dot"></span>MIT 开源</p>
