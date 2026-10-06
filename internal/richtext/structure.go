@@ -54,6 +54,24 @@ func (d *Document) ShiftListLevel(sel Selection, delta int) bool {
 		sel.Start, sel.End = sel.End, sel.Start
 	}
 	from, to := d.BlockIndexAt(d.clampAt(sel.Start)), d.BlockIndexAt(d.clampAt(sel.End))
+	if from >= 0 && from < len(d.blocks) && listContext(d.blocks[from]) >= 0 {
+		before := cloneEdit(d.blocks)
+		changed := false
+		for i := from; i <= to && i < len(d.blocks); i++ {
+			if d.shiftContainerItem(i, delta) {
+				changed = true
+			}
+		}
+		if changed {
+			d.undo = append(d.undo, snapshot{blocks: before, sel: sel})
+			d.redo = nil
+			d.clean = false
+			d.coalesce = coalesceNone
+			d.reindex()
+			d.noteAfter(sel)
+		}
+		return changed
+	}
 	levels := map[int]int{}
 	for i := from; i <= to && i < len(d.blocks); i++ {
 		b := d.blocks[i]
@@ -85,6 +103,11 @@ func (d *Document) ShiftListLevel(sel Selection, delta int) bool {
 		}
 		b := &d.blocks[i]
 		b.Level = level
+		for ci := range b.Containers {
+			if b.Containers[ci].Kind == List || b.Containers[ci].Kind == Task {
+				b.Containers[ci].Level = level
+			}
+		}
 		b.indent = d.listIndentFor(i, level)
 		if b.Ordered {
 			b.Start = d.listNumberFor(i, level)

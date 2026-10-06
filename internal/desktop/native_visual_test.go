@@ -3,9 +3,11 @@
 package desktop
 
 import (
+	"strings"
+	"testing"
+
 	"github.com/egoist/mygo/ui"
 	"leafmark/internal/richtext"
-	"testing"
 )
 
 func TestNativeOutlineUsesModelRuneCoordinates(t *testing.T) {
@@ -95,5 +97,73 @@ func TestNativeVisualNarrowWindowKeepsActionsInBounds(t *testing.T) {
 	}
 	if app.settingsOn {
 		t.Fatal("应返回原有书写标签")
+	}
+}
+
+// TestFindBarReplaceAndReadingMode 核对查找栏的替换按钮，以及阅读模式在菜单和状态栏上的表现。
+func TestFindBarReplaceAndReadingMode(t *testing.T) {
+	app, _ := newTestApp(t)
+	app.adopt(app.files.Current(), "正文 正文")
+	editor := &readingEditor{stubEditor: stubEditor{text: "正文 正文", findHit: true}}
+	app.active().editor = editor
+	app.findOn = true
+	view := ui.NewTester(app.View, 1100, 760)
+	view.Frame()
+	for _, label := range []string{"查找", "替换为", "替换", "全部替换"} {
+		if _, ok := view.Find(label); !ok {
+			t.Fatalf("查找栏缺少 %q", label)
+		}
+	}
+	if err := view.Click("全部替换"); err != nil {
+		t.Fatal(err)
+	}
+	view.Frame()
+	// 查找词为空时替换无事可做，正文与提示都保持原样。
+	if editor.text != "正文 正文" || app.findNote != "" {
+		t.Fatalf("空查找不应触发替换：%q %q", editor.text, app.findNote)
+	}
+	app.findQuery, app.replaceText = "正文", "替换"
+	if err := view.Click("替换"); err != nil {
+		t.Fatal(err)
+	}
+	view.Frame()
+	if editor.text != "替换 正文" || app.findNote != "已替换 1 处" {
+		t.Fatalf("替换按钮未触发单处替换：%q %q", editor.text, app.findNote)
+	}
+
+	if err := view.Click("更多操作"); err != nil {
+		t.Fatal(err)
+	}
+	if err := view.ChooseMenuItem("进入阅读模式"); err != nil {
+		t.Fatal(err)
+	}
+	view.Frame()
+	if !app.reading || !editor.readOnly || !view.HasText("• 阅读模式") {
+		t.Fatal("菜单应进入阅读模式，状态栏应标明")
+	}
+	// 阅读模式下替换按钮已禁用，点击不生效，正文保持不变。
+	if err := view.Click("全部替换"); err != nil {
+		t.Fatal(err)
+	}
+	view.Frame()
+	if editor.text != "替换 正文" {
+		t.Fatalf("阅读模式的替换按钮仍可替换：%q", editor.text)
+	}
+	if err := view.Click("更多操作"); err != nil {
+		t.Fatal(err)
+	}
+	if err := view.ChooseMenuItem("格式", "加粗"); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("阅读模式下格式菜单应不可用：%v", err)
+	}
+	view.CloseMenu()
+	if err := view.Click("更多操作"); err != nil {
+		t.Fatal(err)
+	}
+	if err := view.ChooseMenuItem("退出阅读模式"); err != nil {
+		t.Fatal(err)
+	}
+	view.Frame()
+	if app.reading || !view.HasText("• 原位编辑") {
+		t.Fatal("应退出阅读模式并恢复状态栏")
 	}
 }

@@ -132,11 +132,13 @@ type nativeApp struct {
 	statsWords      int
 	outlineHeadings []nativeHeading
 
-	settings   nativeSettings
-	settingsOn bool
-	findOn     bool
-	findQuery  string
-	findNote   string
+	settings    nativeSettings
+	settingsOn  bool
+	findOn      bool
+	findQuery   string
+	findNote    string
+	replaceText string
+	reading     bool
 
 	promptOpen bool
 	promptText string
@@ -330,6 +332,15 @@ func (a *nativeApp) replaceEditor(id, markdown string) {
 }
 
 func (a *nativeApp) connectEditor(editor documentEditor) {
+	if links, ok := editor.(interface{ SetOpenLink(func(string)) }); ok {
+		links.SetOpenLink(func(url string) {
+			go func() {
+				if err := mygo.Shell.OpenExternal(url); err != nil {
+					a.update(func() { a.notice = err.Error() })
+				}
+			}()
+		})
+	}
 	if raw, ok := editor.(rawEditor); ok {
 		raw.SetEditRaw(func(index int, source string) { a.editRaw(raw, index, source) })
 	}
@@ -408,6 +419,9 @@ func (a *nativeApp) applySettings() {
 // configureEditor 把当前设置应用到一个编辑器。排版相关的方法只有真实编辑器实现。
 func (a *nativeApp) configureEditor(editor documentEditor) {
 	editor.FontSize(a.settings.FontSize)
+	if e, ok := editor.(interface{ SetReadOnly(bool) }); ok {
+		e.SetReadOnly(a.reading)
+	}
 	if e, ok := editor.(interface{ SetFontFamily(string) }); ok {
 		e.SetFontFamily(editorFonts[a.settings.Font])
 	}
@@ -602,6 +616,11 @@ func (a *nativeApp) reloadNavigation() {
 
 // command 只在主线程执行界面动作。
 func (a *nativeApp) command(name string) {
+	// 阅读模式仍允许保存和导航，所有内容修改入口统一拦截。
+	if a.reading && editingCommand(name) {
+		a.notice = "阅读模式下不能修改内容"
+		return
+	}
 	switch name {
 	case "new":
 		a.adopt(a.files.New(), "")
@@ -639,6 +658,9 @@ func (a *nativeApp) command(name string) {
 				tab.editor.Format(name)
 			}
 		}
+	case "reading":
+		a.reading = !a.reading
+		a.applySettings()
 	case "source":
 		a.toggleSource()
 	case "export-html":
@@ -989,6 +1011,9 @@ func (a *nativeApp) openRecent(path string) {
 }
 
 func (a *nativeApp) askLink() {
+	if a.reading {
+		return
+	}
 	tab := a.active()
 	if tab == nil || tab.editor == nil {
 		return
@@ -998,6 +1023,9 @@ func (a *nativeApp) askLink() {
 	a.promptOpen = true
 	editor := tab.editor
 	a.promptOK = func(raw string) {
+		if a.reading {
+			return
+		}
 		label, url, ok := splitLink(raw)
 		if !ok {
 			a.notice = "请输入链接文字和地址，用空格分开"
@@ -1020,6 +1048,9 @@ func splitLink(raw string) (label, url string, ok bool) {
 }
 
 func (a *nativeApp) insertImage() {
+	if a.reading {
+		return
+	}
 	tab := a.active()
 	if tab == nil || tab.editor == nil || a.assets == nil {
 		return
@@ -1038,6 +1069,10 @@ func (a *nativeApp) insertImage() {
 				if err != nil {
 					a.notice = err.Error()
 				}
+				return
+			}
+			// 对话框返回时模式可能已经改变，不能把图片插进只读正文。
+			if a.reading {
 				return
 			}
 			alt := strings.TrimSuffix(filepath.Base(imported.Path), filepath.Ext(imported.Path))

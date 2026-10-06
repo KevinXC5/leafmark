@@ -24,6 +24,11 @@ const (
 	quoteInset   = 19
 	codePad      = 18
 	imageMaxH    = 280
+	innerGap     = 12 // 同一容器内相邻块的间距
+	looseGap     = 8  // 含多段正文的列表项与下一项的间距
+	footGap      = 10 // 相邻脚注定义的间距
+	footScale    = .9 // 脚注定义区的字号比例
+	calloutFont  = `"Inter", system-ui, sans-serif`
 	cellPad      = 11
 	readingWidth = 856
 	bottomPad    = 80
@@ -50,8 +55,13 @@ type paintSpan struct {
 	glyphs                  []ui.Glyph
 	dy                      float32
 	highlight, code, strike bool
+	underline, kbd          bool
 	link                    string
+	footnote                string     // 脚注引用的标签，glyphs 里只有一个占位字形
+	image                   string     // 行内图片地址，display 是替代文字
+	display                 []ui.Glyph // 脚注编号或行内图片替代文字
 	ink                     inkKind
+	source                  uint8           // 源码着色种类，0 表示按 ink 或主题正文色
 	math                    *mathlayout.Box // 行内公式，glyphs 里只有一个占位字形记录位置
 }
 
@@ -83,6 +93,7 @@ type blockBox struct {
 	diagram     *diagram.Layout // 排好的流程图
 	bullet      bool            // 无序列表项，圆点由绘制阶段画出
 	indent      float32         // 嵌套列表项的左缩进
+	muted       bool            // 位于引用容器内，文字用次要色
 	lines       []int           // 在 layout.lines 中的下标
 }
 
@@ -90,9 +101,43 @@ type blockBox struct {
 type layout struct {
 	lines    []line
 	blocks   []blockBox
+	frames   []frame
 	height   float32
 	width    float32
 	fontSize float32
+}
+
+// frame 是容器的装饰：引用竖线与底色、提示块底色与标题、脚注编号与回跳，
+// 以及首块不是正文的列表项标记。容器本身不占正文坐标。
+type frame struct {
+	kind        richtext.Kind
+	foot        string // 脚注定义的标签
+	x, y, w, h  float32
+	title       []ui.Glyph
+	titleAscent float32
+	label       []ui.Glyph // 脚注编号或有序列表编号
+	labelW      float32
+	bullet      bool
+	checked     bool
+	rule        bool // 脚注定义区起始处的分隔线
+	marker      bool // 需要自己画列表标记
+	// 首行位置，编号与标记对齐到它。
+	lineY, lineH, ascent float32
+	back                 []ui.Glyph // 脚注回跳箭头
+	backX, backBase      float32
+	backRect             ui.Rect
+	details              bool
+	folded               bool
+	foldID               int
+}
+
+// openFrame 是排版途中尚未结束的容器。
+type openFrame struct {
+	c           richtext.Container
+	frame       int     // 在 layout.frames 中的下标
+	left, right float32 // 容器内正文相对正文栏的左右留白
+	markerLeft  float32 // 列表项标记的左缘
+	anchor      bool    // 等待首块排完后记下首行位置
 }
 
 const defaultFontFamily = `"Newsreader", "Songti SC", "STSong", "Noto Serif CJK SC", "SimSun", Georgia, serif`
@@ -118,6 +163,13 @@ type shapeCache struct {
 	maths        map[mathKey]*mathlayout.Box
 	diagrams     map[diagramKey]*diagram.Layout
 	diagramStyle diagram.Style
+	// footnotes 是脚注标签到显示编号的映射，每次排版按引用出现的顺序重算。
+	footnotes map[string]int
+	// source 为真时代码块按源码模式排：无代码块内边距，并用 sourceSpans 着色。
+	source      bool
+	sourceSpans []SourceSpan
+	images      map[string]*ui.Bitmap
+	collapsed   map[int]bool
 }
 
 type shapeKey struct {
@@ -179,10 +231,52 @@ func flow(doc *richtext.Document, contentW, fontSize float32, cache *shapeCache,
 	lay.width = contentW
 	y := float32(padY)
 	blocks := doc.Blocks()
+	cache.footnotes = footnoteNumbers(blocks)
+	cache.images = images
+	baseX := (contentW - inner) / 2
 	origin := 0
 	topOrdered := false
+	var stack []openFrame
 	for i, b := range blocks {
-		box := blockBox{kind: b.Kind, index: i, x: (contentW - inner) / 2, y: y, w: inner, origin: origin}
+		if b.Kind == richtext.ReferenceDef {
+			continue
+		}
+		chain := b.Containers
+		// 上一块结束时栈里只剩与本块共有的容器，这里打开本块新进入的那些。
+		fresh := false
+		for k := len(stack); k < len(chain); k++ {
+			var parent *openFrame
+			if k > 0 {
+				parent = &stack[k-1]
+			}
+			// 标记的字号与字体跟随它所在的引用或提示块。
+			size, _, family, _ := ambient(chain[:k+1], fontSize)
+			oldFamily := cache.family
+			if family != "" {
+				cache.family = family
+			}
+			of, top := lay.open(chain[k], parent, b, i > 0 && blocks[i-1].Footnote != nil, baseX, inner, y, fontSize, size, cache)
+			cache.family = oldFamily
+			stack = append(stack, of)
+			y += top
+			fresh = k == len(chain)-1
+		}
+		left, right := float32(0), float32(0)
+		if n := len(stack); n > 0 {
+			left, right = stack[n-1].left, stack[n-1].right
+		}
+		// 列表项容器的首块带标记；同一项里后续的块只是对齐到正文左缘的普通块。
+		marker := false
+		if n := len(chain); n > 0 && isListItem(b) {
+			if marker = fresh && isListContainer(chain[n-1]); marker {
+				left = stack[n-1].markerLeft
+				b.Level = 1
+			} else {
+				b.Kind = richtext.Paragraph
+			}
+		}
+		size, ratio, family, muted := ambient(chain, fontSize)
+		box := blockBox{kind: b.Kind, index: i, x: baseX + left, y: y, w: max(inner-left-right, 40), origin: origin}
 		switch b.Kind {
 		case richtext.Image:
 			h := placeImage(&box, b, images, fontSize, cache)
@@ -200,7 +294,7 @@ func flow(doc *richtext.Document, contentW, fontSize float32, cache *shapeCache,
 			box.raw = b.Kind == richtext.Raw
 			box.runes = 1
 		case richtext.Code:
-			h := placeCode(&box, b.Code, b.Lang, fontSize, cache, &lay)
+			h := placeCode(&box, b.Code, b.Lang, fontSize, cache, &lay, cache.source)
 			box.h = h
 			box.runes = len([]rune(b.Code))
 		case richtext.TableBlock:
@@ -208,19 +302,56 @@ func flow(doc *richtext.Document, contentW, fontSize float32, cache *shapeCache,
 			box.h = h
 			box.runes = tableRunes(b.Table)
 		default:
-			h := placeText(&box, b, inner, fontSize, cache, &lay)
+			oldFamily := cache.family
+			if family != "" {
+				cache.family = family
+			}
+			box.muted = muted
+			h := placeText(&box, b, box.w, size, ratio, cache, &lay)
+			cache.family = oldFamily
 			box.h = h
 			box.runes = len([]rune(visibleRuns(b.Runs)))
 		}
-		gap := float32(blockGap)
-		if isListItem(b) {
-			if b.Level <= 1 {
-				topOrdered = b.Ordered
+		for k := range stack {
+			if stack[k].anchor {
+				lay.anchor(stack[k].frame, box, fontSize)
+				stack[k].anchor = false
 			}
-			// 同一列表的各项紧挨；顶层有序与无序交替时是两个列表，保留块间距。
-			if i+1 < len(blocks) && isListItem(blocks[i+1]) && (blocks[i+1].Level > 1 || blocks[i+1].Ordered == topOrdered) {
+		}
+		lay.blocks = append(lay.blocks, box)
+		y += box.h
+		var next []richtext.Container
+		if i+1 < len(blocks) {
+			next = blocks[i+1].Containers
+		}
+		shared := sharedContainers(chain, next)
+		for k := len(stack) - 1; k >= shared; k-- {
+			y += lay.close(stack[k], box, y, fontSize, cache)
+		}
+		stack = stack[:shared]
+		gap := float32(blockGap)
+		switch {
+		case i+1 >= len(blocks):
+		case len(chain) == 0 && len(next) == 0:
+			if isListItem(b) {
+				if b.Level <= 1 {
+					topOrdered = b.Ordered
+				}
+				// 同一列表的各项紧挨；顶层有序与无序交替时是两个列表，保留块间距。
+				if isListItem(blocks[i+1]) && (blocks[i+1].Level > 1 || blocks[i+1].Ordered == topOrdered) {
+					gap = 0
+				}
+			}
+		case nextListItem(chain, next, shared):
+			// 同一列表的相邻项紧挨；上一项含多段正文时略微拉开。
+			gap = looseGap
+			if marker {
 				gap = 0
 			}
+		case shared > 0:
+			gap = innerGap
+		case b.Footnote != nil && blocks[i+1].Footnote != nil:
+			gap = footGap
 		}
 		if b.Kind == richtext.TableBlock {
 			gap += tableAfter
@@ -228,18 +359,230 @@ func flow(doc *richtext.Document, contentW, fontSize float32, cache *shapeCache,
 		if i+1 < len(blocks) && blocks[i+1].Kind == richtext.TableBlock {
 			gap += tableBefore
 		}
-		y += box.h + gap
+		y += gap
 		origin += box.runes
 		if i+1 < len(blocks) {
 			origin++ // 块间结构换行
 		}
-		lay.blocks = append(lay.blocks, box)
 	}
 	lay.height = y + bottomPad
 	for _, ln := range lay.lines {
 		lay.width = max(lay.width, padX*2+advanceEnd(ln))
 	}
 	return lay
+}
+
+func isListContainer(c richtext.Container) bool {
+	return c.Footnote == "" && (c.Kind == richtext.List || c.Kind == richtext.Task)
+}
+
+func sameContainer(a, b richtext.Container) bool {
+	return a.ID == b.ID && a.Kind == b.Kind && a.Footnote == b.Footnote
+}
+
+// sharedContainers 返回两条容器链从外层起相同的层数。
+func sharedContainers(a, b []richtext.Container) int {
+	n := 0
+	for n < len(a) && n < len(b) && sameContainer(a[n], b[n]) {
+		n++
+	}
+	return n
+}
+
+// nextListItem 判断下一块是否是与当前块同属一个列表（同级、子级或回到外层）的新列表项。
+func nextListItem(chain, next []richtext.Container, shared int) bool {
+	if len(next) != shared+1 || !isListContainer(next[shared]) {
+		return false
+	}
+	if len(chain) > shared {
+		return isListContainer(chain[shared])
+	}
+	return shared > 0 && isListContainer(chain[shared-1])
+}
+
+// ambient 给出容器内正文的字号、行高倍率、字体与是否用次要色，取决于最近的引用或提示块。
+func ambient(chain []richtext.Container, fontSize float32) (size, ratio float32, family string, muted bool) {
+	size = fontSize
+	foot := false
+	for k := len(chain) - 1; k >= 0; k-- {
+		switch c := chain[k]; {
+		case c.Footnote != "":
+			foot = true
+		case c.Kind == richtext.Callout:
+			return 13, 1.5, calloutFont, false
+		case c.Kind == richtext.Quote:
+			return size, 1.7, "", true
+		}
+	}
+	if foot {
+		size = fontSize * footScale
+	}
+	return size, 0, "", false
+}
+
+// footnoteNumbers 按引用在正文中首次出现的顺序编号，没有被引用的定义排在其后。
+func footnoteNumbers(blocks []richtext.Block) map[string]int {
+	var numbers map[string]int
+	add := func(label string) {
+		if label == "" || numbers[label] != 0 {
+			return
+		}
+		if numbers == nil {
+			numbers = map[string]int{}
+		}
+		numbers[label] = len(numbers) + 1
+	}
+	visit := func(runs []richtext.Run) {
+		for _, r := range runs {
+			if r.Link != nil {
+				add(r.Link.Footnote)
+			}
+		}
+	}
+	for _, b := range blocks {
+		visit(b.Runs)
+		if b.Table != nil {
+			for _, row := range b.Table.Rows {
+				for _, cell := range row {
+					visit(cell.Runs)
+				}
+			}
+		}
+	}
+	for _, b := range blocks {
+		if b.Footnote != nil {
+			add(b.Footnote.Label)
+		}
+	}
+	return numbers
+}
+
+// markerWidth 是列表项标记占掉的正文左侧宽度，与 placeText 的取值一致。
+func markerWidth(c richtext.Container, fontSize float32, cache *shapeCache) float32 {
+	switch {
+	case c.Kind == richtext.Task:
+		return 28
+	case c.Ordered:
+		return measure(cache, strconv.Itoa(max(1, c.Start))+". ", fontSize, false, false, false)
+	default:
+		return 12
+	}
+}
+
+// open 开始一个容器：记下装饰的起点，返回容器内的留白和它占掉的顶部高度。
+func (lay *layout) open(c richtext.Container, parent *openFrame, first richtext.Block, afterFootnote bool, baseX, inner, y, fontSize, size float32, cache *shapeCache) (openFrame, float32) {
+	of := openFrame{c: c, frame: -1}
+	if parent != nil {
+		of.left, of.right = parent.left, parent.right
+	}
+	f := frame{kind: c.Kind, x: baseX + of.left, y: y, w: max(inner-of.left-of.right, 40)}
+	top := float32(0)
+	switch {
+	case c.Footnote != "":
+		f.foot = c.Footnote
+		f.rule = !afterFootnote
+		f.label = cache.shape(strconv.Itoa(max(1, cache.footnotes[c.Footnote]))+".", fontSize*footScale, false, false, false)
+		f.labelW = advanceOf(f.label)
+		of.left += max(f.labelW+6, 22)
+		of.anchor = true
+	case c.Kind == richtext.Quote:
+		of.left += quoteInset
+		of.right += 16
+		top = 10
+	case c.Kind == richtext.Callout && detailsContainer(c):
+		f.details, f.foldID = true, c.ID
+		f.folded = c.Callout.Fold != "+"
+		if cache.collapsed != nil {
+			if on, ok := cache.collapsed[c.ID]; ok {
+				f.folded = on
+			}
+		}
+		if c.Callout.Title != "" {
+			font := ui.Font{Family: calloutFont, Size: 13}
+			f.title, f.titleAscent = ui.Shape(c.Callout.Title, font), font.Metrics().Ascent
+		}
+		top = 32
+		if f.folded {
+			of.left += 10000
+		} else {
+			of.left += 32
+			of.right += 12
+		}
+	case c.Kind == richtext.Callout:
+		if c.Callout != nil && c.Callout.Title != "" {
+			font := ui.Font{Family: calloutFont, Size: 13}
+			f.title, f.titleAscent = ui.Shape(c.Callout.Title, font), font.Metrics().Ascent
+			top = 23
+		}
+		of.left += 37
+		of.right += 12
+		top += 12
+	case isListContainer(c):
+		of.markerLeft = of.left
+		if parent != nil && isListContainer(parent.c) {
+			of.markerLeft = parent.markerLeft + nestIndent
+		}
+		f.x = baseX + of.markerLeft
+		of.left = of.markerLeft + markerWidth(c, size, cache)
+		// 首块不是正文（代码块、子列表等）时没有块来画标记，由装饰自己画。
+		if !isListItem(first) || !sameContainer(first.Containers[len(first.Containers)-1], c) {
+			f.marker, f.checked, f.bullet = true, c.Checked, c.Kind == richtext.List && !c.Ordered
+			if c.Kind == richtext.List && c.Ordered {
+				f.label = cache.shape(strconv.Itoa(max(1, c.Start))+". ", size, false, false, false)
+			}
+			of.anchor = true
+		}
+	}
+	if c.Footnote != "" || !isListContainer(c) || f.marker {
+		lay.frames = append(lay.frames, f)
+		of.frame = len(lay.frames) - 1
+	}
+	return of, top
+}
+
+// anchor 记下容器首块的首行位置，供编号和标记对齐。
+func (lay *layout) anchor(index int, box blockBox, fontSize float32) {
+	if index < 0 {
+		return
+	}
+	f := &lay.frames[index]
+	f.lineY, f.lineH, f.ascent = box.y, fontSize*1.4, fontSize
+	if len(box.lines) > 0 {
+		ln := lay.lines[box.lines[0]]
+		f.lineY, f.lineH, f.ascent = ln.y, ln.height, ln.ascent
+	}
+}
+
+// close 结束一个容器，返回它占掉的底部高度。last 是容器里的最后一块。
+func (lay *layout) close(of openFrame, last blockBox, y, fontSize float32, cache *shapeCache) float32 {
+	if of.frame < 0 {
+		return 0
+	}
+	f := &lay.frames[of.frame]
+	bottom := float32(0)
+	switch {
+	case f.foot != "":
+		// 回跳箭头跟在定义最后一行的末尾。
+		if len(last.lines) > 0 {
+			ln := lay.lines[last.lines[len(last.lines)-1]]
+			f.back = cache.shape("↩", fontSize*footScale, false, false, false)
+			f.backX, f.backBase = last.x+advanceEnd(ln)+6, ln.y+ln.ascent
+			f.backRect = ui.Rect{X: f.backX - 3, Y: ln.y, W: advanceOf(f.back) + 6, H: ln.height}
+		}
+	case f.kind == richtext.Quote:
+		bottom = 10
+	case f.kind == richtext.Callout && f.details && f.folded:
+		bottom = 0
+	case f.kind == richtext.Callout:
+		bottom = 12
+	}
+	f.h = y + bottom - f.y
+	return bottom
+}
+
+// detailsContainer 只认 HTML 折叠块，普通提示块的 Fold 不触发折叠。
+func detailsContainer(c richtext.Container) bool {
+	return c.Kind == richtext.Callout && c.IsHTML() && c.Callout != nil && c.Callout.Type == "details"
 }
 
 func isListItem(b richtext.Block) bool {
@@ -291,9 +634,17 @@ type styled struct {
 	bold, italic, code  bool
 	strike              bool
 	highlight, sub, sup bool
+	underline, kbd      bool
 	link                string
-	math                bool // 行内公式，text 是 TeX 源码
-	partial             bool // 已被拆到下一行的剩余部分
+	image               string // 行内图片地址
+	footnote            string // 脚注引用，text 是标签
+	math                bool   // 行内公式，text 是 TeX 源码
+	partial             bool   // 已被拆到下一行的剩余部分
+}
+
+// htmlMarks 取出只有 HTML 标签才能表达的行内样式：下划线与按键提示。
+func htmlMarks(marks richtext.Mark) (underline, kbd bool) {
+	return marks&richtext.MarkUnderline != 0, marks&richtext.MarkKbd != 0
 }
 
 func runsToStyled(runs []richtext.Run) []styled {
@@ -303,15 +654,25 @@ func runsToStyled(runs []richtext.Run) []styled {
 			continue
 		}
 		s := styled{text: r.Text, bold: r.Marks&richtext.MarkBold != 0, italic: r.Marks&(richtext.MarkItalic|richtext.MarkMath) != 0, math: r.Marks&richtext.MarkMath != 0, code: r.Marks&richtext.MarkCode != 0, strike: r.Marks&richtext.MarkStrike != 0, highlight: r.Marks&richtext.MarkHighlight != 0, sub: r.Marks&richtext.MarkSub != 0, sup: r.Marks&richtext.MarkSup != 0}
+		s.underline, s.kbd = htmlMarks(r.Marks)
+		// 按键提示用等宽字体，外面再画一个键帽边框。
+		s.code = s.code || s.kbd
 		if r.Link != nil {
-			s.link = r.Link.URL
+			s.link, s.footnote = r.Link.URL, r.Link.Footnote
+		}
+		if r.Image != nil {
+			s.image = r.Image.URL
+			if r.Image.Alt != "" {
+				s.text = r.Image.Alt
+			}
 		}
 		out = append(out, s)
 	}
 	return out
 }
 
-func placeText(box *blockBox, b richtext.Block, inner, fontSize float32, cache *shapeCache, lay *layout) float32 {
+// placeText 排一个文字块。ratio 大于 0 时覆盖正文的行高倍率，供引用与提示块容器使用。
+func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, cache *shapeCache, lay *layout) float32 {
 	size := fontSize
 	bold := false
 	inset := float32(0)
@@ -329,11 +690,11 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize float32, cache *
 		inset = 37
 		size = 13
 		oldFamily := cache.family
-		cache.family = `"Inter", system-ui, sans-serif`
+		cache.family = calloutFont
 		defer func() { cache.family = oldFamily }()
 		if b.Callout != nil && b.Callout.Title != "" {
-			box.title = ui.Shape(b.Callout.Title, ui.Font{Family: `"Inter", system-ui, sans-serif`, Size: 13})
-			box.titleAscent = ui.Font{Family: `"Inter", system-ui, sans-serif`, Size: 13}.Metrics().Ascent
+			box.title = ui.Shape(b.Callout.Title, ui.Font{Family: calloutFont, Size: 13})
+			box.titleAscent = ui.Font{Family: calloutFont, Size: 13}.Metrics().Ascent
 		}
 	case richtext.List, richtext.Task:
 		box.indent = float32(max(b.Level-1, 0)) * nestIndent
@@ -413,6 +774,55 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize float32, cache *
 					continue
 				}
 			}
+			if seg.image != "" && !seg.partial {
+				alt := seg.text
+				if alt == "" || alt == "\ufffc" {
+					alt = "图片"
+				}
+				g := cache.shape(alt, size*.9, false, false, false)
+				w := advanceOf(g) + 8
+				if bm := cache.images[seg.image]; bm != nil {
+					pw, ph := bm.Size()
+					h := size * 1.15
+					if ph > 0 {
+						w = h * float32(pw) / float32(ph)
+					}
+					if w > 160 {
+						w = 160
+					}
+					if w < 12 {
+						w = 12
+					}
+					g = nil
+				}
+				if x-inset+w > width && built.Len() > 0 {
+					break
+				}
+				shiftGlyphs(g, x+4)
+				hold := []ui.Glyph{{Cluster: utf8.RuneCountInString(built.String()), Runes: len(rs), X: x, Advance: w}}
+				ln.spans = append(ln.spans, paintSpan{glyphs: hold, image: seg.image, display: g})
+				ln.glyphs = append(ln.glyphs, hold...)
+				x += w
+				built.WriteString(seg.text)
+				pending = pending[1:]
+				continue
+			}
+			if seg.footnote != "" && !seg.partial {
+				// 脚注引用显示成上标编号，整个标签是一个不可拆分的盒子。
+				number := cache.shape(strconv.Itoa(max(1, cache.footnotes[seg.footnote])), size*.75, false, false, false)
+				w := advanceOf(number) + 2
+				if x-inset+w > width && built.Len() > 0 {
+					break
+				}
+				shiftGlyphs(number, 1)
+				g := []ui.Glyph{{Cluster: utf8.RuneCountInString(built.String()), Runes: len(rs), X: x, Advance: w}}
+				ln.spans = append(ln.spans, paintSpan{glyphs: g, dy: -size * .35, footnote: seg.footnote, display: number})
+				ln.glyphs = append(ln.glyphs, g...)
+				x += w
+				built.WriteString(seg.text)
+				pending = pending[1:]
+				continue
+			}
 			hard := -1
 			for i, r := range rs {
 				if r == '\n' {
@@ -457,7 +867,7 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize float32, cache *
 			if seg.sup {
 				dy = -size * .35
 			}
-			ln.spans = append(ln.spans, paintSpan{glyphs: g, dy: dy, highlight: seg.highlight, code: seg.code, strike: seg.strike, link: seg.link})
+			ln.spans = append(ln.spans, paintSpan{glyphs: g, dy: dy, highlight: seg.highlight, code: seg.code, strike: seg.strike, underline: seg.underline, kbd: seg.kbd, link: seg.link})
 			ln.glyphs = append(ln.glyphs, g...)
 			x = advanceOf(g)
 			built.WriteString(piece)
@@ -477,20 +887,23 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize float32, cache *
 		ln.text = built.String()
 		ln.count = len([]rune(ln.text))
 		m := cache.metrics(size, bold, false)
-		ratio := cache.lineHeight
+		lineRatio := cache.lineHeight
+		if ratio > 0 {
+			lineRatio = ratio
+		}
 		if b.Kind == richtext.Heading {
-			ratio = 1.4
+			lineRatio = 1.4
 			if b.Level == 1 {
-				ratio = 1.3
+				lineRatio = 1.3
 			}
 		}
 		if b.Kind == richtext.Quote {
-			ratio = 1.7
+			lineRatio = 1.7
 		}
 		if b.Kind == richtext.Callout {
-			ratio = 1.5
+			lineRatio = 1.5
 		}
-		ln.height = max(size*ratio, m.Ascent+m.Descent)
+		ln.height = max(size*lineRatio, m.Ascent+m.Descent)
 		ln.ascent = m.Ascent + (ln.height-m.Ascent-m.Descent)/2
 		// 分式、求和这类高出一行的行内公式把所在行撑开，基线仍与文字对齐。
 		if above, below := max(ln.ascent, mathUp+2), max(ln.height-ln.ascent, mathDown+2); above+below > ln.height {
@@ -604,33 +1017,109 @@ func shiftGlyphs(g []ui.Glyph, dx float32) {
 	}
 }
 
-func placeCode(box *blockBox, code, lang string, fontSize float32, cache *shapeCache, lay *layout) float32 {
+func placeCode(box *blockBox, code, lang string, fontSize float32, cache *shapeCache, lay *layout, source bool) float32 {
 	size := float32(14)
+	if source {
+		size = fontSize
+	}
 	m := cache.metrics(size, false, true)
 	lineH := max(size*1.75, m.Ascent+m.Descent)
+	if source && cache.lineHeight > 0 {
+		lineH = max(size*cache.lineHeight, m.Ascent+m.Descent)
+	}
 	parts := strings.Split(code, "\n")
-	// 代码正文以换行结尾时，末尾的空行不单独占一行高度。
-	if len(parts) > 1 && parts[len(parts)-1] == "" {
+	// 代码正文以换行结尾时，末尾的空行不单独占一行高度。源码模式保留它，光标才能停在文末换行之后。
+	if !source && len(parts) > 1 && parts[len(parts)-1] == "" {
 		parts = parts[:len(parts)-1]
 	}
 	y := float32(14)
+	pad := float32(codePad)
+	wrap := float32(0)
+	if source {
+		// 源码是整篇正文，不留代码块的内边距，超宽的行按栏宽折行。
+		y, pad = 0, 8
+		wrap = box.w - pad*2
+		if wrap < 40 {
+			wrap = 40
+		}
+	}
 	runesBefore := 0
 	for _, part := range parts {
-		ln := line{block: box.index, y: box.y + y, ascent: m.Ascent + (lineH-m.Ascent-m.Descent)/2, height: lineH, prefix: codePad, text: part, origin: box.origin + runesBefore, count: len([]rune(part)), newline: true}
-		g := cache.shape(part, size, false, false, true)
-		shiftGlyphs(g, codePad)
-		ln.glyphs = g
-		ln.spans = codeSpans(g, part, lang)
-		ln.width = advanceOf(g)
-		lay.lines = append(lay.lines, ln)
-		box.lines = append(box.lines, len(lay.lines)-1)
-		y += lineH
-		runesBefore += ln.count + 1
+		pieces := []string{part}
+		if source {
+			pieces = wrapSource(cache, part, wrap, size)
+		}
+		for pi, piece := range pieces {
+			ln := line{block: box.index, y: box.y + y, ascent: m.Ascent + (lineH-m.Ascent-m.Descent)/2, height: lineH, prefix: pad, text: piece, origin: box.origin + runesBefore, count: len([]rune(piece)), newline: pi == len(pieces)-1}
+			g := cache.shape(piece, size, false, false, true)
+			shiftGlyphs(g, pad)
+			ln.glyphs = g
+			if source {
+				ln.spans = sourceSpans(g, piece, ln.origin, cache.sourceSpans)
+			} else {
+				ln.spans = codeSpans(g, piece, lang)
+			}
+			ln.width = advanceOf(g)
+			lay.lines = append(lay.lines, ln)
+			box.lines = append(box.lines, len(lay.lines)-1)
+			y += lineH
+			runesBefore += ln.count
+			if pi == len(pieces)-1 {
+				runesBefore++
+			}
+		}
 	}
 	if n := len(lay.lines); n > 0 && !strings.HasSuffix(code, "\n") {
 		lay.lines[n-1].newline = false
 	}
+	if source {
+		return y + 8
+	}
 	return y + 14
+}
+
+// wrapSource 把一行源码按栏宽折成多段，不拆 rune 簇。空行保留成一段。
+func wrapSource(cache *shapeCache, part string, width, size float32) []string {
+	rs := []rune(part)
+	if len(rs) == 0 {
+		return []string{""}
+	}
+	var out []string
+	start := 0
+	for start < len(rs) {
+		rest := rs[start:]
+		fit := fitRunes(cache, styled{text: string(rest), code: true}, rest, width, size, false)
+		if fit <= 0 || fit > len(rest) {
+			fit = 1
+		}
+		out = append(out, string(rest[:fit]))
+		start += fit
+	}
+	return out
+}
+
+// sourceSpans 按宿主给出的区间给一行源码着色。区间是全文 rune 偏移，种类为 0 的不单独成段。
+func sourceSpans(glyphs []ui.Glyph, text string, origin int, spans []SourceSpan) []paintSpan {
+	if len(spans) == 0 || len(glyphs) == 0 {
+		return nil
+	}
+	var out []paintSpan
+	for _, g := range glyphs {
+		kind := uint8(0)
+		at := origin + g.Cluster
+		for _, sp := range spans {
+			if at >= sp.Start && at < sp.End {
+				kind = sp.Kind
+				break
+			}
+		}
+		if n := len(out); n > 0 && out[n-1].source == kind {
+			out[n-1].glyphs = append(out[n-1].glyphs, g)
+			continue
+		}
+		out = append(out, paintSpan{glyphs: []ui.Glyph{g}, source: kind})
+	}
+	return out
 }
 
 // codeSpans 给一行代码做最小着色：字符串字面量用强调色，行注释用次要色。
@@ -735,7 +1224,7 @@ func placeTable(box *blockBox, table *richtext.TableData, fontSize float32, cach
 			if table.Header && ri == 0 {
 				cache.weight = 600
 			}
-			h := placeText(&cell, richtext.Block{Kind: richtext.Paragraph, Runs: runs}, cell.w, fontSize, cache, lay)
+			h := placeText(&cell, richtext.Block{Kind: richtext.Paragraph, Runs: runs}, cell.w, fontSize, 0, cache, lay)
 			cache.weight = oldWeight
 			rowH = max(rowH, h+14.4)
 			for _, idx := range cell.lines {
@@ -781,6 +1270,8 @@ func rawContentLabel(source string) string {
 		return "HTML 内容 · 原文保留"
 	case strings.HasPrefix(s, "[^") || strings.Contains(s, "[^"):
 		return "脚注 · 原文保留"
+	case strings.HasPrefix(s, "[") && strings.Contains(s, "]:"):
+		return "链接定义 · 原文保留"
 	case strings.HasPrefix(s, "-") || strings.HasPrefix(s, "*"):
 		return "嵌套列表 · 原文保留"
 	default:

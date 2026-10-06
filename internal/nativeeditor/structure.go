@@ -16,6 +16,9 @@ var insertable = map[string]string{
 
 // insertBlock 在当前块之后插入表格、代码块或分隔线。
 func (e *Editor) insertBlock(name string) bool {
+	if e.readOnly {
+		return false
+	}
 	markdown, ok := insertable[name]
 	if !ok {
 		return false
@@ -32,6 +35,9 @@ func (e *Editor) insertBlock(name string) bool {
 
 // tabKey 处理 Tab 与 Shift+Tab：列表项增减层级，表格里在单元格间移动。
 func (e *Editor) tabKey(back bool) bool {
+	if e.readOnly {
+		return false
+	}
 	sel := e.selection()
 	if block, row, col, ok := e.doc.TableCell(e.focus); ok {
 		e.cancelCompose()
@@ -40,7 +46,7 @@ func (e *Editor) tabKey(back bool) bool {
 	}
 	blocks := e.doc.Blocks()
 	bi := e.doc.BlockIndexAt(sel.Start)
-	if bi < 0 || bi >= len(blocks) || !isListItem(blocks[bi]) {
+	if bi < 0 || bi >= len(blocks) || !isListItem(blocks[bi]) && !inListItem(blocks[bi]) {
 		return false
 	}
 	delta := 1
@@ -52,6 +58,16 @@ func (e *Editor) tabKey(back bool) bool {
 		e.dirty = true
 	}
 	return true
+}
+
+// inListItem 报告块是否是某个列表项里首段之后的正文、代码块等内容。
+func inListItem(b richtext.Block) bool {
+	for _, c := range b.Containers {
+		if isListContainer(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // moveCell 把光标移到下一个或上一个单元格；在最后一格按 Tab 追加一行。
@@ -117,6 +133,12 @@ func (e *Editor) cellSpan(block, index int) (start, end, row, col int) {
 func (e *Editor) contextMenu(c *ui.Context, m *ui.Menu) {
 	sel := e.selection()
 	empty := sel.Start == sel.End
+	if e.readOnly {
+		if m.Item("复制").Disabled(empty).Chosen() {
+			e.copy(c, false)
+		}
+		return
+	}
 	if m.Item("剪切").Disabled(empty).Chosen() {
 		e.copy(c, true)
 	}
@@ -180,7 +202,7 @@ func (e *Editor) SetEditRaw(fn func(index int, source string)) { e.editRaw = fn 
 
 // requestRawEdit 在 off 落在原文占位块上时请求宿主编辑它的源码。
 func (e *Editor) requestRawEdit(off int) bool {
-	if e.editRaw == nil {
+	if e.editRaw == nil || e.readOnly {
 		return false
 	}
 	blocks := e.doc.Blocks()
@@ -199,7 +221,7 @@ func (e *Editor) requestRawEdit(off int) bool {
 // 新内容重新解析：改成受支持的语法后即成为可直接编辑的块。
 func (e *Editor) ReplaceRaw(index int, markdown string) bool {
 	blocks := e.doc.Blocks()
-	if index < 0 || index >= len(blocks) || blocks[index].Kind != richtext.Raw || strings.TrimSpace(blocks[index].Raw) == strings.TrimSpace(markdown) {
+	if e.readOnly || index < 0 || index >= len(blocks) || blocks[index].Kind != richtext.Raw || strings.TrimSpace(blocks[index].Raw) == strings.TrimSpace(markdown) {
 		return false
 	}
 	if strings.TrimSpace(markdown) == "" {

@@ -104,7 +104,12 @@ A[后定义的文字]
 }
 
 func TestParseRejectsOtherDiagramsAndNeverPanics(t *testing.T) {
-	for _, src := range []string{"", "sequenceDiagram\nA->>B: hi", "gantt\ntitle x", "pie\n\"a\": 1", "graph TD\nsubgraph x\nA", "graph TD\nA[未闭合"} {
+	for _, src := range []string{"sequenceDiagram\nA->>B: hi", "pie\n\"a\": 1"} {
+		if _, err := Parse(src); err != nil {
+			t.Fatalf("%q 应能解析：%v", src, err)
+		}
+	}
+	for _, src := range []string{"", "gantt\ntitle x", "journey\n  title x", "graph TD\nsubgraph x\nA", "graph TD\nA[未闭合"} {
 		if g, err := Parse(src); err == nil {
 			t.Fatalf("%q 应返回错误，得到 %+v", src, g)
 		}
@@ -201,6 +206,22 @@ func TestLayoutDirectionsAndSeparation(t *testing.T) {
 	}
 }
 
+func TestSubgraphDirectionRelayoutsMembers(t *testing.T) {
+	g := mustParse(t, "flowchart TD\nS[外] --> C\nsubgraph 组\n  direction LR\n  C[处理] --> D[存储]\nend\n")
+	geo := arrange(g, fakeMetrics())
+	checkGeometry(t, "子图方向", geo)
+	at := map[string]placed{}
+	for _, n := range geo.nodes {
+		at[n.node.ID] = n
+	}
+	if at["D"].x <= at["C"].x || abs(at["D"].y-at["C"].y) > at["C"].h {
+		t.Fatalf("子图 LR 应让 D 在 C 右侧：C=%+v D=%+v", at["C"], at["D"])
+	}
+	if at["C"].y <= at["S"].y {
+		t.Fatalf("外层仍应自上而下：S=%+v C=%+v", at["S"], at["C"])
+	}
+}
+
 func TestLayoutSubgraphFramesContainMembers(t *testing.T) {
 	g := mustParse(t, "graph TD\nS --> A\nsubgraph 外层\n A --> B\n subgraph 内层\n  C --> D\n end\n B --> C\nend\nD --> T\n")
 	geo := arrange(g, fakeMetrics())
@@ -266,6 +287,12 @@ func TestPaintSamples(t *testing.T) {
 	sources := append(sampleDiagrams(t),
 		"flowchart TD\nA([开始]) --> B{条件成立？}\nB -->|是| C[处理数据]\nB -->|否| D[/输入/]\nC --> E[(数据库)]\nD -.-> E\nE ==> F((结束))\nF --o G{{六边形}}\nG --x H>旗形]\nC --> C\nH --> A\n",
 		"graph LR\nsubgraph 前端\n U[用户] --> W[界面<br>两行文字]\nend\nsubgraph 后端\n S[服务] --> DB[(存储)]\nend\nW -->|请求| S\nS -. 响应 .-> W\n",
+		"sequenceDiagram\ntitle 问候\nparticipant 甲\nactor 乙\n甲->>乙: 你好\n乙-->>甲: 收到\nNote right of 乙: 备注\nloop 重试\n甲->乙: 再问\nend\n",
+		"gantt\ntitle 计划\ndateFormat YYYY-MM-DD\nsection 准备\n调研 :done, a, 2024-01-01, 3d\n开发 :active, crit, after a, 5d\n",
+		"pie showData\ntitle 占比\n\"阅读\" : 40\n\"写作\" : 35\n\"修改\" : 25\n",
+		"classDiagram\nclass 动物 {\n  +名字\n  +叫()\n}\n猫 --|> 动物\n",
+		"stateDiagram-v2\n[*] --> 空闲\n空闲 --> 工作 : 开始\n工作 --> [*]\n",
+		"erDiagram\n读者 ||--o{ 借阅 : 产生\n借阅 {\n  string 编号 PK\n  date 日期\n}\n",
 	)
 	var layouts []*Layout
 	height := float32(16)
@@ -313,5 +340,133 @@ func TestPaintSamples(t *testing.T) {
 		if err := png.Encode(f, img); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestSupportedDiagramKinds(t *testing.T) {
+	cases := []struct {
+		name, src string
+		kind      string
+		nodes     int
+	}{
+		{"时序", "sequenceDiagram\ntitle 问候\nparticipant 甲\nactor 乙\n甲->>乙: 你好\n乙-->>甲: 收到\nNote right of 乙: 备注\nloop 重试\n甲->乙: 再问\nend\n", KindSequence, 2},
+		{"甘特", "gantt\ntitle 计划\ndateFormat YYYY-MM-DD\nsection 准备\n调研 :done, a, 2024-01-01, 3d\n开发 :active, after a, 5d\n", KindGantt, 0},
+		{"饼图", "pie showData\ntitle 占比\n\"阅读\" : 40\n\"写作\" : 60\n", KindPie, 0},
+		{"类图", "classDiagram\ndirection LR\nclass 动物 {\n  +名字\n  +叫()\n}\nclass 猫\n猫 --|> 动物 : 是\n", KindClass, 2},
+		{"状态", "stateDiagram-v2\ndirection LR\n[*] --> 空闲\n空闲 --> 工作 : 开始\n工作 --> [*]\n", "stateDiagram-v2", 4},
+		{"ER", "erDiagram\n读者 ||--o{ 借阅 : 产生\n借阅 {\n  string 编号 PK\n}\n", KindER, 2},
+	}
+	for _, c := range cases {
+		g := mustParse(t, c.src)
+		if g.Kind != c.kind {
+			t.Fatalf("%s：图种=%q", c.name, g.Kind)
+		}
+		if c.nodes > 0 && len(g.Nodes) != c.nodes {
+			t.Fatalf("%s：节点数=%d", c.name, len(g.Nodes))
+		}
+		geo := arrange(g, fakeMetrics())
+		if geo.width <= 0 || geo.height <= 0 {
+			t.Fatalf("%s：尺寸为空", c.name)
+		}
+		if c.kind == KindSequence {
+			lines, arrows := 0, 0
+			for _, op := range geo.ops {
+				if op.kind == opPath && op.dashed && op.stroke.role == inkEdge {
+					lines++
+				}
+				if op.kind == opPath && !op.dashed && (op.fill.role == inkEdge || op.stroke.role == inkEdge) && len(op.path) <= 4 {
+					arrows++
+				}
+			}
+			if lines < 2 || arrows < 2 {
+				t.Fatalf("时序图应有生命线与箭头：线=%d 箭头=%d", lines, arrows)
+			}
+		}
+		l := g.Layout(testStyle(), 640)
+		svg := l.SVG()
+		if !strings.HasPrefix(svg, "<svg ") || !strings.Contains(svg, "</svg>") || strings.Contains(svg, "<script") {
+			t.Fatalf("%s：SVG 不正确", c.name)
+		}
+	}
+}
+
+func TestPieLegendDoesNotCoverLabels(t *testing.T) {
+	g := mustParse(t, "pie showData\ntitle 占比\n\"阅读\" : 40\n\"写作\" : 35\n\"修改\" : 25\n")
+	geo := arrange(g, fakeMetrics())
+	var boxes []op
+	var labels []op
+	for _, o := range geo.ops {
+		if o.kind == opRect && o.fill.role == inkSeries {
+			boxes = append(boxes, o)
+		}
+		if o.kind == opText && o.anchor < 0 {
+			labels = append(labels, o)
+		}
+	}
+	if len(boxes) != 3 || len(labels) != 3 {
+		t.Fatalf("图例数量错误：色块 %d 文字 %d", len(boxes), len(labels))
+	}
+	for i, box := range boxes {
+		label := labels[i]
+		if label.x < box.x+box.w+8 {
+			t.Fatalf("图例文字应在色块右侧：文字 x=%v 色块右端=%v", label.x, box.x+box.w)
+		}
+		if label.y < box.y || label.y > box.y+box.h {
+			t.Fatalf("图例文字应与色块同一行")
+		}
+		if label.x+fakeMetrics().width(label.text) > geo.width+1 {
+			t.Fatalf("图例文字超出画布")
+		}
+	}
+}
+
+func TestDiagramKindsRejectBadAndHostileInput(t *testing.T) {
+	bad := []string{
+		"sequenceDiagram\n不是消息",
+		"sequenceDiagram\nloop 未闭合\n甲->>乙: x\n",
+		"gantt\ntitle 只有标题",
+		"gantt\ndateFormat YYYY-MM-DD\n任务 :done, 2024-01-01, 不是时长",
+		"pie\n\"空\": 0\n",
+		"pie\n<script>: 1",
+		"classDiagram\n甲 <|| 乙",
+		"classDiagram\nclass 甲 {\n  +未闭合",
+		"stateDiagram-v2\n空闲 ==> 工作",
+		"erDiagram\n读者 ---- 借阅 : 错",
+		"mindmap\n  root",
+		"flowchart TD\nclick A \"javascript:alert(1)\"",
+		"flowchart TD\nA\nstyle A fill:expression(alert(1))",
+	}
+	for _, src := range bad {
+		if g, err := Parse(src); err == nil {
+			t.Fatalf("%q 应返回错误，得到图种 %s", src, g.Kind)
+		}
+	}
+	hostile := []string{
+		"sequenceDiagram\n" + strings.Repeat("甲->>乙: <script>alert(1)</script>\n", 20),
+		"pie\n\"<img src=x onerror=alert(1)>\" : 1\n\"b\" : 2",
+		"classDiagram\nclass A {\n" + strings.Repeat("+x()\n", 30) + "}",
+		"flowchart TD\nA[\"<script>alert(1)</script>\"] --> B\nclick A \"https://example.com\" \"提示\"",
+		"flowchart LR\nA --> B\nlinkStyle 0 stroke:#f00,stroke-width:3px,stroke-dasharray:4",
+		"gantt\ndateFormat YYYY-MM-DD\nsection <b>组</b>\n任务 :done, 2024-02-01, 2d\n",
+	}
+	for _, src := range hostile {
+		g, err := Parse(src)
+		if err != nil {
+			continue
+		}
+		geo := arrange(g, fakeMetrics())
+		if geo.width < 0 || geo.height < 0 {
+			t.Fatalf("恶意输入布局尺寸为负")
+		}
+		svg := g.SVG(testStyle(), 480)
+		lower := strings.ToLower(svg)
+		if strings.Contains(lower, "<script") || strings.Contains(lower, "javascript:") || strings.Contains(lower, "<img") {
+			t.Fatalf("SVG 泄漏了可执行内容：%s", svg)
+		}
+	}
+	g := mustParse(t, "flowchart TD\nA --> B\nclick A \"https://example.com/a\" \"打开\"\nclick B \"mailto:a@b.c\"")
+	l := g.Layout(testStyle(), 0)
+	if h, ok := l.HitTest(l.geo.nodes[0].x, l.geo.nodes[0].y); !ok || h.URL != "https://example.com/a" || h.Tooltip != "打开" {
+		t.Fatalf("点击结果错误：%+v %v", h, ok)
 	}
 }

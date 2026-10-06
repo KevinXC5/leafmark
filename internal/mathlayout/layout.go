@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/go-text/typesetting/font"
+	ot "github.com/go-text/typesetting/font/opentype"
 )
 
 // Layout 把 TeX 数学源码（不含两侧的 $ 或 $$）排成盒子。size 是正文字号（DIP）。
@@ -168,6 +169,7 @@ func (l *layouter) hlist(nodes []*node, st style, before class) *Box {
 	var x float32
 	prev = before
 	cur := st
+	var tint *[3]uint8
 	for i, n := range nodes {
 		switch n.kind {
 		case nStyle:
@@ -176,11 +178,22 @@ func (l *layouter) hlist(nodes []*node, st style, before class) *Box {
 		case nSpace:
 			x += n.size / 18 * l.size(cur)
 			continue
+		case nTag:
+			// 编号由所在的行统一放到右侧。
+			continue
+		case nColor:
+			if n.a == nil {
+				tint = &n.tint
+				continue
+			}
 		}
 		if prev != clsNone {
 			x += l.gap(prev, cls[i], cur)
 		}
 		k := l.node(n, cur)
+		if tint != nil {
+			k = tinted(k, *tint)
+		}
 		b.add(k, x, 0)
 		x += k.Width
 		prev = cls[i]
@@ -207,11 +220,46 @@ func (l *layouter) node(n *node, st style) *Box {
 	case nOp:
 		return l.op(n, st)
 	case nLeftRight:
-		return l.fenced(l.hlist(n.list, st, clsOpen), n.left, n.right, st)
+		return l.leftRight(n, st)
 	case nDelim:
 		return l.delimiter(n.left, n.size*l.size(st), st)
 	case nAccent:
 		return l.accent(n, st)
+	case nDecoration:
+		return l.decoration(n, st)
+	case nPhantom:
+		body := l.node(n.a, st)
+		b := &Box{Width: body.Width, Ascent: body.Ascent, Descent: body.Descent}
+		if n.text == "hphantom" {
+			b.Ascent, b.Descent = 0, 0
+		}
+		if n.text == "vphantom" {
+			b.Width = 0
+		}
+		return b
+	case nBoxed:
+		body := l.node(n.a, st)
+		pad, theta := l.size(st)*0.2, l.c(cFractionRuleThickness, st)
+		out := &Box{Width: body.Width + 2*pad, Ascent: body.Ascent + pad, Descent: body.Descent + pad}
+		out.kids = []kid{{x: pad, box: body}}
+		h := out.Ascent + out.Descent
+		out.rules = []rule{{y: -out.Ascent, w: out.Width, h: theta}, {y: out.Descent - theta, w: out.Width, h: theta}, {y: -out.Ascent, w: theta, h: h}, {x: out.Width - theta, y: -out.Ascent, w: theta, h: h}}
+		return out
+	case nNot:
+		// 没有现成否定字形的符号：在正中叠一条斜线。
+		body := l.node(n.a, st)
+		slash := l.glyphs("/", st)
+		out := &Box{Width: body.Width}
+		out.add(body, 0, 0)
+		out.add(slash, (body.Width-slash.Width)/2, 0)
+		return out
+	case nColor:
+		return tinted(l.node(n.a, st), n.tint)
+	case nCancel:
+		return l.cancel(n, st)
+	case nSmash:
+		body := l.node(n.a, st)
+		return &Box{Width: body.Width, italic: body.italic, kids: []kid{{box: body}}}
 	case nEnv:
 		return l.table(n.table, st)
 	}
@@ -220,7 +268,7 @@ func (l *layouter) node(n *node, st style) *Box {
 
 // glyphs 用文字引擎排一段字符，高度与深度取自字体里各字形的墨迹范围。
 func (l *layouter) glyphs(text string, st style) *Box {
-	b := &Box{}
+	b := &Box{svgText: text, svgSize: l.size(st)}
 	if text == "" {
 		return b
 	}
@@ -241,7 +289,7 @@ func (l *layouter) glyphs(text string, st style) *Box {
 				b.Ascent = max(b.Ascent, 0.86*size)
 				b.Descent = max(b.Descent, 0.14*size)
 			}
-			advance += size
+			advance += fallbackAdvance(r) * size
 			continue
 		}
 		if count == 1 {
@@ -376,7 +424,7 @@ func (l *layouter) frac(n *node, st style) *Box {
 	theta := l.c(cFractionRuleThickness, st)
 
 	var up, down float32
-	if n.binom {
+	if n.binom || n.size < 0 {
 		theta = 0
 		up = l.pick(cStackTopShiftUp, cStackTopDisplayStyleShiftUp, st)
 		down = l.pick(cStackBottomShiftDown, cStackBottomDisplayStyleShiftDown, st)
@@ -500,6 +548,10 @@ func (l *layouter) op(n *node, st style) *Box {
 func (l *layouter) scripts(n *node, st style) *Box {
 	base := l.node(n.a, st)
 	limits := n.a != nil && n.a.kind == nOp && n.a.opLimits && st.level == 0
+	if n.a != nil && n.a.kind == nGroup && n.a.cls == clsOp && st.level == 0 {
+		// \mathop{…} 与大型运算符一样，块级样式下把上下限放在正上正下。
+		limits = true
+	}
 	switch n.limits {
 	case 1:
 		limits = true
@@ -675,12 +727,16 @@ func (l *layouter) table(t *tableNode, st style) *Box {
 	if !spec.display && cellStyle.level == 0 {
 		cellStyle.level = 1
 	}
+	if spec.small {
+		cellStyle = st.sup()
+	}
 	size := l.size(cellStyle)
 
 	cols := 0
 	for _, row := range t.rows {
 		cols = max(cols, len(row))
 	}
+	lined := len(spec.vlines) > 0 || len(t.hlines) > 0
 	cells := make([][]*Box, len(t.rows))
 	widths := make([]float32, cols)
 	ascents := make([]float32, len(t.rows))
@@ -702,6 +758,10 @@ func (l *layouter) table(t *tableNode, st style) *Box {
 			ascents[r] = max(ascents[r], b.Ascent)
 			descents[r] = max(descents[r], b.Descent)
 		}
+		if lined {
+			ascents[r] += 0.1 * size
+			descents[r] += 0.1 * size
+		}
 		height += ascents[r] + descents[r]
 		if r > 0 {
 			height += spec.rowGap * size
@@ -709,7 +769,12 @@ func (l *layouter) table(t *tableNode, st style) *Box {
 	}
 
 	xs := make([]float32, cols)
-	var width float32
+	// 带线的 array 两侧各留半个列间距，线才不贴着内容。
+	var edge float32
+	if lined {
+		edge = spec.colSep / 2 * size
+	}
+	width := edge
 	for c := range widths {
 		if c > 0 {
 			if !spec.pairs || c%2 == 0 {
@@ -720,17 +785,35 @@ func (l *layouter) table(t *tableNode, st style) *Box {
 		width += widths[c]
 	}
 
+	width += edge
 	axis := l.c(cAxisHeight, st)
 	body := &Box{Width: width, Ascent: height/2 + axis, Descent: height/2 - axis}
 	y := -body.Ascent
+	// bounds 是各行之间的分界线位置，首尾是表格的上下边。
+	bounds := make([]float32, len(cells)+1)
+	bounds[0], bounds[len(cells)] = -body.Ascent, body.Descent
+	var tags []kid
 	for r, row := range cells {
 		if r > 0 {
+			bounds[r] = y + spec.rowGap*size/2
 			y += spec.rowGap * size
 		}
 		y += ascents[r]
+		if tag := rowTag(t.rows[r]); tag != nil {
+			tags = append(tags, kid{y: y, box: l.glyphs(tag.text, cellStyle)})
+		}
 		for c, b := range row {
 			x := xs[c]
-			switch spec.aligns[c%len(spec.aligns)] {
+			align := spec.aligns[c%len(spec.aligns)]
+			if spec.multline && len(cells) > 1 {
+				if r == 0 {
+					align = 'l'
+				}
+				if r == len(cells)-1 {
+					align = 'r'
+				}
+			}
+			switch align {
 			case 'c':
 				x += (widths[c] - b.Width) / 2
 			case 'r':
@@ -739,6 +822,31 @@ func (l *layouter) table(t *tableNode, st style) *Box {
 			body.kids = append(body.kids, kid{x: x, y: y, box: b})
 		}
 		y += descents[r]
+	}
+	if lined {
+		theta := l.c(cFractionRuleThickness, st)
+		total := body.Ascent + body.Descent
+		for _, at := range t.hlines {
+			at = min(at, len(cells))
+			top := min(max(bounds[at]-theta/2, -body.Ascent), body.Descent-theta)
+			body.rules = append(body.rules, rule{y: top, w: width, h: theta})
+		}
+		for _, at := range spec.vlines {
+			x := width - theta
+			switch {
+			case at <= 0:
+				x = 0
+			case at < cols:
+				x = xs[at] - spec.colSep*size/2 - theta/2
+			}
+			body.rules = append(body.rules, rule{x: x, y: -body.Ascent, w: theta, h: total})
+		}
+	}
+	// 编号放在整块公式右侧，与所在行的基线对齐。
+	for _, tag := range tags {
+		tag.x = width + 2*size
+		body.kids = append(body.kids, tag)
+		body.Width = max(body.Width, tag.x+tag.box.Width)
 	}
 	if !spec.fenced {
 		return body
@@ -749,4 +857,164 @@ func (l *layouter) table(t *tableNode, st style) *Box {
 		body = padded
 	}
 	return l.fenced(body, spec.left, spec.right, st)
+}
+
+// leftRight 先量内容高度，再让中间定界符与外侧括号共用伸缩目标。
+func (l *layouter) leftRight(n *node, st style) *Box {
+	var measure []*node
+	for _, item := range n.list {
+		if item.kind != nMiddle {
+			measure = append(measure, item)
+		}
+	}
+	body := l.hlist(measure, st, clsOpen)
+	axis := l.c(cAxisHeight, st)
+	delta := max(body.Ascent-axis, body.Descent+axis)
+	target := max(delta*2*0.901, 2*delta-0.5*l.base)
+	list := make([]*node, len(n.list))
+	for i, item := range n.list {
+		if item.kind == nMiddle {
+			copy := *item
+			copy.kind = nDelim
+			copy.size = target / l.size(st)
+			list[i] = &copy
+		} else {
+			list[i] = item
+		}
+	}
+	body = l.hlist(list, st, clsOpen)
+	left, right := l.delimiter(n.left, target, st), l.delimiter(n.right, target, st)
+	out := &Box{Width: left.Width + body.Width + right.Width}
+	out.add(left, 0, 0)
+	out.add(body, left.Width, 0)
+	out.add(right, left.Width+body.Width, 0)
+	return out
+}
+
+// horizontalGlyph 使用 MATH 横向变体与拼接部件，保持与原生字体的笔画一致。
+func (l *layouter) horizontalGlyph(r rune, width float32, st style) *Box {
+	gid, ok := l.f.glyph(r)
+	if !ok {
+		return l.glyphs(string(r), st)
+	}
+	size := l.size(st)
+	if cons := l.f.horiz[gid]; cons != nil {
+		for _, v := range cons.variants {
+			if v.advance*size >= width {
+				return l.outlineBox(v.gid, size)
+			}
+		}
+		if parts, total := l.f.assemble(cons.parts, width/size); len(parts) > 0 {
+			b := &Box{Width: total * size}
+			for _, p := range parts {
+				m := l.f.glyphMetrics(p.gid)
+				b.Ascent = max(b.Ascent, m.yMax*size)
+				b.Descent = max(b.Descent, -m.yMin*size)
+				b.paths = append(b.paths, &outlinePath{segs: l.f.outline(p.gid, size, size, (p.offset-m.xMin)*size, 0)})
+			}
+			return b
+		}
+	}
+	m := l.f.glyphMetrics(gid)
+	scale := max(size, width/max(m.advance, 0.01))
+	return &Box{Width: m.advance * scale, Ascent: m.yMax * size, Descent: -m.yMin * size, paths: []*outlinePath{{segs: l.f.outline(gid, scale, size, 0, 0)}}}
+}
+
+func (l *layouter) decoration(n *node, st style) *Box {
+	if strings.HasPrefix(n.text, "x") {
+		above, below := l.node(n.sup, st.sup()), l.node(n.sub, st.sub())
+		r := rune('→')
+		if n.text == "xleftarrow" {
+			r = '←'
+		}
+		width := max(l.size(st)*1.5, max(above.Width, below.Width)+l.size(st)*0.6)
+		arrow := l.onAxis(l.horizontalGlyph(r, width, st), st)
+		return l.limits(arrow, &node{sup: n.sup, sub: n.sub}, st)
+	}
+	body := l.node(n.a, st)
+	r := rune(0x23DE)
+	under := strings.HasPrefix(n.text, "under")
+	if under {
+		r = 0x23DF
+	}
+	if strings.HasSuffix(n.text, "bracket") {
+		r = 0x23B4
+		if under {
+			r = 0x23B5
+		}
+	}
+	if strings.HasSuffix(n.text, "paren") {
+		r = 0x23DC
+		if under {
+			r = 0x23DD
+		}
+	}
+	mark := l.horizontalGlyph(r, body.Width, st)
+	out := &Box{Width: max(body.Width, mark.Width)}
+	out.add(body, (out.Width-body.Width)/2, 0)
+	gap := l.size(st) * 0.1
+	y := -(body.Ascent + gap + mark.Descent)
+	if under {
+		y = body.Descent + gap + mark.Ascent
+	}
+	out.add(mark, (out.Width-mark.Width)/2, y)
+	return out
+}
+
+// cancel 在内容上画对角删除线：cancel 自左下到右上，bcancel 自左上到右下，xcancel 两条都画。
+func (l *layouter) cancel(n *node, st style) *Box {
+	body := l.node(n.a, st)
+	out := &Box{Width: body.Width, italic: body.italic}
+	out.add(body, 0, 0)
+	pad := 0.12 * l.size(st)
+	theta := l.c(cFractionRuleThickness, st)
+	left, right := -pad, body.Width+pad
+	top, bottom := -(body.Ascent + pad), body.Descent+pad
+	if n.text != "bcancel" {
+		out.paths = append(out.paths, strokePath(left, bottom, right, top, theta))
+	}
+	if n.text != "cancel" {
+		out.paths = append(out.paths, strokePath(left, top, right, bottom, theta))
+	}
+	out.Ascent, out.Descent = -top, bottom
+	return out
+}
+
+// strokePath 把一条线段做成宽度为 w 的四边形轮廓。
+func strokePath(x0, y0, x1, y1, w float32) *outlinePath {
+	dx, dy := float64(x1-x0), float64(y1-y0)
+	length := math.Hypot(dx, dy)
+	if length == 0 {
+		return &outlinePath{}
+	}
+	nx, ny := float32(-dy/length)*w/2, float32(dx/length)*w/2
+	pt := func(x, y float32) [3][2]float32 { return [3][2]float32{{x, y}} }
+	return &outlinePath{segs: []pathSeg{
+		{op: ot.SegmentOpMoveTo, pts: pt(x0+nx, y0+ny)},
+		{op: ot.SegmentOpLineTo, pts: pt(x1+nx, y1+ny)},
+		{op: ot.SegmentOpLineTo, pts: pt(x1-nx, y1-ny)},
+		{op: ot.SegmentOpLineTo, pts: pt(x0-nx, y0-ny), end: true},
+	}}
+}
+
+// tinted 返回染成固定颜色的盒子；内层已经指定颜色时保持内层的颜色。
+func tinted(b *Box, c [3]uint8) *Box {
+	if b.tinted {
+		return b
+	}
+	out := *b
+	out.tint, out.tinted = c, true
+	return &out
+}
+
+// fallbackAdvance 估计数学字体没有的字符由系统字体绘制时的宽度（em）：
+// 汉字、假名、谚文和全角符号按全角算，其余按半角算。
+func fallbackAdvance(r rune) float32 {
+	switch {
+	case r >= 0x1100 && r <= 0x115F, r >= 0x2E80 && r <= 0xA4CF, r >= 0xAC00 && r <= 0xD7A3,
+		r >= 0xF900 && r <= 0xFAFF, r >= 0xFE30 && r <= 0xFE4F, r >= 0xFF00 && r <= 0xFF60,
+		r >= 0xFFE0 && r <= 0xFFE6, r >= 0x1F300 && r <= 0x1FAFF, r >= 0x20000 && r <= 0x3FFFD:
+		return 1
+	}
+	return 0.6
 }

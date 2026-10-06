@@ -11,86 +11,184 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"leafmark/internal/diagram"
+	"leafmark/internal/mathlayout"
+	"leafmark/internal/nativeeditor"
 	"leafmark/internal/richtext"
 	"leafmark/internal/workspace"
 )
 
-// sourceEditor 是源码模式的编辑器：一个等宽的纯文本域，直接编辑 Markdown。
+// sourceEditor 是源码模式的编辑器。正文由 nativeeditor 的等宽纯文本绘制，
+// 选区、滚动、输入法、撤销和只读都走它的公开接口。MyGo 文本域没有这些接口。
 type sourceEditor struct {
-	text       string
-	size       float32
-	changed    bool
-	scroll     ui.ScrollState
-	start, end int
-	jump       bool
-	measuring  bool
-	bounds     ui.Rect
+	ed   *nativeeditor.Editor
+	size float32
+	// bounds 是上一帧编辑区的边界，供验收确认它铺满书写区域。
+	bounds ui.Rect
+	// 查找从上一处之后继续。源码整篇都在一个代码块里，查找按全文匹配，不走富文本的跳过规则。
+	findFrom int
+	findHit  string
 }
 
 const sourceFontFamily = `"Geist Mono", "SFMono-Regular", "Consolas", monospace`
 
+func newSourceEditor(markdown string, size float32) *sourceEditor {
+	ed := nativeeditor.NewPlainText(markdown)
+	s := &sourceEditor{ed: ed}
+	s.FontSize(size)
+	ed.SetSourceSyntax(sourceSyntax)
+	s.applyPalette(false)
+	return s
+}
+
+// sourceSyntax 把源码扫描结果转成编辑器的着色区间。Kind 与 sourceKind 对齐。
+func sourceSyntax(text string) []nativeeditor.SourceSpan {
+	spans := sourceHighlight(text)
+	out := make([]nativeeditor.SourceSpan, 0, len(spans))
+	for _, sp := range spans {
+		out = append(out, nativeeditor.SourceSpan{Start: sp.start, End: sp.end, Kind: uint8(sp.kind)})
+	}
+	return out
+}
+
+func (s *sourceEditor) applyPalette(dark bool) {
+	colors := sourcePalette(dark)
+	s.ed.SetFontFamily(sourceFontFamily)
+	s.ed.SetLineHeight(1.7)
+	var palette [6]ui.Color
+	palette[sourceHeading] = colors.heading
+	palette[sourceMark] = colors.mark
+	palette[sourceLink] = colors.link
+	palette[sourceCode] = colors.code
+	palette[sourceMath] = colors.math
+	s.ed.SetSourcePalette(palette)
+}
+
 func (s *sourceEditor) View(c *ui.Context) {
-	size := s.size
+	s.applyPalette(c.Theme().Dark)
+	box := ui.Box(c).Fill().MinHeight(0)
+	box.Children(func() { s.ed.View(c) })
+	s.bounds = box.Bounds()
+}
+
+// Bounds 返回编辑区边界。View 尚未布局时为零。
+func (s *sourceEditor) Bounds() ui.Rect { return s.bounds }
+
+// Scroll 返回内容滚动偏移，数值来自编辑器自己的滚动状态。
+func (s *sourceEditor) Scroll() (x, y float32) { return s.ed.Scroll() }
+
+// Jumping 报告选区是否还等着滚进视野。状态来自编辑器，View 滚完后才变 false。
+func (s *sourceEditor) Jumping() bool { return s.ed.ScrollPending() }
+
+func (s *sourceEditor) Markdown() string { return s.ed.Markdown() }
+func (s *sourceEditor) Text() string     { return s.ed.Text() }
+func (s *sourceEditor) Changed() bool    { return s.ed.Changed() }
+
+func (s *sourceEditor) Undo()                                { s.ed.Undo(); s.findHit = "" }
+func (s *sourceEditor) Redo()                                { s.ed.Redo(); s.findHit = "" }
+func (s *sourceEditor) Format(string)                        {}
+func (s *sourceEditor) SetReadImage(func(string) *ui.Bitmap) {}
+func (s *sourceEditor) Selection() (int, int)                { return s.ed.Selection() }
+func (s *sourceEditor) SetSelection(start, end int) {
+	s.ed.SetSelection(start, end)
+	s.findHit = ""
+}
+func (s *sourceEditor) HandleInput(c *ui.Context, ev ui.InputEvent) bool {
+	taken := s.ed.HandleInput(c, ev)
+	if taken && (ev.Kind == ui.InputText || ev.Kind == ui.InputCommand) {
+		s.findHit = ""
+	}
+	return taken
+}
+func (s *sourceEditor) FontSize(size float32) {
 	if size <= 0 {
 		size = 14
 	}
-	ui.Box(c).Fill().MinHeight(0).Children(func() {
-		area := ui.TextAreaBase(c, &s.text).Fill().MinHeight(0).Font(sourceFontFamily).FontSize(size - 1).LineHeight(1.7).Label("Markdown 源码").TrackScroll(&s.scroll)
-		s.bounds = area.Bounds()
-		width := s.bounds.W
-		if width <= 0 {
-			width, _ = c.Size()
-		}
-		// 留白属于文本域内部，滚动条始终贴编辑区域右侧。
-		padding := max(float32(40), (width-856)/2)
-		area.Padding(36, padding, 80, padding)
-		if area.Changed() {
-			s.changed = true
-		}
-		if s.jump {
-			prefix := string([]rune(s.text)[:s.start])
-			measure := ui.Text(c, prefix).Absolute().Top(0).Width(max(1, width-padding*2)).Font(sourceFontFamily).FontSize(size - 1).LineHeight(1.7).Opacity(0).Label("源码跳转测量")
-			if prefix == "" || (s.measuring && measure.Bounds().H > 0) {
-				s.scroll.Y = max(0, measure.Bounds().H)
-				s.jump = false
-			}
-			s.measuring = true
-			c.Invalidate()
-		}
-	})
-}
-func (s *sourceEditor) Markdown() string { return s.text }
-func (s *sourceEditor) Text() string     { return s.text }
-func (s *sourceEditor) Changed() bool {
-	changed := s.changed
-	s.changed = false
-	return changed
+	// 源码比正文小一号，沿用原来文本域的 FontSize(size-1)。
+	s.size = size
+	s.ed.FontSize(size - 1)
+	s.ed.SetFontFamily(sourceFontFamily)
+	s.ed.SetLineHeight(1.7)
 }
 
-// 撤销、重做由文本域自己处理；排版命令在源码模式下不生效。
-func (s *sourceEditor) Undo()                                {}
-func (s *sourceEditor) Redo()                                {}
-func (s *sourceEditor) Format(string)                        {}
-func (s *sourceEditor) SetReadImage(func(string) *ui.Bitmap) {}
-func (s *sourceEditor) Selection() (int, int)                { return s.start, s.end }
-func (s *sourceEditor) SetSelection(start, end int) {
-	n := len([]rune(s.text))
-	s.start, s.end = max(0, min(start, n)), max(0, min(end, n))
-	s.jump, s.measuring = true, false
+// Find 选中下一处 query，并由编辑器把它滚进视野。从头再找时回到文首。
+func (s *sourceEditor) Find(query string) bool {
+	if query == "" {
+		return false
+	}
+	runes := []rune(s.Text())
+	q := []rune(query)
+	from := s.findFrom
+	if s.findHit != query {
+		from = 0
+	}
+	at := sourceIndex(runes, q, from)
+	if at < 0 && from > 0 {
+		at = sourceIndex(runes, q, 0)
+	}
+	if at < 0 {
+		s.findHit = ""
+		return false
+	}
+	s.ed.SetSelection(at, at+len(q))
+	s.findFrom = at + len(q)
+	s.findHit = query
+	return true
 }
-func (s *sourceEditor) HandleInput(*ui.Context, ui.InputEvent) bool { return false }
-func (s *sourceEditor) FontSize(size float32)                       { s.size = size }
-func (s *sourceEditor) Find(query string) bool                      { return query != "" && strings.Contains(s.text, query) }
-func (s *sourceEditor) InsertLink(label, url string)                { s.append("[" + label + "](" + url + ")") }
+
+// Replace 把 query 换成 replacement。all 为假时只换当前选中的这一处，
+// 没有选中时换下一处。返回替换次数；只读或找不到时为 0。撤销由编辑器记录。
+func (s *sourceEditor) Replace(query, replacement string, all bool) int {
+	if s.ed.ReadOnly() || query == "" {
+		return 0
+	}
+	if !all {
+		runes := []rune(s.Text())
+		q := []rune(query)
+		start, end := s.Selection()
+		if start < 0 || end > len(runes) || end-start != len(q) || !sourceEqual(runes[start:end], q) {
+			if !s.Find(query) {
+				return 0
+			}
+		}
+		n := s.ed.Replace(query, replacement, false)
+		if n > 0 {
+			s.findHit = ""
+		}
+		return n
+	}
+	// 全文替换收成一步。逐处替换会各记一次撤销。
+	count, next := sourceReplace(s.Text(), query, replacement, true)
+	if count == 0 {
+		return 0
+	}
+	s.ed.SetSelection(0, len([]rune(s.Text())))
+	s.ed.HandleInput(nil, ui.InputEvent{Kind: ui.InputText, Text: next})
+	s.findHit = ""
+	return count
+}
+
+// SetReadOnly 让源码只能选择、复制和查找。阅读模式通过它接入。
+func (s *sourceEditor) SetReadOnly(on bool) { s.ed.SetReadOnly(on) }
+
+func (s *sourceEditor) InsertLink(label, url string) {
+	s.append("[" + label + "](" + url + ")")
+}
 func (s *sourceEditor) InsertImage(alt, markdownPath string) {
 	s.append("![" + alt + "](" + markdownPath + ")")
 }
 func (s *sourceEditor) append(markdown string) {
-	if s.text != "" && !strings.HasSuffix(s.text, "\n") {
-		s.text += "\n"
+	if s.ed.ReadOnly() {
+		return
 	}
-	s.text += markdown + "\n"
-	s.changed = true
+	text := s.Text()
+	suffix := markdown + "\n"
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		suffix = "\n" + suffix
+	}
+	at := len([]rune(text))
+	s.ed.SetSelection(at, at)
+	s.ed.HandleInput(nil, ui.InputEvent{Kind: ui.InputText, Text: suffix})
 }
 
 // sourceMode 报告标签是否处于源码模式。
@@ -119,7 +217,8 @@ func (a *nativeApp) toggleSource() {
 		tab.editor = fresh
 		return
 	}
-	tab.editor = &sourceEditor{text: markdown, size: a.settings.FontSize}
+	tab.editor = newSourceEditor(markdown, a.settings.FontSize)
+	a.configureEditor(tab.editor)
 }
 
 // ask 打开一个单行输入框；ok 在主线程收到去掉首尾空白后的非空输入。
@@ -311,7 +410,7 @@ func (a *nativeApp) exportBody() (name, body string, ok bool) {
 		name = "未命名.md"
 	}
 	id := tab.id
-	body = richtext.Parse(tab.editor.Markdown()).HTMLWith(func(url string) string {
+	body = richtext.Parse(tab.editor.Markdown()).HTMLWithRenderers(func(url string) string {
 		lower := strings.ToLower(strings.TrimSpace(url))
 		if a.assets == nil || strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 			return ""
@@ -321,7 +420,7 @@ func (a *nativeApp) exportBody() (name, body string, ok bool) {
 			return ""
 		}
 		return uri
-	})
+	}, exportRenderers())
 	return name, body, true
 }
 
@@ -351,8 +450,62 @@ th, td { padding: 7px 11px; border-bottom: 1px solid #e8e1d7; border-right: 1px 
 th { background: #f1eee6; font-weight: 600; } tr > :last-child { border-right: 0; } tbody tr:last-child > * { border-bottom: 0; }
 hr { border: 0; border-top: 1px solid #e8e1d7; margin: 2em 0; }
 img { max-width: 100%; }
-@media print { body { background: #fff; } main { max-width: none; padding: 0; } pre, table, blockquote, .callout, img { break-inside: avoid; } h1, h2, h3 { break-after: avoid; } }
+.math svg { vertical-align: middle; }
+.math-display { margin: 0 0 1.3em; text-align: center; }
+.math-display svg { max-width: 100%; height: auto; }
+.diagram { margin: 0 0 1.3em; text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.footnotes { margin-top: 2.6em; padding-top: 1em; border-top: 1px solid #e8e1d7; color: #797168; font-size: .92em; }
+.footnotes ol { padding-left: 1.4em; }
+.footnote-back { margin-left: .4em; text-decoration: none; }
+@media print { body { background: #fff; } main { max-width: none; padding: 0; } pre, table, blockquote, .callout, img, .diagram, .math-display { break-inside: avoid; } h1, h2, h3 { break-after: avoid; } }
 `
+
+// exportRenderers 把公式和流程图排成自包含的 SVG。排版失败时返回 false，导出退回源码。
+func exportRenderers() richtext.Renderers {
+	return richtext.Renderers{
+		InlineMath: func(src string) (string, float32, bool) {
+			box, err := mathlayout.Layout(src, exportFontSize, false)
+			if err != nil || box == nil {
+				return "", 0, false
+			}
+			svg, err := box.SVG()
+			return svg, box.Descent, err == nil
+		},
+		DisplayMath: func(src string) (string, bool) {
+			box, err := mathlayout.Layout(src, exportFontSize, true)
+			if err != nil || box == nil {
+				return "", false
+			}
+			svg, err := box.SVG()
+			return svg, err == nil
+		},
+		Diagram: exportDiagram,
+	}
+}
+
+// exportDiagram 把 Mermaid 源码排成 SVG。排版失败时返回 false，导出退回源码。
+func exportDiagram(src string) (string, bool) {
+	graph, err := diagram.Parse(src)
+	if err != nil || graph == nil {
+		return "", false
+	}
+	svg := graph.Layout(exportDiagramStyle(), exportContentWidth).SVG()
+	return svg, svg != ""
+}
+
+// exportDiagramStyle 沿用书写界面的纸色与墨色，导出文件不随系统主题变化。
+func exportDiagramStyle() diagram.Style {
+	return diagram.Style{
+		Font: ui.Font{Family: "system-ui, sans-serif", Size: 16}, Text: ui.Hex("#47423c"), LabelFill: ui.Hex("#faf9f5"),
+		NodeFill: ui.Hex("#f3e8dd"), NodeLine: ui.Hex("#d6b19a"), Edge: ui.Hex("#9b8b7b"), GroupFill: ui.Hex("#f4f0e8"), GroupLine: ui.Hex("#e0d6c8"),
+	}
+}
+
+const (
+	exportFontSize     = 16  // 与导出正文的字号一致，公式基线才能对齐
+	exportContentWidth = 776 // 856 的版心减去两侧 40 的内边距
+)
 
 // exportDocument 把正文包成完整的 HTML 文档。
 func exportDocument(name, body string) string {
@@ -489,9 +642,12 @@ type rawEditor interface {
 
 // editRaw 打开源码编辑框；确定后整块替换，改成受支持的语法即成为可直接编辑的内容。
 func (a *nativeApp) editRaw(editor rawEditor, index int, source string) {
+	if a.reading {
+		return
+	}
 	a.rawText, a.rawOpen = source, true
 	a.rawOK = func(markdown string) {
-		if editor.ReplaceRaw(index, markdown) {
+		if !a.reading && editor.ReplaceRaw(index, markdown) {
 			a.syncEditor(a.active())
 			a.refreshTitle()
 		}
@@ -504,10 +660,10 @@ func (a *nativeApp) viewRawEditor(c *ui.Context) {
 		ui.Text(c, "公式、图表与其他扩展语法以 Markdown 原文保存。清空内容会删除这一块。").FontSize(12).TextColor(c.Theme().TextMuted)
 		ui.TextArea(c, &a.rawText).Width(520).Height(240).Font(sourceFontFamily).FontSize(13).LineHeight(1.6).Label("原文源码").AutoFocus()
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			if ui.Button(c, "取消").Clicked() {
+			if ui.Button(c, "取消").Cursor(ui.CursorPointer).Clicked() {
 				a.rawOpen = false
 			}
-			if ui.PrimaryButton(c, "确定").Clicked() || c.Shortcut(ui.Cmd, ui.KeyEnter) {
+			if ui.PrimaryButton(c, "确定").Cursor(ui.CursorPointer).Clicked() || c.Shortcut(ui.Cmd, ui.KeyEnter) {
 				if a.rawOK != nil {
 					a.rawOK(a.rawText)
 				}

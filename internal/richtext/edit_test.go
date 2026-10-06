@@ -65,7 +65,7 @@ func TestUndoRedo(t *testing.T) {
 }
 
 func TestRawReject(t *testing.T) {
-	d := Parse("<div>\nx\n</div>\n")
+	d := Parse("<script>\nx\n</script>\n")
 	before := d.Markdown()
 	d.Insert(0, "Z")
 	if d.Markdown() != before {

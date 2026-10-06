@@ -669,9 +669,9 @@ func TestAlignedTableAndInlineMarksHit(t *testing.T) {
 
 func TestUnsupportedCardsIdentifyContent(t *testing.T) {
 	for _, tc := range []struct{ source, label string }{
-		{"```mermaid\nsequenceDiagram\nA->>B: 你好\n```", "Mermaid"},
+		{"```mermaid\nnosuchdiagram\nA->>B: 你好\n```", "Mermaid"},
 		{"$$\\nosuchcommand{x}$$", "数学公式"},
-		{"<div>内容</div>", "HTML"},
+		{"<custom-element>内容</custom-element>", "HTML"},
 	} {
 		ed, tt := newTest(t, tc.source)
 		tt.Frame()
@@ -827,7 +827,7 @@ func TestReadingWidthAndTypewriterSettings(t *testing.T) {
 }
 
 func TestDoubleClickRawRequestsSourceEditAndReplaceRaw(t *testing.T) {
-	ed, tt := newTest(t, "前文\n\n<div>旧</div>\n\n后文\n")
+	ed, tt := newTest(t, "前文\n\n```mermaid\nsequenceDiagram\nA->>B: 旧\n```\n\n后文\n")
 	tt.Frame()
 	var gotIndex int
 	var gotSource string
@@ -836,10 +836,10 @@ func TestDoubleClickRawRequestsSourceEditAndReplaceRaw(t *testing.T) {
 	if !ed.requestRawEdit(ed.blockOrigin(1)) || ed.requestRawEdit(0) {
 		t.Fatal("只有占位块应请求源码编辑")
 	}
-	if gotIndex != 1 || strings.TrimSpace(gotSource) != "<div>旧</div>" {
+	if gotIndex != 1 || !strings.Contains(gotSource, "A->>B: 旧") {
 		t.Fatalf("双击占位块未请求编辑：%d %q", gotIndex, gotSource)
 	}
-	if !ed.ReplaceRaw(1, "<div>新</div>") || ed.Markdown() != "前文\n\n<div>新</div>\n\n后文\n" {
+	if !ed.ReplaceRaw(1, "```mermaid\nsequenceDiagram\nA->>B: 新\n```") || !strings.Contains(ed.Markdown(), "A->>B: 新") {
 		t.Fatalf("替换占位原文错误：%q", ed.Markdown())
 	}
 	if !ed.ReplaceRaw(1, "改成**正文**") || !strings.Contains(ed.Text(), "改成正文") {
@@ -850,7 +850,7 @@ func TestDoubleClickRawRequestsSourceEditAndReplaceRaw(t *testing.T) {
 	}
 	ed.Undo()
 	ed.Undo()
-	if ed.Markdown() != "前文\n\n<div>旧</div>\n\n后文\n" {
+	if !strings.Contains(ed.Markdown(), "A->>B: 旧") {
 		t.Fatalf("撤销未恢复原文：%q", ed.Markdown())
 	}
 }

@@ -64,6 +64,7 @@ func captureNativeSiteShots(win *mygo.Window, app *nativeApp, mode string) error
 			app.settings.FontSize = 14
 			app.settings.AutoSave = false
 			app.sidebarMode = "outline"
+			app.reading = mode == "read"
 			app.applySettings()
 			if tab := app.active(); tab != nil {
 				if editor, ok := tab.editor.(interface{ SetLineHeight(float32) }); ok {

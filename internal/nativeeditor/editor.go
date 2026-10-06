@@ -64,19 +64,34 @@ type Editor struct {
 	focusMode      bool // 淡化光标所在块之外的内容
 	editRaw        func(index int, source string)
 	typewriter     bool // 光标所在行保持在视口中部
+	readOnly       bool // 阅读模式：只能选择、复制、查找和点击链接
+	openLink       func(url string)
+	hand           bool // 指针下是可点击内容，显示小手
+	pressHot       hot  // 按下时指针下的可点击内容，松开时仍在其上且没有拖选才触发
+	// 指针最近一次在视口内的位置与修饰键：滚动、重排或切换模式后内容在指针下变了，按它重算指针形状。
+	hoverX, hoverY float32
+	hoverMods      ui.Modifiers
+	hovered        bool
+	sourceMode     bool // 整篇是一块等宽纯文本，Markdown 原样返回
+	sourceSyntax   func(string) []SourceSpan
+	sourcePalette  [6]ui.Color
+	sourceSet      bool
+	bounds         ui.Rect      // 最近一帧 Scroll 元素在父容器中的矩形
+	collapsed      map[int]bool // details 容器的视图折叠，不写入文档
 }
 
 // New 用 Markdown 创建一个编辑器。
 func New(markdown string) *Editor {
 	return &Editor{
-		doc:      richtext.Parse(markdown),
-		fontSize: 15,
-		cache:    newShapeCache(),
-		images:   map[string]*ui.Bitmap{},
-		fetched:  map[string]struct{}{},
-		imgCh:    make(chan imageResult, 8),
-		client:   &http.Client{Timeout: 8 * time.Second},
-		wordMod:  wordModifier(),
+		doc:       richtext.Parse(markdown),
+		collapsed: map[int]bool{},
+		fontSize:  15,
+		cache:     newShapeCache(),
+		images:    map[string]*ui.Bitmap{},
+		fetched:   map[string]struct{}{},
+		imgCh:     make(chan imageResult, 8),
+		client:    &http.Client{Timeout: 8 * time.Second},
+		wordMod:   wordModifier(),
 	}
 }
 
@@ -97,13 +112,20 @@ func (e *Editor) SetInvalidate(fn func()) {
 	e.wakeMu.Unlock()
 }
 
-// Markdown 返回当前文档的 Markdown。
-func (e *Editor) Markdown() string { return e.doc.Markdown() }
+// Markdown 返回当前文档的 Markdown。源码模式就是纯文本，含标记和末尾换行。
+func (e *Editor) Markdown() string {
+	if e.sourceMode {
+		return e.doc.Text()
+	}
+	return e.doc.Markdown()
+}
 
 // Changed 报告自上次调用后是否有编辑，并清掉标记。
 func (e *Editor) Changed() bool {
 	d := e.dirty
 	e.dirty = false
+	if d {
+	}
 	return d
 }
 
@@ -159,6 +181,9 @@ func (e *Editor) SetTypewriter(on bool) {
 
 // Undo 撤销。
 func (e *Editor) Undo() {
+	if e.readOnly {
+		return
+	}
 	if sel, ok := e.doc.Undo(); ok {
 		e.anchor, e.focus = sel.Start, sel.End
 		e.pending = 0
@@ -169,6 +194,9 @@ func (e *Editor) Undo() {
 
 // Redo 重做。
 func (e *Editor) Redo() {
+	if e.readOnly {
+		return
+	}
 	if sel, ok := e.doc.Redo(); ok {
 		e.anchor, e.focus = sel.Start, sel.End
 		e.pending = 0
@@ -181,6 +209,9 @@ func (e *Editor) Redo() {
 // 行内：bold、italic、code、strike。
 // 块级：paragraph、heading（1–6 用 heading1…heading6）、quote、bullet、ordered、task。
 func (e *Editor) Format(name string) {
+	if e.readOnly {
+		return
+	}
 	if mark, ok := markByName(name); ok {
 		e.doc.ToggleMark(e.selection(), mark)
 		e.dirty = true
@@ -254,6 +285,9 @@ func (e *Editor) formatBlock(name string) bool {
 
 // InsertLink 插入链接。地址不安全时只插入文字。
 func (e *Editor) InsertLink(label, url string) {
+	if e.readOnly {
+		return
+	}
 	if !safeURL(url, false) {
 		e.replaceSelection(label)
 		return
@@ -266,6 +300,9 @@ func (e *Editor) InsertLink(label, url string) {
 
 // InsertImage 在光标处插入独立图片块。
 func (e *Editor) InsertImage(alt, path string) {
+	if e.readOnly {
+		return
+	}
 	sel := e.doc.InsertImage(e.focus, alt, path)
 	e.anchor, e.focus = sel.Start, sel.End
 	e.dirty = true
@@ -273,29 +310,18 @@ func (e *Editor) InsertImage(alt, path string) {
 	e.wantImage(path)
 }
 
-// Find 选中下一处 query，找到返回 true。
+// Find 选中下一处 query，找到返回 true。公式、脚注和原文占位里的匹配会被跳过。
 func (e *Editor) Find(query string) bool {
 	if query == "" {
 		return false
 	}
-	text := e.doc.Text()
-	runes := []rune(text)
-	q := []rune(query)
-	from := e.focus
-	if e.anchor != e.focus {
-		from = max(e.anchor, e.focus)
+	at := e.nextEditable(query, e.focus, e.anchor != e.focus)
+	if at < 0 {
+		return false
 	}
-	if at := indexFrom(runes, q, from); at >= 0 {
-		e.anchor, e.focus = at, at+len(q)
-		e.reveal = true
-		return true
-	}
-	if at := indexFrom(runes, q, 0); at >= 0 && at < from {
-		e.anchor, e.focus = at, at+len(q)
-		e.reveal = true
-		return true
-	}
-	return false
+	e.anchor, e.focus = at, at+len([]rune(query))
+	e.reveal = true
+	return true
 }
 
 func indexFrom(text, q []rune, from int) int {
@@ -355,7 +381,7 @@ func (e *Editor) selection() richtext.Selection {
 // View 构建一帧。编辑器占满父容器并可滚动。
 func (e *Editor) View(c *ui.Context) {
 	// 不铺底色：纸面由窗口提供，侧栏投影才能落到正文区。
-	box := ui.ScrollBoth(c).Fill().MinHeight(0).Focusable().Cursor(ui.CursorText)
+	box := ui.ScrollBoth(c).Fill().MinHeight(0).Focusable()
 	bounds := box.Bounds()
 	width, height := bounds.W, bounds.H
 	if width <= 0 || height <= 0 {
@@ -365,11 +391,18 @@ func (e *Editor) View(c *ui.Context) {
 		c.Invalidate()
 	}
 	e.width, e.viewH = width, height
+	e.bounds = bounds
 	e.drainImages(c)
 	e.ensureImages()
 	e.cache.caret = -1
-	if e.anchor == e.focus && e.compose == "" {
+	if e.anchor == e.focus && e.compose == "" && !e.readOnly {
 		e.cache.caret = e.focus
+	}
+	e.cache.source = e.sourceMode
+	e.cache.sourceSpans = nil
+	e.cache.collapsed = e.collapsed
+	if e.sourceMode && e.sourceSyntax != nil {
+		e.cache.sourceSpans = e.sourceSyntax(e.doc.Text())
 	}
 	e.cache.diagramStyle = diagramStyle(c.Theme())
 	e.lay = flow(e.doc, width, e.fontSize, e.cache, e.images)
@@ -377,12 +410,24 @@ func (e *Editor) View(c *ui.Context) {
 		// 文末留出余量，最后几行也能停在视口中部。
 		e.lay.height += height * .45
 	}
+	// 指针形状属于整个元素：按指针下的内容算出是否显示小手，每帧交给元素。
+	if e.hovered {
+		e.updatePointer(e.hoverX+e.scroll.X, e.hoverY+e.scroll.Y, e.hoverMods)
+	}
+	pointer := ui.CursorText
+	if e.hand {
+		pointer = ui.CursorPointer
+	}
+	box.Cursor(pointer)
 	// 组合输入只预排字形，Draw 不写排版缓存或文档。
 	e.composeGlyphs = e.cache.shape(e.compose, e.fontSize, false, false, false)
 	e.composeMetrics = e.cache.metrics(e.fontSize, false, false)
 	caret := min(max(e.comCaret, 0), len([]rune(e.compose)))
 	e.composeAdvance = measure(e.cache, string([]rune(e.compose)[:caret]), e.fontSize, false, false, false)
 	if e.reveal {
+		if e.expandToCaret() {
+			e.lay = flow(e.doc, width, e.fontSize, e.cache, e.images)
+		}
 		e.keepCaretVisible()
 		e.reveal = false
 	}
@@ -445,10 +490,10 @@ func (e *Editor) Focus() {
 }
 
 // SelectionAnchor 返回非空选区起点在编辑区视口内的位置，供浮动格式栏定位。
-// 拖选尚未结束、输入法组合中或选区滚出视口时 ok 为 false。
+// 拖选尚未结束、输入法组合中、选区滚出视口或处于阅读模式时 ok 为 false。
 func (e *Editor) SelectionAnchor() (x, y, lineH, viewW float32, ok bool) {
 	sel := e.selection()
-	if sel.Start == sel.End || e.dragging || e.compose != "" || e.width <= 0 {
+	if sel.Start == sel.End || e.dragging || e.compose != "" || e.width <= 0 || e.readOnly {
 		return 0, 0, 0, 0, false
 	}
 	x, y, lineH = e.PointForOffset(sel.Start)
@@ -475,6 +520,12 @@ func (e *Editor) BlockRect(index int) (x, y, w, h float32, ok bool) {
 func (e *Editor) onInput(c *ui.Context) func(ui.InputEvent) bool {
 	return func(ev ui.InputEvent) bool {
 		switch ev.Kind {
+		case ui.InputPointerDown, ui.InputPointerMove, ui.InputPointerUp, ui.InputScroll:
+			e.hoverX, e.hoverY, e.hoverMods, e.hovered = ev.X, ev.Y, ev.Mods, true
+		case ui.InputKeyDown, ui.InputKeyUp:
+			e.hoverMods = ev.Mods
+		}
+		switch ev.Kind {
 		case ui.InputPointerDown:
 			x, y := ev.X+e.scroll.X, ev.Y+e.scroll.Y
 			if ev.Button != 0 {
@@ -486,6 +537,10 @@ func (e *Editor) onInput(c *ui.Context) func(ui.InputEvent) bool {
 			}
 			if e.toggleTaskAt(x, y) {
 				return true
+			}
+			e.pressHot = hot{}
+			if h := e.hotAt(x, y); ev.Clicks == 1 && e.clickable(h, ev.Mods) {
+				e.pressHot = h
 			}
 			off := e.lay.hit(x, y)
 			if ev.Clicks == 2 && e.requestRawEdit(off) {
@@ -500,26 +555,55 @@ func (e *Editor) onInput(c *ui.Context) func(ui.InputEvent) bool {
 			}
 			e.dragging = true
 			e.compose = ""
-			e.reveal = true
+			if e.pressHot.kind != hotDetails {
+				e.reveal = true
+			}
 			return true
 		case ui.InputPointerMove:
 			if !e.dragging || ev.Button < 0 {
-				return false
+				// 悬停：只在指针形状变化时要一帧。
+				return e.updatePointer(ev.X+e.scroll.X, ev.Y+e.scroll.Y, ev.Mods)
 			}
 			e.focus = e.lay.hit(ev.X+e.scroll.X, ev.Y+e.scroll.Y)
 			e.reveal = true
+			e.hand = e.hand && e.anchor == e.focus // 拖出选区后恢复文本指针
 			return true
 		case ui.InputPointerUp:
-			e.dragging = false
+			x, y := ev.X+e.scroll.X, ev.Y+e.scroll.Y
+			h := e.pressHot
+			e.dragging, e.pressHot = false, hot{}
+			if h.kind != hotNone && ev.Button == 0 && e.anchor == e.focus && e.hotAt(x, y) == h {
+				e.activate(c, h)
+			}
+			e.updatePointer(x, y, ev.Mods)
 			return true
+		case ui.InputKeyUp:
+			// 松开 Mod 后链接不再可点，指针形状跟着变。
+			if e.updatePointer(ev.X+e.scroll.X, ev.Y+e.scroll.Y, ev.Mods) && c != nil {
+				c.Invalidate()
+			}
+			return false
 		case ui.InputScroll:
+			// 内容在指针下滚过，下一帧按新位置重算指针形状。
+			if c != nil {
+				c.Invalidate()
+			}
 			return false
 		case ui.InputKeyDown:
+			if e.updatePointer(ev.X+e.scroll.X, ev.Y+e.scroll.Y, ev.Mods) && c != nil {
+				c.Invalidate()
+			}
 			return e.onKey(c, ev)
 		case ui.InputText:
+			if e.readOnly {
+				return false
+			}
 			e.insertText(ev.Text)
 			return true
 		case ui.InputCompose:
+			if e.readOnly {
+				return false
+			}
 			e.compose = ev.Text
 			e.comCaret = ev.Caret
 			if ev.Text == "" {
@@ -538,6 +622,18 @@ func (e *Editor) onInput(c *ui.Context) func(ui.InputEvent) bool {
 func (e *Editor) onKey(c *ui.Context, ev ui.InputEvent) bool {
 	mods := ev.Mods &^ ui.Shift
 	word := mods == e.wordMod
+	if e.readOnly {
+		// 阅读模式只保留移动、全选和复制，其余按键交还给窗口的快捷键。
+		switch ev.Key {
+		case ui.KeyLeft, ui.KeyRight, ui.KeyUp, ui.KeyDown, ui.KeyHome, ui.KeyEnd:
+		case ui.KeyA, ui.KeyC:
+			if mods != ui.Cmd {
+				return false
+			}
+		default:
+			return false
+		}
+	}
 	switch ev.Key {
 	case ui.KeyLeft, ui.KeyRight, ui.KeyUp, ui.KeyDown, ui.KeyHome, ui.KeyEnd:
 		e.move(ev.Key, ev.Mods&ui.Shift != 0, word || mods == ui.Cmd)
@@ -613,6 +709,9 @@ func (e *Editor) onKey(c *ui.Context, ev ui.InputEvent) bool {
 }
 
 func (e *Editor) onCommand(c *ui.Context, name string) bool {
+	if e.readOnly && name != "copy" && name != "selectAll" {
+		return false
+	}
 	switch name {
 	case "copy":
 		e.copy(c, false)
@@ -868,6 +967,9 @@ func (e *Editor) insertText(text string) {
 }
 
 func (e *Editor) replaceSelection(text string) {
+	if e.readOnly {
+		return
+	}
 	before := e.doc.Markdown()
 	out := e.doc.Replace(e.selection(), text)
 	e.anchor, e.focus = out.Start, out.End
@@ -883,6 +985,7 @@ func (e *Editor) copy(c *ui.Context, cut bool) {
 	if c == nil {
 		return
 	}
+	cut = cut && !e.readOnly
 	sel := e.selection()
 	if sel.Start == sel.End {
 		return
@@ -897,7 +1000,7 @@ func (e *Editor) copy(c *ui.Context, cut bool) {
 }
 
 func (e *Editor) paste(c *ui.Context) {
-	if c == nil {
+	if c == nil || e.readOnly {
 		return
 	}
 	text := c.ReadClipboard()
@@ -937,6 +1040,9 @@ func (e *Editor) composeWidth() float32 {
 }
 
 func (e *Editor) blockBox(index int) blockBox {
+	if index >= 0 && index < len(e.lay.blocks) && e.lay.blocks[index].index == index {
+		return e.lay.blocks[index]
+	}
 	for _, b := range e.lay.blocks {
 		if b.index == index {
 			return b
@@ -970,6 +1076,9 @@ func (e *Editor) keepCaretVisible() {
 
 func (e *Editor) paint(p *ui.Painter, r ui.Rect, theme *ui.Theme, now time.Time) {
 	sel := e.selection()
+	for _, f := range e.lay.frames {
+		e.paintFrame(p, r, f, theme)
+	}
 	for _, b := range e.lay.blocks {
 		e.paintBlock(p, r, b, theme)
 	}
@@ -990,10 +1099,66 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect, theme *ui.Theme, now time.Time)
 	if e.compose != "" {
 		e.paintCompose(p, r, theme)
 	}
-	if int(now.UnixMilli()/530)%2 == 0 && e.anchor == e.focus && e.compose == "" {
+	if int(now.UnixMilli()/530)%2 == 0 && e.anchor == e.focus && e.compose == "" && !e.readOnly {
 		c := e.caretRect()
 		p.Fill(ui.Rect{X: r.X + c[0], Y: r.Y + c[1], W: 1.5, H: c[3]}, theme.Accent, 0)
 	}
+}
+
+// paintFrame 画容器的装饰：引用竖线与底色、提示块底色与标题、脚注编号与回跳箭头，
+// 以及没有首段正文的列表项标记。数值与单块的引用、提示块和列表项一致。
+func (e *Editor) paintFrame(p *ui.Painter, r ui.Rect, f frame, theme *ui.Theme) {
+	x, y := r.X+f.x, r.Y+f.y
+	switch {
+	case f.foot != "":
+		if f.rule {
+			p.Fill(ui.Rect{X: x, Y: y - blockGap/2, W: min(f.w, 160), H: 1}, theme.Border, 0)
+		}
+		p.Glyphs(f.label, x, r.Y+f.lineY+f.ascent, theme.Accent)
+		if len(f.back) > 0 {
+			p.Glyphs(f.back, r.X+f.backX, r.Y+f.backBase, theme.Accent)
+		}
+	case f.kind == richtext.Quote:
+		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Surface, 4)
+		p.Fill(ui.Rect{X: x, Y: y, W: quoteBar, H: f.h}, theme.Accent, 1)
+	case f.kind == richtext.Callout && f.details:
+		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Surface, 5)
+		paintDisclosure(p, x+14, y+18, !f.folded, theme.TextMuted)
+		p.Glyphs(f.title, x+32, y+12+f.titleAscent, theme.Text)
+	case f.kind == richtext.Callout:
+		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Surface, 5)
+		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Accent.Alpha(.04), 5)
+		p.Glyphs(f.title, x+37, y+12+f.titleAscent, theme.Text)
+		paintBulb(p, x+13, y+12, theme.Accent)
+	case f.marker && f.kind == richtext.Task:
+		paintCheck(p, ui.Rect{X: x + 2.5, Y: r.Y + f.lineY + (f.lineH-15)/2 + 1, W: 15, H: 15}, f.checked, theme)
+	case f.marker && f.bullet:
+		p.FillPath(new(ui.Path).Circle(x+4, r.Y+f.lineY+f.lineH/2+1, 1.7), theme.Accent.Alpha(.75))
+	case f.marker:
+		p.Glyphs(f.label, x, r.Y+f.lineY+f.ascent, theme.Text)
+	}
+}
+
+// paintDisclosure 画折叠块标题前的三角。open 时朝下，收起时朝右。
+func paintDisclosure(p *ui.Painter, x, y float32, open bool, c ui.Color) {
+	path := new(ui.Path)
+	if open {
+		path.MoveTo(x-4, y-2).LineTo(x+4, y-2).LineTo(x, y+3)
+	} else {
+		path.MoveTo(x-2, y-4).LineTo(x-2, y+4).LineTo(x+3, y)
+	}
+	p.FillPath(path, c)
+}
+
+// paintCheck 画任务复选框。
+func paintCheck(p *ui.Painter, check ui.Rect, checked bool, theme *ui.Theme) {
+	if !checked {
+		p.Stroke(check, theme.TextMuted.Alpha(.8), 4, 1.5)
+		return
+	}
+	p.Fill(check, theme.Accent, 4)
+	tick := new(ui.Path).MoveTo(check.X+3.8, check.Y+7.8).LineTo(check.X+6.5, check.Y+10.4).LineTo(check.X+11.3, check.Y+4.9)
+	p.StrokePath(tick, 1.7, theme.Background)
 }
 
 func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Theme) {
@@ -1014,19 +1179,15 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 	case richtext.Task:
 		if len(b.lines) > 0 {
 			ln := e.lay.lines[b.lines[0]]
-			check := ui.Rect{X: x + b.indent + 2.5, Y: r.Y + ln.y + (ln.height-15)/2 + 1, W: 15, H: 15}
-			if b.checked {
-				p.Fill(check, theme.Accent, 4)
-				tick := new(ui.Path).MoveTo(check.X+3.8, check.Y+7.8).LineTo(check.X+6.5, check.Y+10.4).LineTo(check.X+11.3, check.Y+4.9)
-				p.StrokePath(tick, 1.7, theme.Background)
-			} else {
-				p.Stroke(check, theme.TextMuted.Alpha(.8), 4, 1.5)
-			}
+			paintCheck(p, ui.Rect{X: x + b.indent + 2.5, Y: r.Y + ln.y + (ln.height-15)/2 + 1, W: 15, H: 15}, b.checked, theme)
 		}
 	case richtext.Quote:
 		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Surface, 4)
 		p.Fill(ui.Rect{X: x, Y: y, W: quoteBar, H: b.h}, theme.Accent, 1)
 	case richtext.Code:
+		if e.sourceMode {
+			break
+		}
 		bg := theme.Surface
 		if int(theme.Background.R)+int(theme.Background.G)+int(theme.Background.B) < 384 {
 			// 深色主题的代码块比纸面更沉，与引用、提示块的浅底区分。
@@ -1110,7 +1271,7 @@ func (e *Editor) paintLine(p *ui.Painter, r ui.Rect, ln line, theme *ui.Theme) {
 		return
 	}
 	color := theme.Text
-	if b.raw || b.kind == richtext.Quote {
+	if b.raw || b.kind == richtext.Quote || b.muted {
 		color = theme.TextMuted
 	}
 	p.Glyphs(ln.markers, baseX, baseY, color)
@@ -1126,7 +1287,11 @@ func (e *Editor) paintLine(p *ui.Painter, r ui.Rect, ln line, theme *ui.Theme) {
 			if span.highlight {
 				p.Fill(ui.Rect{X: baseX + start, Y: r.Y + ln.y + 2, W: end - start, H: ln.height - 4}, ui.RGBA(233, 185, 73, .35), 2)
 			}
-			if span.code {
+			if span.kbd {
+				cap := ui.Rect{X: baseX + start - 3, Y: r.Y + ln.y + 2, W: end - start + 6, H: ln.height - 4}
+				p.Fill(cap, theme.Surface, 4)
+				p.Stroke(cap, theme.Border, 4, 1)
+			} else if span.code {
 				p.Fill(ui.Rect{X: baseX + start - 2, Y: r.Y + ln.y + 2, W: end - start + 4, H: ln.height - 4}, theme.Surface, 3)
 			}
 			ink := color
@@ -1136,10 +1301,23 @@ func (e *Editor) paintLine(p *ui.Painter, r ui.Rect, ln line, theme *ui.Theme) {
 			case inkMuted:
 				ink = theme.TextMuted
 			}
+			if e.sourceMode && span.source > 0 && int(span.source) < len(e.sourcePalette) {
+				ink = e.sourcePalette[span.source]
+			}
 			if span.link != "" && safeURL(span.link, false) {
 				ink = theme.Accent
 			}
-			if span.math != nil {
+			if span.footnote != "" {
+				p.Glyphs(span.display, baseX+start, baseY+span.dy, theme.Accent)
+			} else if span.image != "" {
+				if bm := e.images[span.image]; bm != nil {
+					p.Image(bm, ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}, ui.Contain)
+				} else {
+					cap := ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}
+					p.Stroke(cap, theme.Border, 3, 1)
+					p.Glyphs(span.display, baseX, baseY, theme.TextMuted)
+				}
+			} else if span.math != nil {
 				span.math.Paint(p, baseX+start, baseY, ink)
 			} else {
 				p.Glyphs(span.glyphs, baseX, baseY+span.dy, ink)
@@ -1149,6 +1327,8 @@ func (e *Editor) paintLine(p *ui.Painter, r ui.Rect, ln line, theme *ui.Theme) {
 			}
 			if span.link != "" && safeURL(span.link, false) {
 				p.Fill(ui.Rect{X: baseX + start, Y: baseY + 2, W: end - start, H: 1}, theme.Accent, 0)
+			} else if span.underline {
+				p.Fill(ui.Rect{X: baseX + start, Y: baseY + 2, W: end - start, H: 1}, ink, 0)
 			}
 		}
 	}
@@ -1287,6 +1467,11 @@ func (e *Editor) ensureImages() {
 	for _, b := range e.doc.Blocks() {
 		if b.Kind == richtext.Image {
 			e.wantImage(b.URL)
+		}
+		for _, r := range b.Runs {
+			if r.Image != nil {
+				e.wantImage(r.Image.URL)
+			}
 		}
 	}
 }
@@ -1480,20 +1665,13 @@ func (e *Editor) LayoutSnapshot() LayoutSnapshot {
 
 // toggleTaskAt 只有点击首行复选框才切换完成状态，文字区域继续用于选区。
 func (e *Editor) toggleTaskAt(x, y float32) bool {
-	for _, b := range e.lay.blocks {
-		if b.kind != richtext.Task || len(b.lines) == 0 {
-			continue
-		}
-		ln := e.lay.lines[b.lines[0]]
-		if x < b.x+b.indent || x > b.x+b.indent+20 || y < ln.y || y > ln.y+ln.height {
-			continue
-		}
-		blocks := e.doc.Blocks()
-		e.doc.SetChecked(b.index, !blocks[b.index].Checked)
-		e.cancelCompose()
-		e.dragging = false
-		e.dirty = true
-		return true
+	bi, ok := e.taskAt(x, y)
+	if !ok || e.readOnly {
+		return false
 	}
-	return false
+	e.doc.SetChecked(bi, !e.doc.Blocks()[bi].Checked)
+	e.cancelCompose()
+	e.dragging = false
+	e.dirty = true
+	return true
 }

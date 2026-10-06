@@ -87,7 +87,7 @@ func (a *nativeApp) viewSettings(c *ui.Context) {
 		main.Children(func() {
 			ui.Row(c).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
 				ui.Text(c, settingsTabs[section].label).FontSize(28).FontWeight(600).LetterSpacing(-.8).Grow(1).MinWidth(0)
-				b := ui.ButtonBase(c).Size(26, 26).Radius(4).Label("关闭设置").TextColor(p.close)
+				b := ui.ButtonBase(c).Size(26, 26).Radius(4).Label("关闭设置").TextColor(p.close).Cursor(ui.CursorPointer)
 				if b.Hovered() {
 					b.Background(p.ink.Alpha(.05))
 				}
@@ -164,7 +164,7 @@ func (a *nativeApp) viewSettingsSidebar(c *ui.Context, p settingsPalette, sectio
 				}
 				item.Children(func() {
 					selected := i == section
-					b := ui.ButtonBase(c).FillWidth().Height(42).Radius(10).Padding(0, 12).Gap(12).Justify(ui.Start).Border(1, ui.Color{}).Label(tab.label)
+					b := ui.ButtonBase(c).FillWidth().Height(42).Radius(10).Padding(0, 12).Gap(12).Justify(ui.Start).Border(1, ui.Color{}).Label(tab.label).Cursor(ui.CursorPointer)
 					ink, icon, weight := p.tabInk, p.muted, 500
 					if selected {
 						ink, icon, weight = p.accent, p.tabIcon, 600
@@ -193,7 +193,7 @@ func (a *nativeApp) viewSettingsSidebar(c *ui.Context, p settingsPalette, sectio
 			ui.Text(c, "留一点空间，给书写。").FontSize(11).TextColor(p.note)
 			ui.Text(c, "Leafmark").FontSize(10).TextColor(p.destChevron)
 		})
-		back := ui.ButtonBase(c).Margin(28, 0, 0, 0).Padding(8, 0, 0, 0).Gap(7).Justify(ui.Start).Label("返回书写")
+		back := ui.ButtonBase(c).Margin(28, 0, 0, 0).Padding(8, 0, 0, 0).Gap(7).Justify(ui.Start).Label("返回书写").Cursor(ui.CursorPointer)
 		back.Children(func() {
 			ui.Box(c).Padding(3, 6).Radius(4).Border(1, p.kbdLine).Background(p.kbd).Children(func() { ui.Text(c, "Esc").FontSize(10).TextColor(p.back) })
 			ui.Text(c, "返回书写").FontSize(11).TextColor(p.back)
@@ -231,7 +231,7 @@ func settingsRow(c *ui.Context, p settingsPalette, label, description string, la
 
 // settingsSelect 是下拉选择：外观是一枚带箭头的按钮，点开后用系统菜单选值。
 func settingsSelect(c *ui.Context, p settingsPalette, label, current string, width float32, options []string, pick func(i int)) {
-	b := ui.ButtonBase(c).Width(width).Height(30).Shrink(0).Radius(10).Border(1, p.controlLine).Background(p.control).Padding(0, 9, 0, 10).Gap(6).Label("选择" + label)
+	b := ui.ButtonBase(c).Width(width).Height(30).Shrink(0).Radius(10).Border(1, p.controlLine).Background(p.control).Padding(0, 9, 0, 10).Gap(6).Label("选择" + label).Cursor(ui.CursorPointer)
 	b.Children(func() {
 		ui.Text(c, current).FontSize(12).TextColor(p.destination).SingleLine().Grow(1).MinWidth(0)
 		ui.Icon(c, nativeIcons["chevron-down"]).Size(14, 14).TextColor(p.destChevron)
@@ -253,7 +253,7 @@ func settingsSegmented(c *ui.Context, p settingsPalette, labels []string, select
 	}
 	ui.Row(c).Shrink(0).Padding(3).Gap(gap).Radius(10).Background(bg).Children(func() {
 		for i, label := range labels {
-			b := ui.ButtonBase(c).Radius(10).Padding(5, 10).Label(label)
+			b := ui.ButtonBase(c).Radius(10).Padding(5, 10).Label(label).Cursor(ui.CursorPointer)
 			size := float32(11)
 			if theme {
 				b.Padding(8, 16)
@@ -277,7 +277,7 @@ func settingsSegmented(c *ui.Context, p settingsPalette, labels []string, select
 
 // settingsToggle 是 34×20 的胶囊开关。
 func settingsToggle(c *ui.Context, p settingsPalette, label string, on *bool) bool {
-	b := ui.SwitchBase(c, on).Size(34, 20).Shrink(0).Radius(10).Label("切换" + label)
+	b := ui.SwitchBase(c, on).Size(34, 20).Shrink(0).Radius(10).Label("切换" + label).Cursor(ui.CursorPointer)
 	track, left := p.toggleOff, float32(3)
 	if *on {
 		track, left = p.toggleOn, 17
@@ -290,14 +290,14 @@ func settingsToggle(c *ui.Context, p settingsPalette, label string, on *bool) bo
 
 // settingsLink 是强调色的文字按钮。
 func settingsLink(c *ui.Context, p settingsPalette, label string) *ui.Element {
-	b := ui.ButtonBase(c).Radius(3).Padding(2, 2).Label(label)
+	b := ui.ButtonBase(c).Radius(3).Padding(2, 2).Label(label).Cursor(ui.CursorPointer)
 	b.Children(func() { ui.Text(c, label).FontSize(11).TextColor(p.accent).SingleLine() })
 	return b
 }
 
 // settingsOutlined 是带描边的小按钮，用于清理与自定义快捷键。
 func settingsOutlined(c *ui.Context, p settingsPalette, label string) *ui.Element {
-	b := ui.ButtonBase(c).Shrink(0).Radius(10).Padding(7, 10).Border(1, p.controlLine).Label(label)
+	b := ui.ButtonBase(c).Shrink(0).Radius(10).Padding(7, 10).Border(1, p.controlLine).Label(label).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(p.ink.Alpha(.03))
 	}
@@ -337,6 +337,8 @@ func (a *nativeApp) viewSettingsEditor(c *ui.Context, p settingsPalette) {
 					b := ui.ButtonBase(c).Size(23, 26).Radius(10).Label(label).Disabled(disabled)
 					if disabled {
 						b.Opacity(.45)
+					} else {
+						b.Cursor(ui.CursorPointer)
 					}
 					b.Children(func() { ui.Text(c, sign).FontSize(16).TextColor(p.destChevron) })
 					if b.Clicked() {
@@ -377,7 +379,7 @@ func (a *nativeApp) viewSettingsEditor(c *ui.Context, p settingsPalette) {
 	settingsGroup(c, p, "个性化", func() {
 		destination := func(label, description, text string, section string, swatch bool, last bool) {
 			settingsRow(c, p, label, description, last, func() {
-				b := ui.ButtonBase(c).Shrink(0).Radius(10).Padding(5, 0, 5, 8).Gap(9).Label("前往" + label)
+				b := ui.ButtonBase(c).Shrink(0).Radius(10).Padding(5, 0, 5, 8).Gap(9).Label("前往" + label).Cursor(ui.CursorPointer)
 				b.Children(func() {
 					if swatch {
 						ui.Box(c).Size(14, 14).Radius(7).Background(p.toggleOn).Border(1, p.tabIcon)
@@ -473,7 +475,7 @@ func (a *nativeApp) viewSettingsGeneral(c *ui.Context, p settingsPalette) {
 				ui.Row(c).Shrink(0).Gap(14).AlignItems(ui.Center).Children(func() {
 					check := settingsLink(c, p, "检查更新")
 					if disabled := !status.Enabled || status.Installed || a.updateBusy; disabled {
-						check.Disabled(true).Opacity(.45)
+						check.Disabled(true).Opacity(.45).Cursor(ui.CursorDefault)
 					} else if check.Clicked() {
 						a.checkUpdate()
 					}
@@ -679,17 +681,23 @@ func (a *nativeApp) viewUpdateDialog(c *ui.Context) {
 			if status.Installed {
 				later = "稍后"
 			}
-			if ui.Button(c, later).Clicked() {
+			if ui.Button(c, later).Cursor(ui.CursorPointer).Clicked() {
 				a.dismissUpdate()
 			}
 			if status.Installed {
-				if ui.PrimaryButton(c, "重启应用").Clicked() {
+				if ui.PrimaryButton(c, "重启应用").Cursor(ui.CursorPointer).Clicked() {
 					if err := a.updates.Restart(); err != nil {
 						a.updateError = err.Error()
 					}
 				}
-			} else if ui.PrimaryButton(c, "确定升级").Disabled(a.updateDownloading).Clicked() {
-				a.installUpdate()
+			} else {
+				upgrade := ui.PrimaryButton(c, "确定升级").Disabled(a.updateDownloading)
+				if !a.updateDownloading {
+					upgrade.Cursor(ui.CursorPointer)
+				}
+				if upgrade.Clicked() {
+					a.installUpdate()
+				}
 			}
 		})
 	})
@@ -727,7 +735,7 @@ func (a *nativeApp) viewShortcutDialog(c *ui.Context, p settingsPalette) {
 			text = "请按下组合键…"
 		}
 		accent := c.Theme().Accent
-		recorder := ui.ButtonBase(c).Width(424).MinHeight(62).Radius(10).Background(c.Theme().Surface).Label("录制组合键").Focusable()
+		recorder := ui.ButtonBase(c).Width(424).MinHeight(62).Radius(10).Background(c.Theme().Surface).Label("录制组合键").Focusable().Cursor(ui.CursorPointer)
 		recorder.Draw(func(painter *ui.Painter, r ui.Rect) { painter.StrokeDashed(r, accent, 10, 1) })
 		recorder.Children(func() { ui.Text(c, text).Font(sourceFontFamily).FontSize(13).TextColor(accent) })
 		if recorder.Clicked() {
@@ -753,6 +761,8 @@ func (a *nativeApp) viewShortcutDialog(c *ui.Context, p settingsPalette) {
 			apply := ui.ButtonBase(c).Radius(10).Padding(7, 10).Background(accent).Label("应用绑定").Disabled(a.shortcutCandidate == "")
 			if a.shortcutCandidate == "" {
 				apply.Opacity(.45)
+			} else {
+				apply.Cursor(ui.CursorPointer)
 			}
 			apply.Children(func() { ui.Text(c, "应用绑定").FontSize(11).TextColor(c.Theme().Background) })
 			if apply.Clicked() && a.shortcutCandidate != "" {

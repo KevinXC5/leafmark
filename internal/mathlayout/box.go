@@ -14,10 +14,16 @@ import (
 type Box struct {
 	Width, Ascent, Descent float32
 
-	glyphs []ui.Glyph
-	rules  []rule
-	paths  []*outlinePath
-	kids   []kid
+	svgText string
+	svgSize float32
+	glyphs  []ui.Glyph
+	rules   []rule
+	paths   []*outlinePath
+	kids    []kid
+
+	// tinted 为 true 时这个盒子连同子盒子改用 tint 绘制（\color、\textcolor）。
+	tint   [3]uint8
+	tinted bool
 
 	// snapPaths 让轮廓跟着第一条横线一起对齐像素，根号与上横线才不会错位。
 	snapPaths bool
@@ -75,10 +81,13 @@ func (b *Box) add(k *Box, x, y float32) {
 	b.Descent = max(b.Descent, k.Descent+y)
 }
 
-// Paint 把公式画在 (x, baseline) 处，全部使用颜色 c。
+// Paint 把公式画在 (x, baseline) 处，使用颜色 c；公式里用 \color 指定了颜色的部分除外。
 func (b *Box) Paint(p *ui.Painter, x, baseline float32, c ui.Color) {
 	if b == nil || p == nil {
 		return
+	}
+	if b.tinted {
+		c = ui.Color{R: b.tint[0], G: b.tint[1], B: b.tint[2], A: c.A}
 	}
 	if len(b.glyphs) > 0 {
 		p.Glyphs(b.glyphs, x, baseline, c)

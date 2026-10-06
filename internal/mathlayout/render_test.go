@@ -34,6 +34,13 @@ var renderSamples = []struct {
 	{`\bigcup_{i=1}^n A_i \bigcap_{j} B_j \quad \sqrt{\frac{a}{b}} \quad \sqrt{\sum_{i=1}^{n} \left(\frac{x_i}{y_i}\right)^2}`, true},
 	{`a \\ b + c`, true},
 	{`\text{速度} = \frac{\text{路程}}{\text{时间}}`, true},
+	{`\overbrace{a+b+c}^{n} \; \underbrace{x+y}_{m} \; \overparen{AB} \; \underbracket{a+b} \; A \xrightarrow{f} B \xleftarrow[g]{h} C \xrightarrow[\text{below}]{\text{above text}} D`, true},
+	{`\boxed{E = mc^2} \; \cancel{x} + \bcancel{y} + \xcancel{zw} \; a \not= b \not\in C \not\sqsubseteq d \quad {\color{red} a + b} = \textcolor{blue}{c} + \textcolor{#0a0}{\sqrt{d}}`, true},
+	{`\mathsf{Sans} \; \mathtt{mono} \; \mathfrak{g} \; \boldsymbol{\alpha\beta} \; \mathbf{\Gamma} \; \mathscr{F} \; a \stackrel{\text{def}}{=} b \overset{?}{=} c \underset{x\to0}{\to} d \; \dddot{x} \; \overleftrightarrow{AB} \; \widecheck{abc}`, true},
+	{`\left[\begin{array}{cc|c} 1 & 0 & 2 \\ 0 & 1 & 3 \end{array}\right] \; \begin{array}{|l|c|r|} \hline a & b & c \\ \hline dd & ee & ff \\ \hline \end{array} \; \begin{psmallmatrix} a & b \\ c & d \end{psmallmatrix} \; \sum_{\substack{0<i<n \\ i \ne j}} a_i \; \left.\frac{df}{dx}\right|_{x=0}`, true},
+	{`\begin{align} a &= b + c \tag{1} \\ d + e &= f \tag{2} \end{align}`, true},
+	{`\left\{ x \in \mathbb{R} \,\middle|\, \frac{x^2}{2} > 1 \right\} \; \begin{multline} a + b + c \\ + d + e \end{multline} \; \dbinom{n}{k} \tbinom{n}{k} \; \operatorname*{arg\,max}_x f \; a \leqslant b \triangleq c \leadsto d`, true},
+	{`\text{当 $x^2 > 0$ 时，} f(x) = \text{速度} \times \text{时间} \tag{3}`, true},
 }
 
 // TestRenderSamples 在离屏窗口里绘制全部样例，确认 Paint 不 panic 且确实画出了内容。

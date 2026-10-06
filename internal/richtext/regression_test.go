@@ -128,7 +128,7 @@ func TestPendingFormatsContinueAndCanBeDisabled(t *testing.T) {
 }
 
 func TestRawRemainsReadOnlyForOrdinaryEditing(t *testing.T) {
-	for _, source := range []string{"text ![图片](image.png) end\n", "<div>内容</div>\n", "[引用][id]\n\n[id]: /url\n", "- 一\n\n  ```\n  代码\n  ```\n"} {
+	for _, source := range []string{"<script>内容</script>\n"} {
 		d := Parse(source)
 		if d.Blocks()[0].Kind != Raw {
 			t.Fatalf("预期 Raw：%+v", d.Blocks())
@@ -307,7 +307,7 @@ func TestMarkdownDisplaySemantics(t *testing.T) {
 }
 
 func TestReplaceRawRetainsFollowingBlocks(t *testing.T) {
-	d := Parse("<div>原文</div>\n\n第一\n\n第二\n")
+	d := Parse("<script>原文</script>\n\n第一\n\n第二\n")
 	if err := d.ReplaceRaw(0, "甲\n\n乙\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestReplaceRawRetainsFollowingBlocks(t *testing.T) {
 }
 
 func TestUnsupportedMathAndComplexCalloutRemainRaw(t *testing.T) {
-	for _, source := range []string{"跨节点 $a *b* c$。\n", "> [!tip] 提示\n> $$\n", "> [!WARNING]- 标题\n> 内容\n>\n> 第二段\n"} {
+	for _, source := range []string{"跨节点 $a *b* c$。\n", "> [!tip] 提示\n> $$\n"} {
 		d := Parse(source)
 		if d.Blocks()[0].Kind != Raw || d.Text() != objectReplacement {
 			t.Fatalf("未支持语法露出源码：%q %+v", source, d.Blocks())
@@ -410,7 +410,7 @@ func TestHighlightAndScriptsRetainTextAndMarks(t *testing.T) {
 }
 
 func TestUnsupportedListInlineOnlyProtectsItsItem(t *testing.T) {
-	for _, source := range []string{"3) 正常\n1) 公式 $a *b* c$\n1) 末项\n\n尾段\n", "* 正常\n\n* text ![图](a.png) end\n\n* 末项\n"} {
+	for _, source := range []string{"3) 正常\n1) 公式 $a *b* c$\n1) 末项\n\n尾段\n"} {
 		d := Parse(source)
 		blocks := d.Blocks()
 		if len(blocks) < 3 || blocks[0].Kind != List || blocks[1].Kind != Raw || blocks[2].Kind != List || d.Markdown() != source {

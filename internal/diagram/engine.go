@@ -8,15 +8,30 @@ import (
 // metrics 是布局需要的文字度量，由调用方注入，布局本身不依赖界面库。
 type metrics struct {
 	width func(string) float32 // 单行文字的宽度
+	bold  func(string) float32 // 加粗文字的宽度，为空时退回 width
 	lineH float32              // 行高
 	k     float32              // 整体缩放，所有间距随它变化
+	avail float32              // 可用宽度，0 表示不限制
+}
+
+// textWidth 测量一行文字，加粗时优先用 bold。
+func (m metrics) textWidth(s string, bold bool) float32 {
+	if bold && m.bold != nil {
+		return m.bold(s)
+	}
+	return m.width(s)
 }
 
 // placed 是布局后的节点，x、y 是中心。
+// headH、secs、secH 给类图的名称栏与成员栏，cols 给 ER 图的列宽。
 type placed struct {
 	node       *Node
 	x, y, w, h float32
 	lines      []string
+	headH      float32
+	secs       [][]string
+	secH       []float32
+	cols       []float32
 }
 
 // route 是一条连线：pts 从 From 走到 To，相邻两点之间画一段沿层方向出入的曲线。
@@ -24,6 +39,7 @@ type route struct {
 	edge           *Edge
 	pts            [][2]float32
 	loop           bool // 自环，pts 是节点右侧的四个控制点
+	horizontal     bool // 连线沿水平方向出入节点；零值跟随整图方向
 	labelLines     []string
 	labelX, labelY float32 // 标签中心
 	labelW, labelH float32
@@ -42,6 +58,8 @@ type geometry struct {
 	nodes         []placed
 	routes        []route
 	frames        []frame
+	marks         []mark
+	ops           []op // 时序图、甘特图与饼图的绘制指令
 }
 
 // vnode 是分层图里的一个位置：真实节点或长边上的虚拟节点。坐标用抽象的“自上而下”坐标系。
@@ -57,6 +75,15 @@ type vnode struct {
 
 // arrange 完成分层布局。
 func arrange(g *Graph, m metrics) geometry {
+	if g.Kind == "sequenceDiagram" {
+		return arrangeSequence(g, m)
+	}
+	if g.Kind == "gantt" {
+		return arrangeGantt(g, m)
+	}
+	if g.Kind == "pie" {
+		return arrangePie(g, m)
+	}
 	k := m.k
 	horizontal := g.Direction == LeftRight || g.Direction == RightLeft
 	geo := geometry{horizontal: horizontal}
@@ -335,6 +362,12 @@ func arrange(g *Graph, m metrics) geometry {
 	if len(g.Subgraphs) > 0 {
 		rankSep += m.lineH + 14*k
 	}
+	for _, node := range g.Nodes {
+		if node.Shape == ShapeClass || node.Shape == ShapeEntity || node.Shape == ShapeState {
+			rankSep = max(rankSep, 72*k)
+			break
+		}
+	}
 	y := float32(0)
 	for _, layer := range layers {
 		tall := float32(0)
@@ -579,6 +612,9 @@ func arrange(g *Graph, m metrics) geometry {
 		}
 	}
 
+	// 子图声明了自己的走向时，内部节点按该走向重排，外层连线保持不动。
+	applySubgraphDirections(g, &geo, m)
+
 	// 八、整体平移到留白之内，并算出画布大小。
 	margin := 8 * k
 	var x0, y0, x1, y1 float32
@@ -628,15 +664,24 @@ func arrange(g *Graph, m metrics) geometry {
 
 // sizeNode 按文字与外形算出节点尺寸，保证文字落在外形之内。
 func sizeNode(node *Node, m metrics) placed {
+	if node.Shape == ShapeClass {
+		return sizeClass(node, m)
+	}
+	if node.Shape == ShapeEntity {
+		return sizeEntity(node, m)
+	}
 	k := m.k
 	lines := strings.Split(node.Text, "\n")
+	if len(node.Members) > 0 {
+		lines = append(lines, node.Members...)
+	}
 	tw := float32(0)
 	for _, line := range lines {
 		tw = max(tw, m.width(line))
 	}
 	th := float32(len(lines)) * m.lineH
 	padX, padY := 60*k, 10*k
-	if node.Shape != ShapeRect && node.Shape != ShapeRound && node.Shape != ShapeSubroutine {
+	if node.Shape != ShapeRect && node.Shape != ShapeRound && node.Shape != ShapeSubroutine && node.Shape != ShapeState {
 		padX = 20 * k
 	}
 	w, h := tw+2*padX, th+2*padY
@@ -663,7 +708,268 @@ func sizeNode(node *Node, m metrics) placed {
 		w += h * .4
 	case ShapeCylinder:
 		h += 14 * k
+	case ShapeStart, ShapeEnd:
+		d := 18 * k
+		w, h = d, d
+	case ShapeBar:
+		w, h = 90*k, 8*k
+	case ShapeNote:
+		w = max(w, 80*k)
 	}
 	w = max(w, 40*k)
 	return placed{node: node, w: w, h: h, lines: lines}
+}
+
+// sizeClass 把类分成名称、属性、方法三栏。
+func sizeClass(node *Node, m metrics) placed {
+	k := m.k
+	lines := strings.Split(node.Text, "\n")
+	if node.annotation != "" {
+		lines = append([]string{"<<" + node.annotation + ">>"}, lines...)
+	}
+	headW := float32(0)
+	for _, line := range lines {
+		headW = max(headW, m.textWidth(line, true))
+	}
+	headH := float32(len(lines))*m.lineH + 16*k
+	secs := [][]string{node.attrs, node.methods}
+	if len(node.attrs) == 0 && len(node.methods) == 0 && len(node.Members) > 0 {
+		secs = [][]string{nil, node.Members}
+	}
+	secH := make([]float32, len(secs))
+	w := headW + 28*k
+	for i, sec := range secs {
+		if len(sec) == 0 {
+			continue
+		}
+		secH[i] = float32(len(sec))*m.lineH + 12*k
+		for _, line := range sec {
+			w = max(w, m.width(line)+28*k)
+		}
+	}
+	h := headH
+	for _, sh := range secH {
+		h += sh
+	}
+	return placed{node: node, w: max(w, 96*k), h: h, lines: lines, headH: headH, secs: secs, secH: secH}
+}
+
+// sizeEntity 按类型、名称、键、说明四列测量实体宽度。
+func sizeEntity(node *Node, m metrics) placed {
+	k := m.k
+	lines := strings.Split(node.Text, "\n")
+	headW := float32(0)
+	for _, line := range lines {
+		headW = max(headW, m.textWidth(line, true))
+	}
+	headH := float32(len(lines))*m.lineH + 16*k
+	cols := make([]float32, 4)
+	for _, row := range node.rows {
+		for j := 0; j < len(row) && j < 4; j++ {
+			cols[j] = max(cols[j], m.textWidth(row[j], j == 2))
+		}
+	}
+	w := headW + 28*k
+	span := float32(0)
+	for _, c := range cols {
+		if c > 0 {
+			span += c + 14*k
+		}
+	}
+	w = max(w, span+16*k)
+	rowH := m.lineH + 10*k
+	h := headH + rowH*float32(len(node.rows))
+	return placed{node: node, w: max(w, 120*k), h: h, lines: lines, headH: headH, cols: cols}
+}
+
+// applySubgraphDirections 让声明了 direction 的子图内部按该走向排布。
+func applySubgraphDirections(g *Graph, geo *geometry, m metrics) {
+	if len(g.Subgraphs) == 0 {
+		return
+	}
+	k := m.k
+	own := make([]int, len(g.Nodes))
+	dirOf := make([]Direction, len(g.Nodes))
+	for i := range own {
+		own[i] = -1
+		dirOf[i] = g.Direction
+	}
+	for i, node := range g.Nodes {
+		for sg := node.group; sg >= 0; sg = g.Subgraphs[sg].Parent {
+			if g.Subgraphs[sg].HasDirection {
+				dirOf[i] = g.Subgraphs[sg].Direction
+				own[i] = sg
+				break
+			}
+		}
+	}
+	groups := map[int][]int{}
+	for i, sg := range own {
+		if sg >= 0 && dirOf[i] != g.Direction {
+			groups[sg] = append(groups[sg], i)
+		}
+	}
+	for sg, ids := range groups {
+		if len(ids) < 2 {
+			continue
+		}
+		horizontal := g.Subgraphs[sg].Direction == LeftRight || g.Subgraphs[sg].Direction == RightLeft
+		rank := map[int]int{}
+		for _, id := range ids {
+			rank[id] = 0
+		}
+		member := map[int]bool{}
+		for _, id := range ids {
+			member[id] = true
+		}
+		for _, e := range g.Edges {
+			if !member[e.from] || !member[e.to] || e.from == e.to {
+				continue
+			}
+			if r := rank[e.from] + max(1, e.Length); r > rank[e.to] {
+				rank[e.to] = r
+			}
+		}
+		layers := map[int][]int{}
+		maxR := 0
+		for _, id := range ids {
+			layers[rank[id]] = append(layers[rank[id]], id)
+			if rank[id] > maxR {
+				maxR = rank[id]
+			}
+		}
+		// 以成员原来的左上角为原点重排，外框随后按新位置重算。
+		originX, originY := geo.nodes[ids[0]].x-geo.nodes[ids[0]].w/2, geo.nodes[ids[0]].y-geo.nodes[ids[0]].h/2
+		for _, id := range ids[1:] {
+			p := geo.nodes[id]
+			originX = min(originX, p.x-p.w/2)
+			originY = min(originY, p.y-p.h/2)
+		}
+		main := float32(0)
+		gap := 56 * k
+		for r := 0; r <= maxR; r++ {
+			layer := layers[r]
+			tall := float32(0)
+			for _, id := range layer {
+				p := geo.nodes[id]
+				if horizontal {
+					tall = max(tall, p.w)
+				} else {
+					tall = max(tall, p.h)
+				}
+			}
+			cross := float32(0)
+			for i, id := range layer {
+				p := &geo.nodes[id]
+				if horizontal {
+					p.x = originX + main + tall/2
+					p.y = originY + cross + p.h/2
+					cross += p.h
+				} else {
+					p.y = originY + main + tall/2
+					p.x = originX + cross + p.w/2
+					cross += p.w
+				}
+				if i+1 < len(layer) {
+					cross += 32 * k
+				}
+			}
+			main += tall + gap
+		}
+		for i := range geo.routes {
+			r := &geo.routes[i]
+			if !member[r.edge.from] || !member[r.edge.to] || r.loop {
+				continue
+			}
+			a, b := geo.nodes[r.edge.from], geo.nodes[r.edge.to]
+			r.horizontal = horizontal
+			if horizontal {
+				y := (a.y + b.y) / 2
+				r.pts = [][2]float32{{a.x + sign32(b.x-a.x)*a.w/2, y}, {b.x - sign32(b.x-a.x)*b.w/2, y}}
+			} else {
+				x := (a.x + b.x) / 2
+				r.pts = [][2]float32{{x, a.y + sign32(b.y-a.y)*a.h/2}, {x, b.y - sign32(b.y-a.y)*b.h/2}}
+			}
+			if len(r.labelLines) > 0 {
+				r.labelX = (r.pts[0][0] + r.pts[1][0]) / 2
+				r.labelY = (r.pts[0][1] + r.pts[1][1]) / 2
+			}
+		}
+	}
+	// 外框按重排后的节点重新包住。
+	rebuildFrames(g, geo, m)
+}
+
+func sign32(v float32) float32 {
+	if v < 0 {
+		return -1
+	}
+	if v > 0 {
+		return 1
+	}
+	return 0
+}
+
+// rebuildFrames 按当前节点位置重算子图外框。
+func rebuildFrames(g *Graph, geo *geometry, m metrics) {
+	if len(g.Subgraphs) == 0 {
+		return
+	}
+	k := m.k
+	depth := make([]int, len(g.Subgraphs))
+	for i := range g.Subgraphs {
+		for p := g.Subgraphs[i].Parent; p >= 0; p = g.Subgraphs[p].Parent {
+			depth[i]++
+		}
+	}
+	order := make([]int, len(g.Subgraphs))
+	for i := range order {
+		order[i] = i
+	}
+	for i := 1; i < len(order); i++ {
+		for j := i; j > 0 && depth[order[j]] > depth[order[j-1]]; j-- {
+			order[j], order[j-1] = order[j-1], order[j]
+		}
+	}
+	boxes := make([]*frame, len(g.Subgraphs))
+	pad, titleH := 14*k, m.lineH+8*k
+	for _, si := range order {
+		var x0, y0, x1, y1 float32
+		any := false
+		grow := func(l, t, r, b float32) {
+			if !any {
+				x0, y0, x1, y1, any = l, t, r, b, true
+				return
+			}
+			x0, y0, x1, y1 = min(x0, l), min(y0, t), max(x1, r), max(y1, b)
+		}
+		for i, node := range g.Nodes {
+			if node.group == si {
+				p := geo.nodes[i]
+				grow(p.x-p.w/2, p.y-p.h/2, p.x+p.w/2, p.y+p.h/2)
+			}
+		}
+		for ci, sub := range g.Subgraphs {
+			if sub.Parent == si && boxes[ci] != nil {
+				c := boxes[ci]
+				grow(c.x, c.y, c.x+c.w, c.y+c.h)
+			}
+		}
+		if !any {
+			continue
+		}
+		title := g.Subgraphs[si].Title
+		if title == "" {
+			title = g.Subgraphs[si].ID
+		}
+		w := max(x1-x0+2*pad, m.width(title)+2*pad)
+		cx := (x0 + x1) / 2
+		boxes[si] = &frame{title: title, x: cx - w/2, y: y0 - pad - titleH, w: w, h: y1 - y0 + 2*pad + titleH, depth: depth[si]}
+	}
+	geo.frames = nil
+	for i := len(order) - 1; i >= 0; i-- {
+		if b := boxes[order[i]]; b != nil {
+			geo.frames = append(geo.frames, *b)
+		}
+	}
 }

@@ -196,6 +196,14 @@ func (d *Document) linkOf(at int) *Link {
 	return cloneLink(runs[sp.run].Link)
 }
 
+// styleAt 返回这个 rune 自身的样式，供替换继承命中处而不是它左边。
+func (d *Document) styleAt(at int) (Mark, *Link) {
+	if at < 0 || at >= len(d.index) {
+		return 0, nil
+	}
+	return d.marksOf(at), d.linkOf(at)
+}
+
 // typingStyle 取插入点应继承的样式。待输入格式优先于左侧字符。
 func (d *Document) typingStyle(at int) (Mark, *Link) {
 	marks := Mark(0)
@@ -281,11 +289,11 @@ func insertRuns(runs []Run, local int, text string, marks Mark, link *Link) []Ru
 			var next []Run
 			next = append(next, runs[:i]...)
 			if head != "" {
-				next = append(next, Run{Text: head, Marks: runs[i].Marks, Link: cloneLink(runs[i].Link)})
+				next = append(next, Run{Text: head, Marks: runs[i].Marks, Link: cloneLink(runs[i].Link), Image: cloneInlineImage(runs[i].Image)})
 			}
 			next = append(next, mid)
 			if tail != "" {
-				next = append(next, Run{Text: tail, Marks: runs[i].Marks, Link: cloneLink(runs[i].Link)})
+				next = append(next, Run{Text: tail, Marks: runs[i].Marks, Link: cloneLink(runs[i].Link), Image: cloneInlineImage(runs[i].Image)})
 			}
 			next = append(next, runs[i+1:]...)
 			return mergeRuns(next)
@@ -339,6 +347,11 @@ func (d *Document) splitAt(at int) int {
 		b.dirty = true
 		return at + 1
 	}
+	if len(b.Containers) > 0 && runCount(b.Runs) == 0 {
+		d.leaveContainer(bi)
+		d.reindex()
+		return at
+	}
 	rs := []rune(plainRuns(b.Runs))
 	local := at - start
 	if local < 0 {
@@ -356,7 +369,28 @@ func (d *Document) splitAt(at int) int {
 	}
 	nb := editBlock{Block: Block{Kind: kind, Level: level, Ordered: b.Ordered, Start: b.Start + 1, Runs: tail}, dirty: true, gap: b.gap, indent: b.indent}
 	b.gap = ""
+	nb.group = b.group
+	nb.Containers = append([]Container(nil), b.Containers...)
+	nb.Footnote = b.Footnote
 	nb.source = trailingLineBreak(b.source)
+	if ci := listContext(*b); ci >= 0 && (b.Kind == List || b.Kind == Task) {
+		// 首段拆成新项，原项的续段留在原项，避免被重新归入新项。
+		ctx := nb.Containers[ci]
+		ctx.ID, ctx.Start, ctx.Checked = d.nextContainerID(), ctx.Start+1, false
+		nb.Containers[ci] = ctx
+		nb.Checked = false
+		insertAt := bi + 1
+		if local == len(rs) {
+			for insertAt < len(d.blocks) && len(d.blocks[insertAt].Containers) > ci && d.blocks[insertAt].Containers[ci].ID == b.Containers[ci].ID {
+				insertAt++
+			}
+		}
+		d.dirtyGroup(bi)
+		d.blocks = insertEdit(d.blocks, insertAt, nb)
+		d.reindex()
+		ns, _ := d.blockRange(insertAt)
+		return ns
+	}
 	b.source = ""
 	d.blocks = insertEdit(d.blocks, bi+1, nb)
 	d.reindex()
@@ -389,7 +423,7 @@ func sliceRuns(runs []Run, from, to int) []Run {
 			if z > to {
 				z = to
 			}
-			out = append(out, Run{Text: string(rs[a-off : z-off]), Marks: r.Marks, Link: cloneLink(r.Link)})
+			out = append(out, Run{Text: string(rs[a-off : z-off]), Marks: r.Marks, Link: cloneLink(r.Link), Image: cloneInlineImage(r.Image)})
 		}
 		off += n
 	}
@@ -444,6 +478,16 @@ func (d *Document) Delete(start, end int) Selection {
 	}
 	if !d.editableRange(start, end) {
 		return Selection{Start: start, End: start}
+	}
+	bi := d.BlockIndexAt(end)
+	if end-start == 1 && bi >= 0 && len(d.blocks[bi].Containers) > 0 {
+		blockStart, _ := d.blockRange(bi)
+		if end == blockStart && start < len(d.text) && d.text[start] == '\n' {
+			d.remember(Selection{start, end})
+			d.leaveContainer(bi)
+			d.reindex()
+			return d.noteAfter(Selection{end, end})
+		}
 	}
 	d.remember(Selection{Start: start, End: end})
 	bs, be := d.blockAt(start), d.blockAt(end-1)
@@ -539,7 +583,7 @@ func deleteRunRange(runs []Run, from, to int) []Run {
 			off++
 		}
 		if len(keep) > 0 {
-			out = append(out, Run{Text: string(keep), Marks: r.Marks, Link: cloneLink(r.Link)})
+			out = append(out, Run{Text: string(keep), Marks: r.Marks, Link: cloneLink(r.Link), Image: cloneInlineImage(r.Image)})
 		}
 	}
 	return mergeRuns(out)
@@ -605,12 +649,12 @@ func mapMarks(runs []Run, from, to int, fn func(Mark) Mark) []Run {
 			continue
 		}
 		if off < from {
-			out = append(out, Run{Text: string(rs[:from-off]), Marks: r.Marks, Link: cloneLink(r.Link)})
+			out = append(out, Run{Text: string(rs[:from-off]), Marks: r.Marks, Link: cloneLink(r.Link), Image: cloneInlineImage(r.Image)})
 		}
 		a, z := max(off, from), min(off+n, to)
-		out = append(out, Run{Text: string(rs[a-off : z-off]), Marks: fn(r.Marks), Link: cloneLink(r.Link)})
+		out = append(out, Run{Text: string(rs[a-off : z-off]), Marks: fn(r.Marks), Link: cloneLink(r.Link), Image: cloneInlineImage(r.Image)})
 		if off+n > to {
-			out = append(out, Run{Text: string(rs[to-off:]), Marks: r.Marks, Link: cloneLink(r.Link)})
+			out = append(out, Run{Text: string(rs[to-off:]), Marks: r.Marks, Link: cloneLink(r.Link), Image: cloneInlineImage(r.Image)})
 		}
 		off += n
 	}
@@ -653,12 +697,12 @@ func mapLink(runs []Run, from, to int, link *Link) []Run {
 			continue
 		}
 		if off < from {
-			out = append(out, Run{Text: string(rs[:from-off]), Marks: r.Marks, Link: cloneLink(r.Link)})
+			out = append(out, Run{Text: string(rs[:from-off]), Marks: r.Marks, Link: cloneLink(r.Link), Image: cloneInlineImage(r.Image)})
 		}
 		a, z := max(off, from), min(off+n, to)
-		out = append(out, Run{Text: string(rs[a-off : z-off]), Marks: r.Marks, Link: cloneLink(link)})
+		out = append(out, Run{Text: string(rs[a-off : z-off]), Marks: r.Marks, Link: cloneLink(link), Image: cloneInlineImage(r.Image)})
 		if off+n > to {
-			out = append(out, Run{Text: string(rs[to-off:]), Marks: r.Marks, Link: cloneLink(r.Link)})
+			out = append(out, Run{Text: string(rs[to-off:]), Marks: r.Marks, Link: cloneLink(r.Link), Image: cloneInlineImage(r.Image)})
 		}
 		off += n
 	}
@@ -708,6 +752,17 @@ func (d *Document) SetChecked(blockIndex int, checked bool) {
 	}
 	d.remember(Selection{})
 	d.blocks[blockIndex].Checked = checked
+	if ci := listContext(d.blocks[blockIndex]); ci >= 0 {
+		id := d.blocks[blockIndex].Containers[ci].ID
+		for j := range d.blocks {
+			for k := range d.blocks[j].Containers {
+				if d.blocks[j].Containers[k].ID == id {
+					d.blocks[j].Containers[k].Checked = checked
+					d.blocks[j].dirty = true
+				}
+			}
+		}
+	}
 	d.blocks[blockIndex].dirty = true
 }
 
@@ -836,11 +891,37 @@ func (d *Document) blockTextLength(b editBlock) int {
 }
 
 // Markdown 序列化。未改动的块回写源码，Raw 原样保留。
+// 整文纯文本（NewPlainText）直接返回正文，不包代码围栏。
 func (d *Document) Markdown() string {
+	if len(d.blocks) == 1 && d.blocks[0].plain {
+		return d.blocks[0].Code
+	}
 	var out strings.Builder
 	out.WriteString(d.prefix)
-	for i := range d.blocks {
+	for i := 0; i < len(d.blocks); i++ {
 		bl := &d.blocks[i]
+		if bl.group != 0 {
+			j := i + 1
+			dirty := bl.dirty
+			for j < len(d.blocks) && d.blocks[j].group == bl.group {
+				dirty = dirty || d.blocks[j].dirty
+				j++
+			}
+			piece := bl.source
+			if dirty || piece == "" {
+				piece = writeContainerMD(d.blocks[i:j], 0) + trailingLineBreak(bl.source)
+				if j < len(d.blocks) && !strings.HasSuffix(piece+d.blocks[j-1].gap, "\n\n") {
+					piece += "\n"
+				}
+			}
+			out.WriteString(piece)
+			out.WriteString(d.blocks[j-1].gap)
+			if j < len(d.blocks) && d.blocks[j-1].gap == "" && !strings.HasSuffix(piece, "\n") {
+				out.WriteString("\n\n")
+			}
+			i = j - 1
+			continue
+		}
 		piece := bl.source
 		if bl.dirty || piece == "" {
 			var buf strings.Builder
@@ -923,6 +1004,18 @@ func writeBlockMD(b *strings.Builder, bl *editBlock) {
 		}
 		writeListRuns(b, bl.Runs, listIndent(bl))
 	case Code:
+		if bl.indented {
+			lines := strings.Split(strings.TrimSuffix(bl.Code, "\n"), "\n")
+			for i, line := range lines {
+				if i > 0 {
+					b.WriteByte('\n')
+				}
+				if line != "" {
+					b.WriteString("    " + line)
+				}
+			}
+			return
+		}
 		fence := strings.Repeat("`", max(3, maxBackticks(bl.Code)+1))
 		b.WriteString(fence + bl.Lang + "\n" + bl.Code)
 		if !strings.HasSuffix(bl.Code, "\n") {
@@ -982,6 +1075,20 @@ func writeMarkedRuns(b *strings.Builder, runs []Run, depth int) {
 		return
 	}
 	for _, r := range runs {
+		if r.Link != nil && r.Link.Footnote != "" {
+			b.WriteString("[^" + r.Link.Footnote + "]")
+			continue
+		}
+		if r.Image != nil {
+			img := r.Image
+			alt := "![" + escapeText(img.Alt) + "]"
+			if img.Ref != "" {
+				b.WriteString(alt + "[" + img.Ref + "]")
+			} else {
+				b.WriteString(alt + "(" + linkDestination(img.URL) + linkTitle(img.Title) + ")")
+			}
+			continue
+		}
 		text := escapeText(r.Text)
 		if r.Marks&MarkMath != 0 {
 			// 公式内容是 TeX 原文，不做 Markdown 转义。
@@ -1002,7 +1109,11 @@ func writeMarkedRuns(b *strings.Builder, runs []Run, depth int) {
 			text = fence + content + fence
 		}
 		if r.Link != nil {
-			text = "[" + text + "](" + linkDestination(r.Link.URL) + linkTitle(r.Link.Title) + ")"
+			if r.Link.Ref != "" {
+				text = "[" + text + "][" + r.Link.Ref + "]"
+			} else {
+				text = "[" + text + "](" + linkDestination(r.Link.URL) + linkTitle(r.Link.Title) + ")"
+			}
 		}
 		b.WriteString(text)
 	}
@@ -1131,6 +1242,141 @@ func (d *Document) editableRange(start, end int) bool {
 			}
 			cell, local := d.tableCaret(bi, start)
 			return cell >= 0 && end-start <= runCount(d.cellRuns(&d.blocks[bi], cell))-local
+		}
+	}
+	return true
+}
+
+// ReplaceAll 把全文里的 query 换成 replacement，整个操作是一步撤销。
+// 空 query 返回 0 且选区不动。Raw、图片、行内公式和脚注引用里的匹配跳过；
+// 普通代码块允许替换。替换继承命中处的样式。
+// 返回替换处数，以及最后一处替换终点的折叠选区；没有替换时选区不动。
+func (d *Document) ReplaceAll(query, replacement string) (int, Selection) {
+	// 相同文本不会改文档。直接返回，保留原有的脏标记、撤销栈和选区。
+	if query == "" || query == replacement || len(d.text) == 0 {
+		return 0, d.after
+	}
+	q := []rune(query)
+	type hit struct{ start, end int }
+	var hits []hit
+	for i := 0; i+len(q) <= len(d.text); {
+		if !runesEqual(d.text[i:i+len(q)], q) || !d.replaceableSpan(i, i+len(q)) {
+			i++
+			continue
+		}
+		hits = append(hits, hit{i, i + len(q)})
+		i += len(q)
+	}
+	if len(hits) == 0 {
+		return 0, d.after
+	}
+	// 与 atomicEdit 一样：先记下原文和撤销栈，各处替换走现有 Replace，最后收成一步。
+	before := cloneEdit(d.blocks)
+	oldUndo := append([]snapshot(nil), d.undo...)
+	oldRedo := append([]snapshot(nil), d.redo...)
+	oldClean := d.clean
+	oldAfter := d.after
+	d.coalesce = coalesceNone
+	sel := oldAfter
+	shift := 0
+	for _, h := range hits {
+		at := h.start + shift
+		// 删除会把命中处的样式一起删掉。整段替换继承命中起点的样式。
+		marks, link := d.styleAt(at)
+		out := d.atomicEdit(Selection{at, h.end + shift}, func(pos int) Selection {
+			d.pending = &pendingMark{at: pos, marks: marks, set: ^Mark(0), link: link, hasL: true}
+			return d.Insert(pos, replacement)
+		})
+		shift = out.End - h.end
+		sel = Selection{out.End, out.End}
+	}
+	if len(d.undo) == len(oldUndo) {
+		// 每一处都被拒绝，文档没动。
+		d.redo = oldRedo
+		d.clean = oldClean
+		d.after = oldAfter
+		return 0, oldAfter
+	}
+	d.undo = append(oldUndo, snapshot{blocks: before, sel: oldAfter})
+	d.redo = nil
+	d.coalesce = coalesceNone
+	d.after = sel
+	d.clean = false
+	return len(hits), sel
+}
+
+// replaceableSpan 报告半开区间是否整段落在可替换文本里。
+// 跨块、跨单元格、Raw、图片、公式和脚注引用都不算。
+func (d *Document) replaceableSpan(start, end int) bool {
+	if start < 0 || end > len(d.index) || start >= end {
+		return false
+	}
+	first := d.index[start]
+	if first.gap || first.block < 0 {
+		return false
+	}
+	b := &d.blocks[first.block]
+	switch b.Kind {
+	case Raw, Image, Horizontal:
+		return false
+	case Code:
+		for at := start; at < end; at++ {
+			sp := d.index[at]
+			if sp.block != first.block || sp.gap {
+				return false
+			}
+		}
+		return true
+	case TableBlock:
+		cell, local := d.tableCaret(first.block, start)
+		if cell < 0 {
+			return false
+		}
+		runs := d.cellRuns(b, cell)
+		if end-start > runCount(runs)-local {
+			return false
+		}
+		return spanMarksOK(runs, local, local+end-start)
+	default:
+		if !textKind(b.Kind) {
+			return false
+		}
+		s0, _ := d.blockRange(first.block)
+		for at := start; at < end; at++ {
+			sp := d.index[at]
+			if sp.block != first.block || sp.gap {
+				return false
+			}
+		}
+		return spanMarksOK(b.Runs, start-s0, end-s0)
+	}
+}
+
+// spanMarksOK 拒绝落在公式或脚注引用上的区间。
+func spanMarksOK(runs []Run, from, to int) bool {
+	off := 0
+	for _, r := range runs {
+		n := utf8.RuneCountInString(r.Text)
+		if off < to && off+n > from {
+			if r.Marks&MarkMath != 0 {
+				return false
+			}
+			if r.Image != nil || r.Link != nil && r.Link.Footnote != "" {
+				return false
+			}
+		}
+		off += n
+	}
+	return true
+}
+
+func runesEqual(a, b []rune) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
 		}
 	}
 	return true

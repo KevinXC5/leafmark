@@ -19,8 +19,21 @@ var md = goldmark.New(
 	goldmark.WithExtensions(
 		extension.GFM,
 	),
-	goldmark.WithParserOptions(inlineMarkParsers()),
+	goldmark.WithParserOptions(inlineMarkParsers(), footnoteParsers(), footnoteInlines()),
 )
+
+// NewPlainText 把全文收成单个代码块。Text 与 Code 都等于 text，
+// 围栏和全部尾换行留在正文里，不按 Markdown 解析。
+func NewPlainText(text string) *Document {
+	d := &Document{clean: true, blocks: []editBlock{{
+		Block:    Block{Kind: Code, Code: text},
+		source:   text,
+		plain:    true,
+		indented: false,
+	}}}
+	d.reindex()
+	return d
+}
 
 // Parse 把 Markdown 解析成文档。空字符串得到一个空段落。
 func Parse(markdown string) *Document {
@@ -72,6 +85,7 @@ func parseBody(markdown string) *Document {
 
 	d := &Document{clean: true}
 	var covered int
+	nextContainerID := 1
 	for n := root.FirstChild(); n != nil; n = n.NextSibling() {
 		start, stop := nodeSpan(n, src)
 		if fence, ok := n.(*ast.FencedCodeBlock); ok && fence.Lines().Len() == 0 {
@@ -100,7 +114,31 @@ func parseBody(markdown string) *Document {
 		}
 		b := convertBlock(n, src, 1)
 		b.source = string(src[start:stop])
-		if list, ok := n.(*ast.List); ok {
+		if html, isHTML := n.(*ast.HTMLBlock); isHTML {
+			if blocks, supported := convertHTML(html, src, &nextContainerID); supported && len(blocks) > 0 {
+				group := 0
+				if len(blocks) > 1 {
+					group = len(d.blocks) + 1
+				}
+				for j := range blocks {
+					blocks[j].group = group
+					if j == 0 {
+						blocks[j].source = b.source
+					}
+				}
+				d.blocks = append(d.blocks, blocks...)
+				covered = stop
+				continue
+			}
+		}
+		if expanded, ok := expandContainer(n, src, &nextContainerID); ok {
+			group := len(d.blocks) + 1
+			for j := range expanded {
+				expanded[j].group = group
+			}
+			expanded[0].source = b.source
+			d.blocks = append(d.blocks, expanded...)
+		} else if list, ok := n.(*ast.List); ok {
 			if items, supported := convertListItems(list, src); supported && listCovers(items, src[start:stop]) {
 				d.blocks = append(d.blocks, items...)
 			} else {
@@ -121,6 +159,7 @@ func parseBody(markdown string) *Document {
 	if len(d.blocks) == 0 {
 		d.blocks = []editBlock{{Block: Block{Kind: Paragraph}}}
 	}
+	numberFootnotes(d)
 	d.reindex()
 	return d
 }
@@ -402,14 +441,15 @@ func convertBlock(n ast.Node, src []byte, depth int) editBlock {
 			Code: codeText(v.Lines(), src),
 		}}
 	case *ast.CodeBlock:
-		// 缩进代码块缩进信息在源码里，整块保留原文。
-		return rawOf(n, src)
+		return editBlock{Block: Block{Kind: Code, Code: codeText(v.Lines(), src)}}
 	case *ast.Blockquote:
 		return convertQuote(v, src, depth)
 	case *ast.List:
 		return convertList(v, src, depth)
 	case *extast.Table:
 		return convertTable(v, src)
+	case *ast.LinkReferenceDefinition:
+		return editBlock{Block: Block{Kind: ReferenceDef, Raw: string(v.Label), URL: string(v.Destination), Title: string(v.Title)}}
 	default:
 		return rawOf(n, src)
 	}
@@ -451,7 +491,7 @@ func loneImage(p *ast.Paragraph, src []byte) (editBlock, bool) {
 			return editBlock{}, false
 		}
 	}
-	if count != 1 || img == nil || img.Reference != nil {
+	if count != 1 || img == nil {
 		return editBlock{}, false
 	}
 	alt := string(img.Text(src))
@@ -654,6 +694,9 @@ func listFromInline(list *ast.List, parent ast.Node, src []byte, depth int) edit
 }
 
 func taskState(parent ast.Node) (checked bool, ok bool) {
+	if parent == nil {
+		return false, false
+	}
 	for c := parent.FirstChild(); c != nil; c = c.NextSibling() {
 		if box, is := c.(*extast.TaskCheckBox); is {
 			return box.IsChecked, true
@@ -824,6 +867,8 @@ func walkInline(n ast.Node, src []byte, marks Mark, link *Link, out *[]Run) bool
 			if !walkInline(t, src, next, link, out) {
 				return false
 			}
+		case *footnoteInline:
+			appendRun(out, t.label, marks|MarkSup, &Link{Footnote: t.label})
 		case *markedInline:
 			if t.mark == MarkSub || t.mark == MarkSup {
 				appendRun(out, t.value, marks|t.mark, link)
@@ -835,16 +880,65 @@ func walkInline(n ast.Node, src []byte, marks Mark, link *Link, out *[]Run) bool
 				return false
 			}
 		case *ast.Link:
+			inner := &Link{URL: string(t.Destination), Title: string(t.Title)}
 			if t.Reference != nil {
+				inner.Ref = string(t.Reference.Value)
+			}
+			if !walkInline(t, src, marks, inner, out) {
 				return false
 			}
-			inner := &Link{URL: string(t.Destination), Title: string(t.Title)}
-			if !walkInline(t, src, marks, inner, out) {
+		case *ast.Image:
+			img := &InlineImage{Alt: string(t.Text(src)), URL: string(t.Destination), Title: string(t.Title)}
+			if t.Reference != nil {
+				img.Ref = string(t.Reference.Value)
+			}
+			*out = append(*out, Run{Text: objectReplacement, Marks: marks, Link: cloneLink(link), Image: img})
+		case *ast.RawHTML:
+			if !applyInlineHTML(string(t.Text(src)), &marks) {
 				return false
 			}
 		default:
 			return false
 		}
+	}
+	return true
+}
+
+// applyInlineHTML 识别行内的 u、kbd 等标签，只切换样式，不把标签写进正文。
+func applyInlineHTML(raw string, marks *Mark) bool {
+	text := strings.TrimSpace(raw)
+	closing := strings.HasPrefix(text, "</")
+	name := strings.Trim(text, "</> ")
+	if i := strings.IndexAny(name, " \t"); i >= 0 {
+		name = name[:i]
+	}
+	var bit Mark
+	switch strings.ToLower(name) {
+	case "u", "ins":
+		bit = MarkUnderline
+	case "kbd":
+		bit = MarkKbd
+	case "b", "strong":
+		bit = MarkBold
+	case "i", "em":
+		bit = MarkItalic
+	case "s", "del", "strike":
+		bit = MarkStrike
+	case "mark":
+		bit = MarkHighlight
+	case "sub":
+		bit = MarkSub
+	case "sup":
+		bit = MarkSup
+	case "code":
+		bit = MarkCode
+	default:
+		return false
+	}
+	if closing {
+		*marks &^= bit
+	} else {
+		*marks |= bit
 	}
 	return true
 }
@@ -863,7 +957,7 @@ func mergeRuns(runs []Run) []Run {
 	out := []Run{runs[0]}
 	for _, r := range runs[1:] {
 		last := &out[len(out)-1]
-		if last.Marks == r.Marks && sameLink(last.Link, r.Link) {
+		if last.Image == nil && r.Image == nil && last.Marks == r.Marks && sameLink(last.Link, r.Link) {
 			last.Text += r.Text
 			continue
 		}
@@ -884,7 +978,22 @@ func sameLink(a, b *Link) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
-	return a.URL == b.URL && a.Title == b.Title
+	return a.URL == b.URL && a.Title == b.Title && a.Footnote == b.Footnote && a.Ref == b.Ref
+}
+
+func sameInlineImage(a, b *InlineImage) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func cloneInlineImage(img *InlineImage) *InlineImage {
+	if img == nil {
+		return nil
+	}
+	c := *img
+	return &c
 }
 
 // unescape 还原 CommonMark 反斜杠转义，得到用户看到的字符。

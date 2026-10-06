@@ -4,6 +4,7 @@ import "unicode/utf8"
 
 // reindex 根据块重建纯文本和 rune 到块的映射。
 func (d *Document) reindex() {
+	numberFootnotes(d)
 	d.text = d.text[:0]
 	d.index = d.index[:0]
 	for i := range d.blocks {
@@ -13,12 +14,14 @@ func (d *Document) reindex() {
 			d.appendRunes(b.Code, i, -1, 0)
 		case Horizontal, Image, Raw:
 			d.appendRunes(objectReplacement, i, -1, -1)
+		case ReferenceDef:
+			// 定义不进入可见正文。
 		case TableBlock:
 			d.appendTable(i, b.Table)
 		default:
 			d.appendRuns(i, -1, b.Runs)
 		}
-		if i != len(d.blocks)-1 {
+		if d.separatesNext(i) {
 			d.text = append(d.text, '\n')
 			d.index = append(d.index, span{block: i, cell: -1, run: -1, gap: true})
 		}
@@ -229,11 +232,27 @@ func (d *Document) blockRange(i int) (int, int) {
 		// 空块：位置是前导结构换行之后。
 		pos := 0
 		for bi := 0; bi < i; bi++ {
-			pos += d.blockRuneLen(bi) + 1
+			pos += d.blockRuneLen(bi)
+			if d.separatesNext(bi) {
+				pos++
+			}
 		}
 		return pos, pos
 	}
 	return start, end
+}
+
+// separatesNext 报告第 i 块后面是否有结构换行。引用定义不占正文，也不占换行。
+func (d *Document) separatesNext(i int) bool {
+	if i < 0 || i >= len(d.blocks)-1 || d.blocks[i].Kind == ReferenceDef {
+		return false
+	}
+	for j := i + 1; j < len(d.blocks); j++ {
+		if d.blocks[j].Kind != ReferenceDef {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *Document) blockRuneLen(i int) int {
@@ -243,6 +262,8 @@ func (d *Document) blockRuneLen(i int) int {
 		return utf8.RuneCountInString(b.Code)
 	case Horizontal, Image, Raw:
 		return 1
+	case ReferenceDef:
+		return 0
 	case TableBlock:
 		return tableRuneLen(b.Table)
 	default:
@@ -278,6 +299,17 @@ func tableRuneLen(tb *TableData) int {
 func cloneBlock(b Block) Block {
 	out := b
 	out.Runs = cloneRuns(b.Runs)
+	out.Containers = append([]Container(nil), b.Containers...)
+	for i := range out.Containers {
+		if b.Containers[i].Callout != nil {
+			c := *b.Containers[i].Callout
+			out.Containers[i].Callout = &c
+		}
+	}
+	if b.Footnote != nil {
+		f := *b.Footnote
+		out.Footnote = &f
+	}
 	if b.Callout != nil {
 		callout := *b.Callout
 		out.Callout = &callout
@@ -305,6 +337,7 @@ func cloneRuns(runs []Run) []Run {
 	for i, r := range runs {
 		out[i] = r
 		out[i].Link = cloneLink(r.Link)
+		out[i].Image = cloneInlineImage(r.Image)
 	}
 	return out
 }

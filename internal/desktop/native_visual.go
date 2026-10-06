@@ -28,7 +28,7 @@ func nativeGlass(c *ui.Context) *ui.Element {
 	return ui.Column(c).Radius(18).Gradient(p.glassTop, p.glassBottom, 180).Border(1, p.glassEdge).Shadow(3, 5, 24, 0, p.shadow).Padding(16).Gap(14)
 }
 func nativeIconButton(c *ui.Context, icon, label string) *ui.Element {
-	b := ui.ButtonBase(c).Size(28, 28).Radius(10).Label(label).TextColor(c.Theme().TextMuted)
+	b := ui.ButtonBase(c).Size(28, 28).Radius(10).Label(label).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Surface).TextColor(c.Theme().Text)
 	}
@@ -38,7 +38,7 @@ func nativeIconButton(c *ui.Context, icon, label string) *ui.Element {
 
 // nativeCloseButton 是标签上的小号关闭按钮。
 func nativeCloseButton(c *ui.Context, label string) *ui.Element {
-	b := ui.ButtonBase(c).Size(18, 18).Radius(6).Label(label).TextColor(c.Theme().TextMuted)
+	b := ui.ButtonBase(c).Size(18, 18).Radius(6).Label(label).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Border).TextColor(c.Theme().Text)
 	}
@@ -46,7 +46,7 @@ func nativeCloseButton(c *ui.Context, label string) *ui.Element {
 	return b
 }
 func nativeTextButton(c *ui.Context, label string) *ui.Element {
-	b := ui.ButtonBase(c).Height(30).Padding(4, 10).Radius(10).Label(label)
+	b := ui.ButtonBase(c).Height(30).Padding(4, 10).Radius(10).Label(label).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Surface)
 	}
@@ -72,7 +72,11 @@ func (a *nativeApp) viewTitleBar(c *ui.Context, bar ui.TitleBar) {
 func (a *nativeApp) actionMenu(m *ui.Menu) {
 	choose := func(items []struct{ id, label string }) {
 		for _, item := range items {
-			if m.Item(item.label).Chosen() {
+			entry := m.Item(item.label)
+			if a.reading && editingCommand(item.id) {
+				entry.Disabled(true)
+			}
+			if entry.Chosen() {
 				a.command(item.id)
 			}
 		}
@@ -93,6 +97,13 @@ func (a *nativeApp) actionMenu(m *ui.Menu) {
 	if sourceMode(a.active()) {
 		source = "切换到原位编辑"
 	}
+	reading := "进入阅读模式"
+	if a.reading {
+		reading = "退出阅读模式"
+	}
+	if m.Item(reading).Chosen() {
+		a.command("reading")
+	}
 	if m.Item(source).Chosen() {
 		a.command("source")
 	}
@@ -102,7 +113,12 @@ func (a *nativeApp) actionMenu(m *ui.Menu) {
 				m.Separator()
 				continue
 			}
-			if m.Item(item.label).Chosen() {
+			entry := m.Item(item.label)
+			// 阅读模式下正文不可改，格式菜单整组置灰。
+			if a.reading {
+				entry.Disabled(true)
+			}
+			if entry.Chosen() {
 				a.command(item.id)
 			}
 		}
@@ -137,7 +153,7 @@ func (a *nativeApp) viewTabs(c *ui.Context) {
 					row.Background(nativeColors(c.Theme().Dark).tab)
 				}
 				row.Children(func() {
-					b := ui.ButtonBase(c).Height(36).MaxWidth(200).MinWidth(0).Gap(8).Padding(0, 4).Label(name).TextColor(c.Theme().TextMuted)
+					b := ui.ButtonBase(c).Height(36).MaxWidth(200).MinWidth(0).Gap(8).Padding(0, 4).Label(name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 					if i == a.current {
 						b.TextColor(c.Theme().Text).FontWeight(500)
 					}
@@ -186,7 +202,7 @@ func (a *nativeApp) viewSidebar(c *ui.Context) {
 				if selected {
 					ink = c.Theme().Text
 				}
-				b := ui.ButtonBase(c).Grow(1).MinWidth(0).Height(28).Radius(10).Label(item.label)
+				b := ui.ButtonBase(c).Grow(1).MinWidth(0).Height(28).Radius(10).Label(item.label).Cursor(ui.CursorPointer)
 				if selected {
 					b.Background(c.Theme().Background).Shadow(0, 1, 4, 0, nativeColors(c.Theme().Dark).shadow)
 				}
@@ -317,7 +333,7 @@ func (a *nativeApp) viewOutline(c *ui.Context) {
 	}
 	for i, h := range headings {
 		ui.Box(c).Key(fmt.Sprintf("heading:%d", h.at)).FillWidth().Children(func() {
-			b := ui.ButtonBase(c).FillWidth().Height(39).Margin(0, 0, 6, 0).Padding(8, 8, 8, float32(8+(h.level-1)*12)).Gap(8).Radius(10).Justify(ui.Start).Label("大纲：" + h.text).TextColor(c.Theme().TextMuted)
+			b := ui.ButtonBase(c).FillWidth().Height(39).Margin(0, 0, 6, 0).Padding(8, 8, 8, float32(8+(h.level-1)*12)).Gap(8).Radius(10).Justify(ui.Start).Label("大纲：" + h.text).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 			if i == active {
 				p := nativeColors(c.Theme().Dark)
 				b.Background(p.outline).TextColor(p.outlineInk).FontWeight(500)
@@ -397,7 +413,7 @@ func nativeTreeMatches(n workspace.Node, query string) bool {
 	return false
 }
 func nativeNavigationItem(c *ui.Context, name string, inset float32) *ui.Element {
-	b := ui.ButtonBase(c).FillWidth().Height(30).Radius(10).Padding(4, 8, 4, inset).Justify(ui.Start).Gap(6).Label(name).TextColor(c.Theme().TextMuted)
+	b := ui.ButtonBase(c).FillWidth().Height(30).Radius(10).Padding(4, 8, 4, inset).Justify(ui.Start).Gap(6).Label(name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Surface)
 	}
@@ -425,7 +441,7 @@ func (a *nativeApp) viewTree(c *ui.Context, nodes []workspace.Node, depth int) {
 			if open {
 				icon = "chevron-down"
 			}
-			b := ui.ButtonBase(c).FillWidth().Height(30).Radius(10).Padding(4, 8, 4, float32(8+depth*12)).Justify(ui.Start).Gap(6).Label(current.Name).TextColor(c.Theme().TextMuted)
+			b := ui.ButtonBase(c).FillWidth().Height(30).Radius(10).Padding(4, 8, 4, float32(8+depth*12)).Justify(ui.Start).Gap(6).Label(current.Name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 			if b.Hovered() {
 				b.Background(c.Theme().Surface)
 			}
@@ -477,6 +493,9 @@ var nativeFormatBar = []struct{ id, label, icon string }{
 
 // viewFormatBar 只在选中文字后浮出，贴在选区上方；放不下时落到选区下方。
 func (a *nativeApp) viewFormatBar(c *ui.Context, editor documentEditor) {
+	if a.reading {
+		return
+	}
 	anchor, ok := editor.(selectionAnchorer)
 	if !ok {
 		return
@@ -517,6 +536,19 @@ func (a *nativeApp) viewFind(c *ui.Context) {
 		if nativeIconButton(c, "chevron-down", "下一个").Clicked() {
 			a.runFind()
 		}
+		// 替换框是文本输入，保持文本光标；阅读模式下不能替换，也不暗示可点击。
+		ui.TextInput(c, &a.replaceText).Label("替换为").Placeholder("替换为").Height(30).Grow(1).MinWidth(0)
+		replace := func(label string, all bool) {
+			button := nativeTextButton(c, label)
+			if a.reading {
+				button.Cursor(ui.CursorDefault).Disabled(true).Opacity(.45)
+			}
+			if button.Clicked() {
+				a.runReplace(all)
+			}
+		}
+		replace("替换", false)
+		replace("全部替换", true)
 		if a.findNote != "" {
 			ui.Text(c, a.findNote).FontSize(11).TextColor(c.Theme().TextMuted)
 		}
@@ -582,12 +614,20 @@ func (a *nativeApp) viewStatus(c *ui.Context) {
 		ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, status)
 			ui.Text(c, "UTF-8")
+			// 按钮文字只反映源码切换的方向，阅读状态单独标注，两者可以同时成立。
 			mode, other := "• 原位编辑", "源码"
 			if sourceMode(tab) {
 				mode, other = "• 源码模式", "原位"
 			}
+			if a.reading {
+				if sourceMode(tab) {
+					mode = "• 源码只读"
+				} else {
+					mode = "• 阅读模式"
+				}
+			}
 			ui.Text(c, mode)
-			toggle := ui.ButtonBase(c).Height(22).Padding(0, 6).Radius(6).Label("切换原位编辑与源码")
+			toggle := ui.ButtonBase(c).Height(22).Padding(0, 6).Radius(6).Label("切换原位编辑与源码").Cursor(ui.CursorPointer)
 			if toggle.Hovered() {
 				toggle.Background(c.Theme().Surface)
 			}

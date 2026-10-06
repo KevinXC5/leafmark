@@ -456,7 +456,7 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 			refreshVerificationWindow(win)
 			time.Sleep(40 * time.Millisecond)
 			ready := false
-			mygo.RunOnMain(func() { ready = app.active().editor.(*sourceEditor).bounds.W > 0 })
+			mygo.RunOnMain(func() { ready = app.active().editor.(*sourceEditor).Bounds().W > 0 })
 			if ready {
 				break
 			}
@@ -464,11 +464,12 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 		mygo.RunOnMain(func() {
 			source := app.active().editor.(*sourceEditor)
 			w, _ := win.ContentSize()
-			if source.bounds.X+source.bounds.W < float32(w)-1 {
-				err = fmt.Errorf("源码滚动区域未贴到窗口右侧：%+v，窗口宽度 %v", source.bounds, w)
+			bounds := source.Bounds()
+			if bounds.X+bounds.W < float32(w)-1 {
+				err = fmt.Errorf("源码滚动区域未贴到窗口右侧：%+v，窗口宽度 %v", bounds, w)
 				return
 			}
-			headings := nativeSourceOutline(source.text)
+			headings := nativeSourceOutline(source.Markdown())
 			if len(headings) < 2 {
 				err = fmt.Errorf("示例文档缺少大纲标题")
 				return
@@ -481,7 +482,7 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 			ready := false
 			mygo.RunOnMain(func() {
 				source := app.active().editor.(*sourceEditor)
-				ready = !source.jump && source.scroll.Y > 0
+				ready = !source.Jumping()
 			})
 			if ready {
 				break
@@ -489,8 +490,13 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 		}
 		mygo.RunOnMain(func() {
 			source := app.active().editor.(*sourceEditor)
-			if source.jump || source.scroll.Y <= 0 || source.Changed() {
-				err = fmt.Errorf("源码大纲未完成滚动或修改了原文")
+			_, y := source.Scroll()
+			pending, changed := source.Jumping(), source.Changed()
+			at, _ := source.Selection()
+			_, caretY, lineH := source.ed.PointForOffset(at)
+			visible := caretY >= y-1 && caretY+lineH <= y+source.Bounds().H+1
+			if pending || !visible || changed {
+				err = fmt.Errorf("源码大纲未定位到可见行或修改了原文：待滚动=%v，滚动=%v，光标=%v，已修改=%v", pending, y, caretY, changed)
 			}
 			source.SetSelection(0, 0)
 		})
@@ -500,6 +506,14 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 		}
 		results["sourceOutlineScroll"] = true
 		results["sourceScrollRightEdge"] = true
+		extension, extensionErr := verifyNativeExtensions(win, app)
+		for key, value := range extension {
+			results[key] = value
+		}
+		if extensionErr != nil {
+			finishNativeVerification(results, extensionErr)
+			return
+		}
 		// 源码模式截图，随后切回原位编辑。
 		win.Invalidate()
 		refreshVerificationWindow(win)

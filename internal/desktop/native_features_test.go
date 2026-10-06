@@ -52,7 +52,8 @@ func TestSourceModeTogglesWithoutChangingDocument(t *testing.T) {
 	if app.notice == "" {
 		t.Fatal("源码模式下的排版命令应给出提示")
 	}
-	source.text += "追加\n"
+	source.SetSelection(len([]rune(source.Text())), len([]rune(source.Text())))
+	source.HandleInput(nil, ui.InputEvent{Kind: ui.InputText, Text: "追加\n"})
 	app.command("source")
 	if _, ok := app.active().editor.(*stubEditor); !ok || app.active().editor.Markdown() != "# 标题\n\n正文\n追加\n" {
 		t.Fatalf("回到原位编辑后正文错误：%q", app.active().editor.Markdown())
@@ -73,8 +74,8 @@ func TestSourceOutlineScrollsFullWidthEditor(t *testing.T) {
 	for range 3 {
 		view.Frame()
 	}
-	if source.bounds.X+source.bounds.W < 1499 {
-		t.Fatalf("源码文本域未贴到编辑区右侧：%+v", source.bounds)
+	if box := source.Bounds(); box.X+box.W < 1499 {
+		t.Fatalf("源码编辑区未贴到右侧：%+v", box)
 	}
 	// 通过大纲按钮验证实际滚动，而不只检查定位请求。
 	if err := view.Click("大纲：目标章节"); err != nil {
@@ -83,8 +84,8 @@ func TestSourceOutlineScrollsFullWidthEditor(t *testing.T) {
 	for range 5 {
 		view.Frame()
 	}
-	if source.scroll.Y <= 1000 || source.jump {
-		t.Fatalf("大纲未滚动到目标章节：滚动=%v，待跳转=%v", source.scroll.Y, source.jump)
+	if _, y := source.Scroll(); y <= 1000 || source.Jumping() {
+		t.Fatalf("大纲未滚动到目标章节：滚动=%v，待跳转=%v", y, source.Jumping())
 	}
 	if source.Markdown() != markdown || source.Changed() {
 		t.Fatal("大纲跳转不应修改原文")
@@ -95,8 +96,8 @@ func TestSourceOutlineScrollsFullWidthEditor(t *testing.T) {
 	for range 4 {
 		view.Frame()
 	}
-	if source.scroll.Y != 0 {
-		t.Fatalf("首个标题未回到顶部：%v", source.scroll.Y)
+	if _, y := source.Scroll(); y > 24 {
+		t.Fatalf("首个标题未回到顶部：%v", y)
 	}
 }
 
@@ -146,6 +147,120 @@ func TestExportDocumentIsStandaloneHTML(t *testing.T) {
 	}
 	if exportName(name, ".pdf") != "欢迎.pdf" || exportName("a/b\\笔记.markdown", ".html") != "笔记.html" || exportName("", ".html") != "未命名.html" {
 		t.Fatalf("导出文件名建议错误：%q", exportName(name, ".pdf"))
+	}
+}
+
+func TestSourceFindSelectsAndReplaceUndoes(t *testing.T) {
+	s := newSourceEditor("# 标题\n\n叶脉定位，再次叶脉定位。\n", 14)
+	if !s.Find("叶脉定位") {
+		t.Fatal("第一次查找未命中")
+	}
+	start, end := s.Selection()
+	if string([]rune(s.Text())[start:end]) != "叶脉定位" {
+		t.Fatalf("查找没有选中：%d-%d", start, end)
+	}
+	if !s.Find("叶脉定位") {
+		t.Fatal("第二次查找未命中下一处")
+	}
+	start, _ = s.Selection()
+	if start == 0 {
+		t.Fatal("连续查找应离开第一处")
+	}
+	if s.Find("没有这个词") {
+		t.Fatal("不存在的词不应命中")
+	}
+
+	s = newSourceEditor("甲甲甲\n", 14)
+	if n := s.Replace("甲", "乙", false); n != 1 || s.Text() != "乙甲甲\n" {
+		t.Fatalf("单次替换错误：%d %q", n, s.Text())
+	}
+	if n := s.Replace("甲", "乙", true); n != 2 || s.Text() != "乙乙乙\n" {
+		t.Fatalf("全部替换错误：%d %q", n, s.Text())
+	}
+	s.Undo()
+	if s.Text() != "乙甲甲\n" {
+		t.Fatalf("撤销全部替换失败：%q", s.Text())
+	}
+	s.Undo()
+	if s.Text() != "甲甲甲\n" {
+		t.Fatalf("撤销单次替换失败：%q", s.Text())
+	}
+	s.Redo()
+	if s.Text() != "乙甲甲\n" {
+		t.Fatalf("重做失败：%q", s.Text())
+	}
+
+	fenced := "```\n甲\n甲\n```\n"
+	s = newSourceEditor(fenced, 14)
+	if n := s.Replace("甲", "乙", true); n != 2 || s.Markdown() != "```\n乙\n乙\n```\n" {
+		t.Fatalf("围栏内全部替换错误：%d %q", n, s.Markdown())
+	}
+	s.Undo()
+	if s.Markdown() != fenced {
+		t.Fatalf("撤销未精确恢复围栏与末尾换行：%q", s.Markdown())
+	}
+
+	s = newSourceEditor("正文", 14)
+	s.InsertLink("名", "https://example.com")
+	s.InsertImage("图", "a.png")
+	if s.Markdown() != "正文\n[名](https://example.com)\n![图](a.png)\n" {
+		t.Fatalf("无尾换行时插入粘连了正文：%q", s.Markdown())
+	}
+
+	kept := s.Markdown()
+	s.SetReadOnly(true)
+	if n := s.Replace("名", "丙", true); n != 0 || s.Markdown() != kept {
+		t.Fatalf("只读仍被替换：%d %q", n, s.Markdown())
+	}
+	s.InsertLink("另一个", "https://example.com")
+	if s.Markdown() != kept {
+		t.Fatalf("只读仍被插入：%q", s.Markdown())
+	}
+	s.Undo()
+	if s.Markdown() != kept {
+		t.Fatalf("只读仍被撤销：%q", s.Markdown())
+	}
+}
+
+func TestSourceHighlightKinds(t *testing.T) {
+	text := "# 标题\n\n**强调** 与 [链接](https://example.com) `代码` $x$。\n\n```\n# 不是标题\n```\n"
+	spans := sourceHighlight(text)
+	got := map[sourceKind]bool{}
+	for _, sp := range spans {
+		got[sp.kind] = true
+		if sp.end <= sp.start {
+			t.Fatalf("空区间：%+v", sp)
+		}
+	}
+	for _, kind := range []sourceKind{sourceHeading, sourceMark, sourceLink, sourceCode, sourceMath} {
+		if !got[kind] {
+			t.Fatalf("缺少着色种类 %d：%+v", kind, spans)
+		}
+	}
+	runes := []rune(text)
+	for _, sp := range spans {
+		if sp.kind == sourceCode && string(runes[sp.start:sp.end]) == "# 不是标题" {
+			t.Fatal("围栏代码里的标题标记不应单独着色")
+		}
+	}
+	// 不同标记不能互相关闭；四个空格不是围栏，后面的标题仍要着色。
+	mixed := "```\n# 仍是代码\n~~~\n# 代码外\n"
+	code := sourceHighlight(mixed)
+	if len(code) == 0 || code[0].kind != sourceCode || code[0].end != len([]rune(mixed)) {
+		t.Fatalf("~~~ 不应关闭 ```：%+v", code)
+	}
+	indented := "    ```\n# 不是围栏\n"
+	sawHeading := false
+	for _, sp := range sourceHighlight(indented) {
+		if sp.kind == sourceCode && sp.start == 0 {
+			t.Fatal("四个空格后不应成为围栏")
+		}
+		if sp.kind == sourceHeading {
+			sawHeading = true
+		}
+	}
+	if !sawHeading {
+		t.Fatal("缩进过深的记号之后，标题应照常着色")
 	}
 }
 
@@ -239,5 +354,60 @@ func TestRenameRefusedWhileDocumentIsOpen(t *testing.T) {
 		if app.promptOpen || app.notice != "请先关闭相关标签再重命名" {
 			t.Fatalf("已打开的文档或其文件夹不应可重命名：%+v", node)
 		}
+	}
+}
+
+func TestExportEmbedsRenderedMathAndDiagrams(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	source := "行内 $s = vt$ 继续\n\n$$\nQ_n = Q \\cdot r^n\n$$\n\n```mermaid\ngraph LR\nA-->B\n```\n\n见脚注[^a]\n\n[^a]: 注一\n"
+	app.adopt(app.files.Current(), source)
+	_, body, ok := app.exportBody()
+	if !ok {
+		t.Fatal("没有可导出的文档")
+	}
+	html := exportDocument("笔记.md", body)
+	for _, want := range []string{
+		`<span class="math" style="vertical-align:`,
+		`<div class="math-display"><svg`,
+		`<div class="diagram"><svg`,
+		`class="footnotes"`,
+		`<sup>1</sup>`,
+		`href="#fn-a"`,
+		`id="fn-a"`,
+		`href="#fnref-a"`,
+		`break-inside: avoid`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("导出缺少 %q：\n%s", want, html)
+		}
+	}
+	// 排版结果替换源码，且导出文件不依赖外部资源。
+	if strings.Contains(html, "s = vt") || strings.Contains(html, "<script") {
+		t.Fatalf("导出仍含源码或脚本：\n%s", html)
+	}
+	if strings.Contains(html, "graph LR") {
+		t.Fatalf("图表排版后仍留下源码：\n%s", html)
+	}
+	if strings.Contains(html, "http://") || strings.Contains(html, "https://") {
+		// SVG 命名空间是内嵌标记，不是外部资源。
+		rest := strings.ReplaceAll(html, "http://www.w3.org/2000/svg", "")
+		if strings.Contains(rest, "http://") || strings.Contains(rest, "https://") {
+			t.Fatalf("导出引用了外部资源：\n%s", html)
+		}
+	}
+}
+
+func TestExportKeepsSourceWhenLayoutFails(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	// \unknown 不是受支持的公式命令，排版失败时应退回源码。
+	app.adopt(app.files.Current(), "行内 $\\unknown$ 结束\n")
+	_, body, ok := app.exportBody()
+	if !ok {
+		t.Fatal("没有可导出的文档")
+	}
+	if !strings.Contains(body, `<span class="math">\unknown</span>`) || strings.Contains(body, "<svg") {
+		t.Fatalf("失败的公式应保留源码：\n%s", body)
 	}
 }

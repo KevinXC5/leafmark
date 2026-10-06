@@ -20,7 +20,7 @@ const (
 )
 
 // Parse 解析 Mermaid 源码（围栏代码块的正文，不含 ```mermaid 行）。
-// 目前只支持流程图（graph / flowchart）；其他图类型或语法错误返回 error，调用方退回占位卡片。
+// 支持常用流程图、时序图、甘特图、饼图、类图、状态图与 ER 图子集；无效语法返回 error。
 func Parse(src string) (*Graph, error) {
 	stmts := splitStatements(src)
 	if len(stmts) == 0 {
@@ -29,10 +29,19 @@ func Parse(src string) (*Graph, error) {
 	word, rest := cutWord(stmts[0].text)
 	switch word {
 	case "graph", "flowchart", "flowchart-elk":
+	case "sequenceDiagram", "gantt", "pie", "classDiagram", "stateDiagram", "stateDiagram-v2", "erDiagram":
+		other := stmts[1:]
+		if word == "pie" {
+			rest = strings.TrimSpace(strings.TrimPrefix(rest, "showData"))
+		}
+		if rest != "" {
+			other = append([]statement{{text: rest, line: stmts[0].line}}, other...)
+		}
+		return parseOther(word, other)
 	default:
 		return nil, fmt.Errorf("diagram: 不支持的图类型 %q", clip(word))
 	}
-	p := &parser{g: &Graph{}, index: map[string]int{}}
+	p := &parser{g: &Graph{classes: map[string]Attributes{}}, index: map[string]int{}}
 	if dir, more := cutWord(rest); dir != "" {
 		if d, ok := parseDirection(dir); ok {
 			p.g.Direction = d
@@ -200,11 +209,19 @@ func (p *parser) statement(text string) error {
 			return nil
 		}
 	case "direction":
-		// 子图内的方向不影响整体布局。
-		if _, ok := parseDirection(rest); ok {
+		if d, ok := parseDirection(rest); ok {
+			if len(p.stack) > 0 {
+				sg := p.g.Subgraphs[p.stack[len(p.stack)-1]]
+				sg.Direction = d
+				sg.HasDirection = true
+			} else {
+				p.g.Direction = d
+			}
 			return nil
 		}
-	case "classDef", "class", "style", "linkStyle", "click", "accTitle", "accTitle:", "accDescr", "accDescr:":
+	case "classDef", "class", "style", "linkStyle", "click":
+		return p.styleStatement(word, rest)
+	case "accTitle", "accTitle:", "accDescr", "accDescr:":
 		return nil
 	}
 	return p.edgeStatement(text)
@@ -311,7 +328,7 @@ func (p *parser) group(sc *scanner) ([]int, error) {
 		}
 		if strings.HasPrefix(sc.rest(), ":::") {
 			sc.pos += 3
-			sc.ident()
+			p.g.Nodes[i].Classes = append(p.g.Nodes[i].Classes, sc.ident())
 		}
 		ids = append(ids, i)
 		sc.skip()

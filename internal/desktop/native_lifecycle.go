@@ -194,14 +194,14 @@ func (a *nativeApp) viewPrompt(c *ui.Context) {
 		}
 		ui.TextInput(c, &a.promptText).FillWidth().MinWidth(320).AutoFocus()
 		ui.Row(c).Gap(8).Children(func() {
-			if ui.PrimaryButton(c, "确定").Clicked() || c.Shortcut(0, ui.KeyEnter) {
+			if ui.PrimaryButton(c, "确定").Cursor(ui.CursorPointer).Clicked() || c.Shortcut(0, ui.KeyEnter) {
 				if a.promptOK != nil {
 					a.promptOK(a.promptText)
 				}
 				a.promptOpen = false
 				a.syncEditor(a.active())
 			}
-			if ui.Button(c, "取消").Clicked() {
+			if ui.Button(c, "取消").Cursor(ui.CursorPointer).Clicked() {
 				a.promptOpen = false
 			}
 		})
