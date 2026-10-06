@@ -167,3 +167,42 @@ func TestFindBarReplaceAndReadingMode(t *testing.T) {
 		t.Fatal("应退出阅读模式并恢复状态栏")
 	}
 }
+
+// 字号设置作用于整个界面：侧栏、标签和状态栏的文字与正文一起缩放，默认字号下保持设计尺寸。
+func TestNativeFontSizeScalesWholeInterface(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "# 山中来信\n\n正文")
+	tab := app.files.Current().Name
+	view := ui.NewTester(app.View, 1100, 760)
+	measure := func() map[string]ui.Rect {
+		view.Frame()
+		out := map[string]ui.Rect{}
+		for _, label := range []string{"叶笺", tab, "UTF-8", "状态栏", "大纲：山中来信"} {
+			r, ok := view.Find(label)
+			if !ok {
+				t.Fatalf("界面缺少 %s", label)
+			}
+			out[label] = r
+		}
+		return out
+	}
+	base := measure()
+	if base["状态栏"].H != 34 || base["大纲：山中来信"].H != 39 {
+		t.Fatalf("默认字号下界面应保持设计尺寸：%+v", base)
+	}
+	app.setFont(24)
+	large := measure()
+	for _, label := range []string{"叶笺", "UTF-8", "状态栏", "大纲：山中来信"} {
+		if got, want := large[label].H/base[label].H, float32(24)/15; got < want-.05 || got > want+.05 {
+			t.Fatalf("%s 应随字号放大到 %.2f 倍，得到 %.2f", label, want, got)
+		}
+	}
+	if large[tab].W <= base[tab].W {
+		t.Fatalf("标签文字应随字号放大：%+v → %+v", base[tab], large[tab])
+	}
+	app.setFont(12)
+	if small := measure(); small["UTF-8"].H >= base["UTF-8"].H {
+		t.Fatalf("调小字号时界面文字应随之缩小：%+v", small["UTF-8"])
+	}
+}

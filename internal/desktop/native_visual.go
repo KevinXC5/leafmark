@@ -27,6 +27,17 @@ func nativeGlass(c *ui.Context) *ui.Element {
 	p := nativeColors(c.Theme().Dark)
 	return ui.Column(c).Radius(18).Gradient(p.glassTop, p.glassBottom, 180).Border(1, p.glassEdge).Shadow(3, 5, 24, 0, p.shadow).Padding(16).Gap(14)
 }
+
+// uiBaseFontSize 是界面设计稿对应的正文字号：字号设置取这个值时界面按原尺寸绘制。
+const uiBaseFontSize = 15
+
+// uiThemeFontSize 是默认字号下界面文字的基准字号。
+const uiThemeFontSize = 12
+
+// scaled 把设计稿里的字号、文字行高和随文图标按字号设置等比缩放，整个界面的文字随设置一起变化。
+func scaled(c *ui.Context, v float32) float32 {
+	return v * c.Theme().FontSize / uiThemeFontSize
+}
 func nativeIconButton(c *ui.Context, icon, label string) *ui.Element {
 	b := ui.ButtonBase(c).Size(28, 28).Radius(10).Label(label).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 	if b.Hovered() {
@@ -46,11 +57,11 @@ func nativeCloseButton(c *ui.Context, label string) *ui.Element {
 	return b
 }
 func nativeTextButton(c *ui.Context, label string) *ui.Element {
-	b := ui.ButtonBase(c).Height(30).Padding(4, 10).Radius(10).Label(label).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c).Height(scaled(c, 30)).Padding(4, 10).Radius(10).Label(label).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Surface)
 	}
-	b.Children(func() { ui.Text(c, label).FontSize(12).SingleLine() })
+	b.Children(func() { ui.Text(c, label).FontSize(scaled(c, 12)).SingleLine() })
 	return b
 }
 func (a *nativeApp) viewTitleBar(c *ui.Context, bar ui.TitleBar) {
@@ -158,10 +169,10 @@ func (a *nativeApp) viewTabs(c *ui.Context) {
 						b.TextColor(c.Theme().Text).FontWeight(500)
 					}
 					b.Children(func() {
-						ui.Icon(c, nativeIcons["file-text"]).Size(12, 12)
-						ui.Text(c, name).FontSize(12).SingleLine().MinWidth(0).Shrink(1)
+						ui.Icon(c, nativeIcons["file-text"]).Size(scaled(c, 12), scaled(c, 12)).Shrink(0)
+						ui.Text(c, name).FontSize(scaled(c, 12)).SingleLine().MinWidth(0).Shrink(1)
 						if doc.Dirty || a.pendingEdit(tab) {
-							ui.Text(c, "●").FontSize(7).TextColor(c.Theme().Accent)
+							ui.Text(c, "●").FontSize(scaled(c, 7)).TextColor(c.Theme().Accent)
 						}
 					})
 					if b.Clicked() {
@@ -188,25 +199,25 @@ func (a *nativeApp) viewSidebar(c *ui.Context) {
 			brandLeft = 82
 		}
 		ui.Row(c).Height(30).Padding(0, 0, 0, brandLeft).Gap(6).AlignItems(ui.Center).DragWindow().Children(func() {
-			ui.Icon(c, nativeIcons["leaf"]).Size(16, 16).TextColor(c.Theme().TextMuted)
-			ui.Text(c, "叶笺").FontSize(12).TextColor(c.Theme().TextMuted)
+			ui.Icon(c, nativeIcons["leaf"]).Size(scaled(c, 16), scaled(c, 16)).Shrink(0).TextColor(c.Theme().TextMuted)
+			ui.Text(c, "叶笺").FontSize(scaled(c, 12)).TextColor(c.Theme().TextMuted)
 			ui.Spacer(c)
 			if nativeIconButton(c, "panel-left", "收起侧栏").Clicked() {
 				a.command("sidebar")
 			}
 		})
-		ui.Row(c).Height(34).Padding(3).Gap(3).Radius(10).Background(nativeColors(c.Theme().Dark).switchBG).Children(func() {
+		ui.Row(c).Height(scaled(c, 34)).Padding(3).Gap(3).Radius(10).Background(nativeColors(c.Theme().Dark).switchBG).Children(func() {
 			for _, item := range []struct{ id, label string }{{"documents", "文档"}, {"outline", "大纲"}} {
 				selected := a.sidebarMode == item.id || (a.sidebarMode == "" && item.id == "outline")
 				ink := c.Theme().TextMuted
 				if selected {
 					ink = c.Theme().Text
 				}
-				b := ui.ButtonBase(c).Grow(1).MinWidth(0).Height(28).Radius(10).Label(item.label).Cursor(ui.CursorPointer)
+				b := ui.ButtonBase(c).Grow(1).MinWidth(0).Height(scaled(c, 28)).Radius(10).Label(item.label).Cursor(ui.CursorPointer)
 				if selected {
 					b.Background(c.Theme().Background).Shadow(0, 1, 4, 0, nativeColors(c.Theme().Dark).shadow)
 				}
-				b.Children(func() { ui.Text(c, item.label).FontSize(11).TextColor(ink).SingleLine() })
+				b.Children(func() { ui.Text(c, item.label).FontSize(scaled(c, 11)).TextColor(ink).SingleLine() })
 				if b.Clicked() {
 					a.sidebarMode = item.id
 				}
@@ -308,7 +319,7 @@ func nativeBlockRunes(b richtext.Block) int {
 	return n
 }
 func (a *nativeApp) viewOutline(c *ui.Context) {
-	ui.Text(c, "当前文档").FontSize(10).TextColor(c.Theme().TextMuted).LetterSpacing(1.2).Padding(8, 4, 10, 4)
+	ui.Text(c, "当前文档").FontSize(scaled(c, 10)).TextColor(c.Theme().TextMuted).LetterSpacing(1.2).Padding(8, 4, 10, 4)
 	tab := a.active()
 	if tab == nil || tab.editor == nil {
 		return
@@ -333,7 +344,7 @@ func (a *nativeApp) viewOutline(c *ui.Context) {
 	}
 	for i, h := range headings {
 		ui.Box(c).Key(fmt.Sprintf("heading:%d", h.at)).FillWidth().Children(func() {
-			b := ui.ButtonBase(c).FillWidth().Height(39).Margin(0, 0, 6, 0).Padding(8, 8, 8, float32(8+(h.level-1)*12)).Gap(8).Radius(10).Justify(ui.Start).Label("大纲：" + h.text).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
+			b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 39)).Margin(0, 0, 6, 0).Padding(8, 8, 8, float32(8+(h.level-1)*12)).Gap(8).Radius(10).Justify(ui.Start).Label("大纲：" + h.text).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 			if i == active {
 				p := nativeColors(c.Theme().Dark)
 				b.Background(p.outline).TextColor(p.outlineInk).FontWeight(500)
@@ -341,8 +352,8 @@ func (a *nativeApp) viewOutline(c *ui.Context) {
 				b.Background(c.Theme().Surface)
 			}
 			b.Children(func() {
-				ui.Textf(c, "H%d", h.level).FontSize(9)
-				ui.Text(c, h.text).FontSize(12).SingleLine().Grow(1).MinWidth(0)
+				ui.Textf(c, "H%d", h.level).FontSize(scaled(c, 9))
+				ui.Text(c, h.text).FontSize(scaled(c, 12)).SingleLine().Grow(1).MinWidth(0)
 			})
 			if b.Clicked() {
 				tab.editor.SetSelection(h.at, h.at)
@@ -350,12 +361,12 @@ func (a *nativeApp) viewOutline(c *ui.Context) {
 		})
 	}
 	if len(headings) == 0 {
-		ui.Text(c, "文档中的标题会显示在这里").FontSize(11).TextColor(c.Theme().TextMuted).Padding(8)
+		ui.Text(c, "文档中的标题会显示在这里").FontSize(scaled(c, 11)).TextColor(c.Theme().TextMuted).Padding(8)
 	}
 }
 func (a *nativeApp) viewDocuments(c *ui.Context) {
-	ui.SearchField(c, &a.navQuery).Label("筛选 Markdown 文件").Placeholder("筛选 Markdown…").Height(30).FillWidth().FontSize(11).Radius(10)
-	ui.Row(c).Height(32).Gap(4).AlignItems(ui.Center).Children(func() {
+	ui.SearchField(c, &a.navQuery).Label("筛选 Markdown 文件").Placeholder("筛选 Markdown…").Height(scaled(c, 30)).FillWidth().FontSize(scaled(c, 11)).Radius(10)
+	ui.Row(c).Height(scaled(c, 32)).Gap(4).AlignItems(ui.Center).Children(func() {
 		name := a.folderName
 		if name == "" {
 			name = "打开文件夹…"
@@ -384,7 +395,7 @@ func (a *nativeApp) viewDocuments(c *ui.Context) {
 	})
 	a.viewTree(c, a.tree, 0)
 	if len(a.recent) > 0 {
-		ui.Text(c, "近期文档").FontSize(10).TextColor(c.Theme().TextMuted).Padding(12, 4, 8, 4)
+		ui.Text(c, "近期文档").FontSize(scaled(c, 10)).TextColor(c.Theme().TextMuted).Padding(12, 4, 8, 4)
 		for _, item := range a.recent {
 			if !nativeMatches(item.Name, a.navQuery) {
 				continue
@@ -413,13 +424,13 @@ func nativeTreeMatches(n workspace.Node, query string) bool {
 	return false
 }
 func nativeNavigationItem(c *ui.Context, name string, inset float32) *ui.Element {
-	b := ui.ButtonBase(c).FillWidth().Height(30).Radius(10).Padding(4, 8, 4, inset).Justify(ui.Start).Gap(6).Label(name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 30)).Radius(10).Padding(4, 8, 4, inset).Justify(ui.Start).Gap(6).Label(name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Surface)
 	}
 	b.Children(func() {
-		ui.Icon(c, nativeIcons["file-text"]).Size(12, 12)
-		ui.Text(c, name).FontSize(11).SingleLine().Grow(1).MinWidth(0)
+		ui.Icon(c, nativeIcons["file-text"]).Size(scaled(c, 12), scaled(c, 12)).Shrink(0)
+		ui.Text(c, name).FontSize(scaled(c, 11)).SingleLine().Grow(1).MinWidth(0)
 	})
 	return b
 }
@@ -441,14 +452,14 @@ func (a *nativeApp) viewTree(c *ui.Context, nodes []workspace.Node, depth int) {
 			if open {
 				icon = "chevron-down"
 			}
-			b := ui.ButtonBase(c).FillWidth().Height(30).Radius(10).Padding(4, 8, 4, float32(8+depth*12)).Justify(ui.Start).Gap(6).Label(current.Name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
+			b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 30)).Radius(10).Padding(4, 8, 4, float32(8+depth*12)).Justify(ui.Start).Gap(6).Label(current.Name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 			if b.Hovered() {
 				b.Background(c.Theme().Surface)
 			}
 			b.Children(func() {
-				ui.Icon(c, nativeIcons[icon]).Size(12, 12)
-				ui.Icon(c, nativeIcons["folder"]).Size(12, 12)
-				ui.Text(c, current.Name).FontSize(11).SingleLine().Grow(1).MinWidth(0)
+				ui.Icon(c, nativeIcons[icon]).Size(scaled(c, 12), scaled(c, 12)).Shrink(0)
+				ui.Icon(c, nativeIcons["folder"]).Size(scaled(c, 12), scaled(c, 12)).Shrink(0)
+				ui.Text(c, current.Name).FontSize(scaled(c, 11)).SingleLine().Grow(1).MinWidth(0)
 			})
 			b.ContextMenu(a.treeMenu(current))
 			if b.Clicked() {
@@ -529,7 +540,7 @@ func (a *nativeApp) viewFormatBar(c *ui.Context, editor documentEditor) {
 }
 func (a *nativeApp) viewFind(c *ui.Context) {
 	ui.Row(c).Padding(4, 12).Gap(6).AlignItems(ui.Center).Background(c.Theme().Surface).Children(func() {
-		field := ui.SearchField(c, &a.findQuery).Label("查找").Height(30).Grow(1).MinWidth(0)
+		field := ui.SearchField(c, &a.findQuery).Label("查找").Height(scaled(c, 30)).Grow(1).MinWidth(0)
 		if field.Changed() || field.Submitted() {
 			a.runFind()
 		}
@@ -537,7 +548,7 @@ func (a *nativeApp) viewFind(c *ui.Context) {
 			a.runFind()
 		}
 		// 替换框是文本输入，保持文本光标；阅读模式下不能替换，也不暗示可点击。
-		ui.TextInput(c, &a.replaceText).Label("替换为").Placeholder("替换为").Height(30).Grow(1).MinWidth(0)
+		ui.TextInput(c, &a.replaceText).Label("替换为").Placeholder("替换为").Height(scaled(c, 30)).Grow(1).MinWidth(0)
 		replace := func(label string, all bool) {
 			button := nativeTextButton(c, label)
 			if a.reading {
@@ -550,7 +561,7 @@ func (a *nativeApp) viewFind(c *ui.Context) {
 		replace("替换", false)
 		replace("全部替换", true)
 		if a.findNote != "" {
-			ui.Text(c, a.findNote).FontSize(11).TextColor(c.Theme().TextMuted)
+			ui.Text(c, a.findNote).FontSize(scaled(c, 11)).TextColor(c.Theme().TextMuted)
 		}
 		if nativeIconButton(c, "x", "关闭查找").Clicked() {
 			a.findOn = false
@@ -608,7 +619,7 @@ func (a *nativeApp) viewStatus(c *ui.Context) {
 			status = "文件冲突，请另存为"
 		}
 	}
-	ui.Row(c).Height(34).Padding(0, 24).Gap(12).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(c.Theme().Border).FontSize(11).TextColor(c.Theme().TextMuted).Label("状态栏").Children(func() {
+	ui.Row(c).Height(scaled(c, 34)).Padding(0, 24).Gap(12).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(c.Theme().Border).FontSize(scaled(c, 11)).TextColor(c.Theme().TextMuted).Label("状态栏").Children(func() {
 		ui.Row(c).Gap(16).Children(func() { ui.Textf(c, "%d 字", count); ui.Textf(c, "%d 分钟阅读", max(1, (count+299)/300)) })
 		ui.Spacer(c)
 		ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
@@ -627,11 +638,11 @@ func (a *nativeApp) viewStatus(c *ui.Context) {
 				}
 			}
 			ui.Text(c, mode)
-			toggle := ui.ButtonBase(c).Height(22).Padding(0, 6).Radius(6).Label("切换原位编辑与源码").Cursor(ui.CursorPointer)
+			toggle := ui.ButtonBase(c).Height(scaled(c, 22)).Padding(0, 6).Radius(6).Label("切换原位编辑与源码").Cursor(ui.CursorPointer)
 			if toggle.Hovered() {
 				toggle.Background(c.Theme().Surface)
 			}
-			toggle.Children(func() { ui.Text(c, other).FontSize(11).FontWeight(500).TextColor(c.Theme().Accent) })
+			toggle.Children(func() { ui.Text(c, other).FontSize(scaled(c, 11)).FontWeight(500).TextColor(c.Theme().Accent) })
 			if toggle.Clicked() {
 				a.command("source")
 			}

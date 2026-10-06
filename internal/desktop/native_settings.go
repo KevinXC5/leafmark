@@ -86,7 +86,7 @@ func (a *nativeApp) viewSettings(c *ui.Context) {
 		}
 		main.Children(func() {
 			ui.Row(c).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
-				ui.Text(c, settingsTabs[section].label).FontSize(28).FontWeight(600).LetterSpacing(-.8).Grow(1).MinWidth(0)
+				ui.Text(c, settingsTabs[section].label).FontSize(scaled(c, 28)).FontWeight(600).LetterSpacing(-.8).Grow(1).MinWidth(0)
 				b := ui.ButtonBase(c).Size(26, 26).Radius(4).Label("关闭设置").TextColor(p.close).Cursor(ui.CursorPointer)
 				if b.Hovered() {
 					b.Background(p.ink.Alpha(.05))
@@ -97,7 +97,7 @@ func (a *nativeApp) viewSettings(c *ui.Context) {
 				}
 			})
 			ui.Scroll(c).Grow(1).MinHeight(0).Padding(0, 0, 20, 0).Children(func() {
-				ui.Text(c, settingsTabs[section].intro).FontSize(13).LineHeight(1.5).TextColor(p.muted).Margin(9, 0, 22, 0)
+				ui.Text(c, settingsTabs[section].intro).FontSize(scaled(c, 13)).LineHeight(1.5).TextColor(p.muted).Margin(9, 0, 22, 0)
 				switch settingsTabs[section].id {
 				case "appearance":
 					a.viewSettingsAppearance(c, p, narrow)
@@ -110,12 +110,12 @@ func (a *nativeApp) viewSettings(c *ui.Context) {
 				}
 			})
 			ui.Row(c).Padding(10, 0, 0, 0).Gap(12).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, nativeIcons["check"]).Size(13, 13).TextColor(p.accent)
+				ui.Icon(c, nativeIcons["check"]).Size(scaled(c, 13), scaled(c, 13)).Shrink(0).TextColor(p.accent)
 				status := a.settingsStatus
 				if status == "" {
 					status = "调整即时生效"
 				}
-				ui.Text(c, status).FontSize(11).TextColor(p.destChevron).Margin(0, 0, 0, -6)
+				ui.Text(c, status).FontSize(scaled(c, 11)).TextColor(p.destChevron).Margin(0, 0, 0, -6)
 				ui.Spacer(c)
 				if settingsLink(c, p, "恢复默认设置").Clicked() {
 					shortcuts := a.settings.Shortcuts
@@ -146,8 +146,8 @@ func (a *nativeApp) viewSettingsSidebar(c *ui.Context, p settingsPalette, sectio
 	}
 	side.Children(func() {
 		if !compact {
-			ui.Text(c, "Leafmark").FontSize(22).FontWeight(600).LetterSpacing(-.7).TextColor(p.ink).Margin(0, 12)
-			ui.Text(c, "设置").FontSize(12).TextColor(p.muted).Margin(7, 12, 28, 12)
+			ui.Text(c, "Leafmark").FontSize(scaled(c, 22)).FontWeight(600).LetterSpacing(-.7).TextColor(p.ink).Margin(0, 12)
+			ui.Text(c, "设置").FontSize(scaled(c, 12)).TextColor(p.muted).Margin(7, 12, 28, 12)
 		}
 		tabs := ui.Column(c).Gap(6)
 		if compact {
@@ -164,7 +164,7 @@ func (a *nativeApp) viewSettingsSidebar(c *ui.Context, p settingsPalette, sectio
 				}
 				item.Children(func() {
 					selected := i == section
-					b := ui.ButtonBase(c).FillWidth().Height(42).Radius(10).Padding(0, 12).Gap(12).Justify(ui.Start).Border(1, ui.Color{}).Label(tab.label).Cursor(ui.CursorPointer)
+					b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 42)).Radius(10).Padding(0, 12).Gap(12).Justify(ui.Start).Border(1, ui.Color{}).Label(tab.label).Cursor(ui.CursorPointer)
 					ink, icon, weight := p.tabInk, p.muted, 500
 					if selected {
 						ink, icon, weight = p.accent, p.tabIcon, 600
@@ -176,8 +176,8 @@ func (a *nativeApp) viewSettingsSidebar(c *ui.Context, p settingsPalette, sectio
 						b.Justify(ui.Center).Padding(0, 4).Gap(5)
 					}
 					b.Children(func() {
-						ui.Icon(c, nativeIcons[tab.icon]).Size(18, 18).TextColor(icon)
-						ui.Text(c, tab.label).FontSize(13).FontWeight(weight).TextColor(ink).SingleLine().MinWidth(0)
+						ui.Icon(c, nativeIcons[tab.icon]).Size(scaled(c, 18), scaled(c, 18)).Shrink(0).TextColor(icon)
+						ui.Text(c, tab.label).FontSize(scaled(c, 13)).FontWeight(weight).TextColor(ink).SingleLine().MinWidth(0)
 					})
 					if b.Clicked() {
 						a.settingsSection, a.confirmClear = id, ""
@@ -190,13 +190,13 @@ func (a *nativeApp) viewSettingsSidebar(c *ui.Context, p settingsPalette, sectio
 		}
 		ui.Spacer(c)
 		ui.Column(c).BorderWidth(1, 0, 0, 0).BorderColor(p.noteLine).Padding(14, 12, 0, 12).Gap(8).Children(func() {
-			ui.Text(c, "留一点空间，给书写。").FontSize(11).TextColor(p.note)
-			ui.Text(c, "Leafmark").FontSize(10).TextColor(p.destChevron)
+			ui.Text(c, "留一点空间，给书写。").FontSize(scaled(c, 11)).TextColor(p.note)
+			ui.Text(c, "Leafmark").FontSize(scaled(c, 10)).TextColor(p.destChevron)
 		})
 		back := ui.ButtonBase(c).Margin(28, 0, 0, 0).Padding(8, 0, 0, 0).Gap(7).Justify(ui.Start).Label("返回书写").Cursor(ui.CursorPointer)
 		back.Children(func() {
-			ui.Box(c).Padding(3, 6).Radius(4).Border(1, p.kbdLine).Background(p.kbd).Children(func() { ui.Text(c, "Esc").FontSize(10).TextColor(p.back) })
-			ui.Text(c, "返回书写").FontSize(11).TextColor(p.back)
+			ui.Box(c).Padding(3, 6).Radius(4).Border(1, p.kbdLine).Background(p.kbd).Children(func() { ui.Text(c, "Esc").FontSize(scaled(c, 10)).TextColor(p.back) })
+			ui.Text(c, "返回书写").FontSize(scaled(c, 11)).TextColor(p.back)
 		})
 		if back.Clicked() {
 			a.closeSettings()
@@ -207,7 +207,7 @@ func (a *nativeApp) viewSettingsSidebar(c *ui.Context, p settingsPalette, sectio
 // settingsGroup 是带小标题的一组选项，卡片内各行用细线分隔。
 func settingsGroup(c *ui.Context, p settingsPalette, title string, rows func()) {
 	ui.Column(c).FillWidth().Margin(0, 0, 18, 0).Children(func() {
-		ui.Text(c, title).FontSize(11).FontWeight(600).LetterSpacing(1).TextColor(p.groupTitle).Margin(0, 0, 9, 0)
+		ui.Text(c, title).FontSize(scaled(c, 11)).FontWeight(600).LetterSpacing(1).TextColor(p.groupTitle).Margin(0, 0, 9, 0)
 		ui.Column(c).FillWidth().Background(p.card).Border(1, p.line).Radius(10).Padding(0, 16).Children(rows)
 	})
 }
@@ -220,9 +220,9 @@ func settingsRow(c *ui.Context, p settingsPalette, label, description string, la
 	}
 	row.Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
-			ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(p.ink)
+			ui.Text(c, label).FontSize(scaled(c, 13)).FontWeight(500).TextColor(p.ink)
 			if description != "" {
-				ui.Text(c, description).FontSize(11).LineHeight(1.4).TextColor(p.muted)
+				ui.Text(c, description).FontSize(scaled(c, 11)).LineHeight(1.4).TextColor(p.muted)
 			}
 		})
 		control()
@@ -231,10 +231,10 @@ func settingsRow(c *ui.Context, p settingsPalette, label, description string, la
 
 // settingsSelect 是下拉选择：外观是一枚带箭头的按钮，点开后用系统菜单选值。
 func settingsSelect(c *ui.Context, p settingsPalette, label, current string, width float32, options []string, pick func(i int)) {
-	b := ui.ButtonBase(c).Width(width).Height(30).Shrink(0).Radius(10).Border(1, p.controlLine).Background(p.control).Padding(0, 9, 0, 10).Gap(6).Label("选择" + label).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c).Width(width).Height(scaled(c, 30)).Shrink(0).Radius(10).Border(1, p.controlLine).Background(p.control).Padding(0, 9, 0, 10).Gap(6).Label("选择" + label).Cursor(ui.CursorPointer)
 	b.Children(func() {
-		ui.Text(c, current).FontSize(12).TextColor(p.destination).SingleLine().Grow(1).MinWidth(0)
-		ui.Icon(c, nativeIcons["chevron-down"]).Size(14, 14).TextColor(p.destChevron)
+		ui.Text(c, current).FontSize(scaled(c, 12)).TextColor(p.destination).SingleLine().Grow(1).MinWidth(0)
+		ui.Icon(c, nativeIcons["chevron-down"]).Size(scaled(c, 14), scaled(c, 14)).Shrink(0).TextColor(p.destChevron)
 	})
 	b.Menu(func(m *ui.Menu) {
 		for i, option := range options {
@@ -267,7 +267,7 @@ func settingsSegmented(c *ui.Context, p settingsPalette, labels []string, select
 				}
 				b.Background(on)
 			}
-			b.Children(func() { ui.Text(c, label).FontSize(size).FontWeight(weight).TextColor(color).SingleLine() })
+			b.Children(func() { ui.Text(c, label).FontSize(scaled(c, size)).FontWeight(weight).TextColor(color).SingleLine() })
 			if b.Clicked() {
 				pick(i)
 			}
@@ -291,7 +291,7 @@ func settingsToggle(c *ui.Context, p settingsPalette, label string, on *bool) bo
 // settingsLink 是强调色的文字按钮。
 func settingsLink(c *ui.Context, p settingsPalette, label string) *ui.Element {
 	b := ui.ButtonBase(c).Radius(3).Padding(2, 2).Label(label).Cursor(ui.CursorPointer)
-	b.Children(func() { ui.Text(c, label).FontSize(11).TextColor(p.accent).SingleLine() })
+	b.Children(func() { ui.Text(c, label).FontSize(scaled(c, 11)).TextColor(p.accent).SingleLine() })
 	return b
 }
 
@@ -301,7 +301,7 @@ func settingsOutlined(c *ui.Context, p settingsPalette, label string) *ui.Elemen
 	if b.Hovered() {
 		b.Background(p.ink.Alpha(.03))
 	}
-	b.Children(func() { ui.Text(c, label).FontSize(11).TextColor(p.accent).SingleLine() })
+	b.Children(func() { ui.Text(c, label).FontSize(scaled(c, 11)).TextColor(p.accent).SingleLine() })
 	return b
 }
 
@@ -327,27 +327,27 @@ func (a *nativeApp) viewSettingsEditor(c *ui.Context, p settingsPalette) {
 	settingsGroup(c, p, "排版与布局", func() {
 		settingsRow(c, p, "正文字体", "", false, func() {
 			at := indexOf(settingsFontIDs, a.settings.Font)
-			settingsSelect(c, p, "正文字体", settingsFontLabels[at], 152, settingsFontLabels, func(i int) {
+			settingsSelect(c, p, "正文字体", settingsFontLabels[at], scaled(c, 152), settingsFontLabels, func(i int) {
 				a.changeSettings(func(s *nativeSettings) { s.Font = settingsFontIDs[i] })
 			})
 		})
 		settingsRow(c, p, "字号", "", false, func() {
-			ui.Row(c).Shrink(0).Height(30).Padding(0, 6).Gap(3).AlignItems(ui.Center).Radius(10).Border(1, p.controlLine).Background(p.control).Children(func() {
+			ui.Row(c).Shrink(0).Height(scaled(c, 30)).Padding(0, 6).Gap(3).AlignItems(ui.Center).Radius(10).Border(1, p.controlLine).Background(p.control).Children(func() {
 				step := func(label, sign string, delta float32, disabled bool) {
-					b := ui.ButtonBase(c).Size(23, 26).Radius(10).Label(label).Disabled(disabled)
+					b := ui.ButtonBase(c).Size(scaled(c, 23), scaled(c, 26)).Radius(10).Label(label).Disabled(disabled)
 					if disabled {
 						b.Opacity(.45)
 					} else {
 						b.Cursor(ui.CursorPointer)
 					}
-					b.Children(func() { ui.Text(c, sign).FontSize(16).TextColor(p.destChevron) })
+					b.Children(func() { ui.Text(c, sign).FontSize(scaled(c, 16)).TextColor(p.destChevron) })
 					if b.Clicked() {
 						a.setFont(a.settings.FontSize + delta)
 					}
 				}
 				step("减小字号", "−", -1, a.settings.FontSize <= 12)
-				ui.Text(c, strconv.Itoa(int(a.settings.FontSize))).FontSize(12).TextColor(p.destination).Width(25).TextAlign(ui.End).Label("字号")
-				ui.Text(c, "px").FontSize(12).TextColor(p.destination).Margin(0, 7, 0, 0)
+				ui.Text(c, strconv.Itoa(int(a.settings.FontSize))).FontSize(scaled(c, 12)).TextColor(p.destination).Width(scaled(c, 25)).TextAlign(ui.End).Label("字号")
+				ui.Text(c, "px").FontSize(scaled(c, 12)).TextColor(p.destination).Margin(0, 7, 0, 0)
 				step("增大字号", "+", 1, a.settings.FontSize >= 28)
 			})
 		})
@@ -359,7 +359,7 @@ func (a *nativeApp) viewSettingsEditor(c *ui.Context, p settingsPalette) {
 				values, labels = append(values, v), append(labels, strconv.FormatFloat(float64(v), 'f', -1, 32))
 			}
 			current := strconv.FormatFloat(float64(a.settings.LineHeight), 'f', -1, 32)
-			settingsSelect(c, p, "行高", current, 105, labels, func(i int) {
+			settingsSelect(c, p, "行高", current, scaled(c, 105), labels, func(i int) {
 				a.changeSettings(func(s *nativeSettings) { s.LineHeight = values[i] })
 			})
 		})
@@ -384,8 +384,8 @@ func (a *nativeApp) viewSettingsEditor(c *ui.Context, p settingsPalette) {
 					if swatch {
 						ui.Box(c).Size(14, 14).Radius(7).Background(p.toggleOn).Border(1, p.tabIcon)
 					}
-					ui.Text(c, text).FontSize(12).TextColor(p.destination).SingleLine()
-					ui.Icon(c, nativeIcons["chevron-right"]).Size(16, 16).TextColor(p.destChevron)
+					ui.Text(c, text).FontSize(scaled(c, 12)).TextColor(p.destination).SingleLine()
+					ui.Icon(c, nativeIcons["chevron-right"]).Size(scaled(c, 16), scaled(c, 16)).Shrink(0).TextColor(p.destChevron)
 				})
 				if b.Clicked() {
 					a.settingsSection = section
@@ -400,7 +400,7 @@ func (a *nativeApp) viewSettingsEditor(c *ui.Context, p settingsPalette) {
 
 func (a *nativeApp) viewSettingsAppearance(c *ui.Context, p settingsPalette, narrow bool) {
 	ui.Row(c).FillWidth().MinHeight(36).Margin(0, 0, 24, 0).Gap(16).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "外观模式").FontSize(13).FontWeight(500).TextColor(p.ink).Grow(1).MinWidth(0)
+		ui.Text(c, "外观模式").FontSize(scaled(c, 13)).FontWeight(500).TextColor(p.ink).Grow(1).MinWidth(0)
 		settingsSegmented(c, p, settingsThemeLabels, indexOf(settingsThemeIDs, a.settings.Theme), true, func(i int) { a.setTheme(settingsThemeIDs[i]) })
 	})
 	previews := ui.Column(c).FillWidth().Gap(18)
@@ -416,31 +416,31 @@ func (a *nativeApp) viewSettingsAppearance(c *ui.Context, p settingsPalette, nar
 			}
 			card := ui.Column(c).Key(name).Grow(1).Basis(0).MinWidth(0).MinHeight(340).Padding(24).Gap(18).Radius(10).Border(1, line).Background(bg).Label(name + "预览")
 			card.Children(func() {
-				ui.Text(c, name).Font(sourceFontFamily).FontSize(11).TextColor(nameInk)
-				ui.Text(c, "在宁静中，\n看见清晰。").Font(book).FontSize(29).LineHeight(1.1).TextColor(ink)
-				ui.Text(c, "写下一点，再读一遍。\n让下一个想法，慢慢成形。").Font(book).FontSize(16).LineHeight(1.6).TextColor(text)
+				ui.Text(c, name).Font(sourceFontFamily).FontSize(scaled(c, 11)).TextColor(nameInk)
+				ui.Text(c, "在宁静中，\n看见清晰。").Font(book).FontSize(scaled(c, 29)).LineHeight(1.1).TextColor(ink)
+				ui.Text(c, "写下一点，再读一遍。\n让下一个想法，慢慢成形。").Font(book).FontSize(scaled(c, 16)).LineHeight(1.6).TextColor(text)
 				ui.Box(c).BorderWidth(0, 0, 0, 2).BorderColor(quoteLine).Padding(3, 0, 3, 12).Children(func() {
-					ui.Text(c, "为重要的事，留一点空间。").Font(book).FontSize(15).Italic().TextColor(quote)
+					ui.Text(c, "为重要的事，留一点空间。").Font(book).FontSize(scaled(c, 15)).Italic().TextColor(quote)
 				})
-				ui.Text(c, "循着一个小小的念头 ↗").FontSize(12).TextColor(link)
+				ui.Text(c, "循着一个小小的念头 ↗").FontSize(scaled(c, 12)).TextColor(link)
 			})
 		}
 	})
 	ui.Row(c).FillWidth().Gap(10).Margin(24, 0).AlignItems(ui.Center).Children(func() {
-		ui.Icon(c, nativeIcons["monitor"]).Size(16, 16).TextColor(p.hintIcon)
-		ui.Text(c, "跟随系统时，自动使用对应的浅色或深色主题。").FontSize(12).TextColor(p.themeInk)
+		ui.Icon(c, nativeIcons["monitor"]).Size(scaled(c, 16), scaled(c, 16)).Shrink(0).TextColor(p.hintIcon)
+		ui.Text(c, "跟随系统时，自动使用对应的浅色或深色主题。").FontSize(scaled(c, 12)).TextColor(p.themeInk)
 	})
 	ui.Box(c).FillWidth().BorderWidth(1, 0, 0, 0).BorderColor(p.scopeLine).Padding(16, 0, 0, 0).Children(func() {
-		ui.Text(c, "应用于所有打开的文档").FontSize(12).TextColor(p.scopeInk)
+		ui.Text(c, "应用于所有打开的文档").FontSize(scaled(c, 12)).TextColor(p.scopeInk)
 	})
 }
 
 func (a *nativeApp) viewSettingsShortcuts(c *ui.Context, p settingsPalette) {
 	for _, item := range shortcutActions {
 		ui.Row(c).Key("shortcut:"+item.id).FillWidth().Padding(14, 0).Gap(20).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.line).Children(func() {
-			ui.Text(c, item.label).FontSize(12).TextColor(p.ink).Grow(1).MinWidth(0)
+			ui.Text(c, item.label).FontSize(scaled(c, 12)).TextColor(p.ink).Grow(1).MinWidth(0)
 			ui.Box(c).Padding(5, 7).Radius(4).Border(1, p.line).Background(p.control).Children(func() {
-				ui.Text(c, *a.settings.Shortcuts.binding(item.id)).Font(sourceFontFamily).FontSize(10).TextColor(p.muted)
+				ui.Text(c, *a.settings.Shortcuts.binding(item.id)).Font(sourceFontFamily).FontSize(scaled(c, 10)).TextColor(p.muted)
 			})
 		})
 	}
@@ -494,7 +494,7 @@ func (a *nativeApp) viewSettingsGeneral(c *ui.Context, p settingsPalette) {
 				})
 			})
 			if note != "" {
-				ui.Text(c, note).FontSize(11).LineHeight(1.4).TextColor(p.muted).Padding(10, 0)
+				ui.Text(c, note).FontSize(scaled(c, 11)).LineHeight(1.4).TextColor(p.muted).Padding(10, 0)
 			}
 		})
 	}
@@ -512,7 +512,7 @@ func (a *nativeApp) viewSettingsGeneral(c *ui.Context, p settingsPalette) {
 			}
 		})
 	})
-	ui.Text(c, "恢复默认设置只影响偏好设置，不清理文档。").FontSize(11).LineHeight(1.4).TextColor(p.muted).Margin(4, 0, 0, 0)
+	ui.Text(c, "恢复默认设置只影响偏好设置，不清理文档。").FontSize(scaled(c, 11)).LineHeight(1.4).TextColor(p.muted).Margin(4, 0, 0, 0)
 	for _, item := range []struct{ label, description string }{
 		{"清理恢复草稿", "删除用于意外退出后恢复的草稿。"},
 		{"清理历史记录", "清理应用保存的历史记录。"},
@@ -528,7 +528,7 @@ func (a *nativeApp) viewSettingsGeneral(c *ui.Context, p settingsPalette) {
 				return
 			}
 			ui.Column(c).FillWidth().Padding(12).Margin(10, 0, 0, 0).Gap(10).Radius(5).Background(p.control).Children(func() {
-				ui.Text(c, "清理后无法恢复，是否继续？").FontSize(11).TextColor(p.muted)
+				ui.Text(c, "清理后无法恢复，是否继续？").FontSize(scaled(c, 11)).TextColor(p.muted)
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					if settingsOutlined(c, p, "确认清理").Clicked() {
 						a.clearData(label)
@@ -589,27 +589,27 @@ func viewReleaseNotes(c *ui.Context, markdown string) {
 					if i > 0 {
 						top = 18
 					}
-					ui.Text(c, text).FontSize(16).FontWeight(700).LineHeight(1.5).Margin(top, 0, 0, 0)
+					ui.Text(c, text).FontSize(scaled(c, 16)).FontWeight(700).LineHeight(1.5).Margin(top, 0, 0, 0)
 					break
 				}
-				ui.Text(c, text).FontSize(14).FontWeight(600).LineHeight(1.5).Margin(top, 0, 0, 0)
+				ui.Text(c, text).FontSize(scaled(c, 14)).FontWeight(600).LineHeight(1.5).Margin(top, 0, 0, 0)
 			case richtext.List, richtext.Task:
 				marker := "•"
 				if b.Ordered {
 					marker = strconv.Itoa(max(1, b.Start)) + "."
 				}
 				ui.Row(c).Key("note:"+strconv.Itoa(i)).FillWidth().Gap(8).Padding(0, 0, 0, float32(6+max(b.Level-1, 0)*16)).Children(func() {
-					ui.Text(c, marker).FontSize(13).LineHeight(1.8).Shrink(0)
-					ui.Text(c, text).FontSize(13).LineHeight(1.8).Grow(1).MinWidth(0)
+					ui.Text(c, marker).FontSize(scaled(c, 13)).LineHeight(1.8).Shrink(0)
+					ui.Text(c, text).FontSize(scaled(c, 13)).LineHeight(1.8).Grow(1).MinWidth(0)
 				})
 			case richtext.Code:
-				ui.Text(c, strings.TrimRight(b.Code, "\n")).Font(sourceFontFamily).FontSize(12).LineHeight(1.7)
+				ui.Text(c, strings.TrimRight(b.Code, "\n")).Font(sourceFontFamily).FontSize(scaled(c, 12)).LineHeight(1.7)
 			case richtext.Horizontal, richtext.Image:
 			case richtext.Raw:
-				ui.Text(c, strings.TrimSpace(b.Raw)).FontSize(13).LineHeight(1.8)
+				ui.Text(c, strings.TrimSpace(b.Raw)).FontSize(scaled(c, 13)).LineHeight(1.8)
 			default:
 				if text != "" {
-					ui.Text(c, text).FontSize(13).LineHeight(1.8)
+					ui.Text(c, text).FontSize(scaled(c, 13)).LineHeight(1.8)
 				}
 			}
 		}
@@ -657,14 +657,14 @@ func (a *nativeApp) viewUpdateDialog(c *ui.Context) {
 		if notes == "" {
 			notes = "此版本未提供更新日志。"
 		}
-		ui.Text(c, "发现新版本 "+status.Available).Bold().FontSize(18)
-		ui.Text(c, "当前版本："+version).FontSize(12).TextColor(p.muted)
-		ui.Text(c, "更新日志").FontSize(13).FontWeight(600)
+		ui.Text(c, "发现新版本 "+status.Available).Bold().FontSize(scaled(c, 18))
+		ui.Text(c, "当前版本："+version).FontSize(scaled(c, 12)).TextColor(p.muted)
+		ui.Text(c, "更新日志").FontSize(scaled(c, 13)).FontWeight(600)
 		ui.Scroll(c).Width(500).MinHeight(0).MaxHeight(320).Padding(16).Radius(8).Border(1, p.line).Background(p.control).Children(func() {
 			viewReleaseNotes(c, notes)
 		})
 		hint, fraction, shown := a.updateProgress(status.Installed)
-		ui.Text(c, hint).FontSize(12).LineHeight(1.6).TextColor(p.muted).Width(500)
+		ui.Text(c, hint).FontSize(scaled(c, 12)).LineHeight(1.6).TextColor(p.muted).Width(500)
 		if shown {
 			accent := c.Theme().Accent
 			now := c.Now()
@@ -721,9 +721,9 @@ func (a *nativeApp) viewShortcutDialog(c *ui.Context, p settingsPalette) {
 		if runtime.GOOS == "darwin" {
 			mod = "⌘"
 		}
-		ui.Text(c, "快捷键设置").Font(`"Newsreader", "Songti SC", "STSong", serif`).FontSize(26)
-		ui.Text(c, fmt.Sprintf("选择动作，然后录制组合键。Mod 在本机对应 %s。", mod)).FontSize(12).LineHeight(1.8).TextColor(p.muted)
-		ui.Text(c, "动作").FontSize(12).Margin(10, 0, 0, 0)
+		ui.Text(c, "快捷键设置").Font(`"Newsreader", "Songti SC", "STSong", serif`).FontSize(scaled(c, 26))
+		ui.Text(c, fmt.Sprintf("选择动作，然后录制组合键。Mod 在本机对应 %s。", mod)).FontSize(scaled(c, 12)).LineHeight(1.8).TextColor(p.muted)
+		ui.Text(c, "动作").FontSize(scaled(c, 12)).Margin(10, 0, 0, 0)
 		labels := make([]string, len(shortcutActions))
 		for i, item := range shortcutActions {
 			labels[i] = item.label
@@ -735,7 +735,7 @@ func (a *nativeApp) viewShortcutDialog(c *ui.Context, p settingsPalette) {
 		if current == nil {
 			return
 		}
-		ui.Text(c, "当前绑定："+*current).Font(sourceFontFamily).FontSize(11).TextColor(p.muted).Margin(6, 0)
+		ui.Text(c, "当前绑定："+*current).Font(sourceFontFamily).FontSize(scaled(c, 11)).TextColor(p.muted).Margin(6, 0)
 		text := "点击录制组合键"
 		if a.shortcutCandidate != "" {
 			text = a.shortcutCandidate
@@ -745,7 +745,7 @@ func (a *nativeApp) viewShortcutDialog(c *ui.Context, p settingsPalette) {
 		accent := c.Theme().Accent
 		recorder := ui.ButtonBase(c).Width(424).MinHeight(62).Radius(10).Background(c.Theme().Surface).Label("录制组合键").Focusable().Cursor(ui.CursorPointer)
 		recorder.Draw(func(painter *ui.Painter, r ui.Rect) { painter.StrokeDashed(r, accent, 10, 1) })
-		recorder.Children(func() { ui.Text(c, text).Font(sourceFontFamily).FontSize(13).TextColor(accent) })
+		recorder.Children(func() { ui.Text(c, text).Font(sourceFontFamily).FontSize(scaled(c, 13)).TextColor(accent) })
 		if recorder.Clicked() {
 			a.shortcutRecording, a.shortcutCandidate, a.shortcutStatus = true, "", ""
 		}
@@ -759,8 +759,8 @@ func (a *nativeApp) viewShortcutDialog(c *ui.Context, p settingsPalette) {
 				return true
 			})
 		}
-		ui.Text(c, "至少包含一个 Mod、Ctrl、Meta 或 Alt；Escape 返回。").FontSize(12).LineHeight(1.8).TextColor(p.muted)
-		ui.Text(c, a.shortcutStatus).FontSize(12).TextColor(accent).MinHeight(24).Width(424)
+		ui.Text(c, "至少包含一个 Mod、Ctrl、Meta 或 Alt；Escape 返回。").FontSize(scaled(c, 12)).LineHeight(1.8).TextColor(p.muted)
+		ui.Text(c, a.shortcutStatus).FontSize(scaled(c, 12)).TextColor(accent).MinHeight(24).Width(424)
 		ui.Row(c).Width(424).Gap(8).Justify(ui.End).Padding(18, 0, 0, 0).BorderWidth(1, 0, 0, 0).BorderColor(c.Theme().Border).Children(func() {
 			if settingsOutlined(c, p, "恢复默认").Clicked() {
 				a.changeSettings(func(s *nativeSettings) { s.Shortcuts = defaultNativeShortcuts() })
@@ -772,7 +772,7 @@ func (a *nativeApp) viewShortcutDialog(c *ui.Context, p settingsPalette) {
 			} else {
 				apply.Cursor(ui.CursorPointer)
 			}
-			apply.Children(func() { ui.Text(c, "应用绑定").FontSize(11).TextColor(c.Theme().Background) })
+			apply.Children(func() { ui.Text(c, "应用绑定").FontSize(scaled(c, 11)).TextColor(c.Theme().Background) })
 			if apply.Clicked() && a.shortcutCandidate != "" {
 				action, candidate := a.shortcutAction, a.shortcutCandidate
 				a.changeSettings(func(s *nativeSettings) { *s.Shortcuts.binding(action) = candidate })

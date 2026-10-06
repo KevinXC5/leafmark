@@ -656,9 +656,9 @@ func (a *nativeApp) editRaw(editor rawEditor, index int, source string) {
 
 func (a *nativeApp) viewRawEditor(c *ui.Context) {
 	ui.Modal(c, &a.rawOpen, func() {
-		ui.Text(c, "编辑源码").Bold().FontSize(18)
-		ui.Text(c, "公式、图表与其他扩展语法以 Markdown 原文保存。清空内容会删除这一块。").FontSize(12).TextColor(c.Theme().TextMuted)
-		ui.TextArea(c, &a.rawText).Width(520).Height(240).Font(sourceFontFamily).FontSize(13).LineHeight(1.6).Label("原文源码").AutoFocus()
+		ui.Text(c, "编辑源码").Bold().FontSize(scaled(c, 18))
+		ui.Text(c, "公式、图表与其他扩展语法以 Markdown 原文保存。清空内容会删除这一块。").FontSize(scaled(c, 12)).TextColor(c.Theme().TextMuted)
+		ui.TextArea(c, &a.rawText).Width(520).Height(240).Font(sourceFontFamily).FontSize(scaled(c, 13)).LineHeight(1.6).Label("原文源码").AutoFocus()
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			if ui.Button(c, "取消").Cursor(ui.CursorPointer).Clicked() {
 				a.rawOpen = false

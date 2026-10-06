@@ -26,14 +26,15 @@ func installNativeCloseHandler(win *mygo.Window, app *nativeApp) func() {
 		if approved.Swap(false) {
 			return
 		}
-		e.PreventDefault()
 		if !prompting.CompareAndSwap(false, true) {
+			e.PreventDefault()
 			return
 		}
 		// OnClose 已在主线程。先同步正文，再把对话框放到后台，避免挡住事件循环。
 		dirty := app.dirtyDocuments()
 		for _, saving := range app.saving {
 			if saving {
+				e.PreventDefault()
 				prompting.Store(false)
 				restarting.Store(false)
 				app.notice = "正在保存，请稍后关闭"
@@ -42,9 +43,18 @@ func installNativeCloseHandler(win *mygo.Window, app *nativeApp) func() {
 		}
 		if len(dirty) == 0 {
 			prompting.Store(false)
-			finish()
+			if restarting.Load() {
+				e.PreventDefault()
+				finish()
+				return
+			}
+			// 没有需要确认的文档时放行本次关闭。退出应用时 MyGo 逐个关闭窗口，
+			// 拦下后再自行销毁会被当成取消退出，窗口消失而进程留在 Dock 里。
+			app.markClosed()
+			app.clearRecovery()
 			return
 		}
+		e.PreventDefault()
 		app.confirmCloseNotify(dirty, func() {
 			// 原提示未包含的标签可能在对话框或保存期间新增输入，必须再次确认。
 			known := map[string]bool{}
@@ -143,9 +153,9 @@ func (a *nativeApp) applyTheme(c *ui.Context) {
 	// 滚动条用细而淡的墨色，悬停在滚动区上才出现。
 	base.Scrollbar = base.TextMuted.Alpha(0.3)
 	base.ScrollbarWidth = 4
-	// 正文字号由编辑器设置，工具栏和文件导航保持紧凑。
+	// 界面文字随字号设置等比缩放：默认字号下取基准字号。
 	base.Font = "Inter"
-	base.FontSize = 12
+	base.FontSize = uiThemeFontSize * a.settings.FontSize / uiBaseFontSize
 	c.SetTheme(base)
 }
 
@@ -188,9 +198,9 @@ func (a *nativeApp) viewPrompt(c *ui.Context) {
 		if title == "" {
 			title = "插入"
 		}
-		ui.Text(c, title).Bold().FontSize(18)
+		ui.Text(c, title).Bold().FontSize(scaled(c, 18))
 		if hint != "" {
-			ui.Text(c, hint).FontSize(12).TextColor(c.Theme().TextMuted)
+			ui.Text(c, hint).FontSize(scaled(c, 12)).TextColor(c.Theme().TextMuted)
 		}
 		ui.TextInput(c, &a.promptText).FillWidth().MinWidth(320).AutoFocus()
 		ui.Row(c).Gap(8).Children(func() {
