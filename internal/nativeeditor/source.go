@@ -41,7 +41,10 @@ func (e *Editor) SetSourceMode(on bool) {
 }
 
 // SetSourceSyntax 设置源码着色。回调只读全文，不得改文档；返回的区间按出现顺序覆盖字形。
-func (e *Editor) SetSourceSyntax(fn func(text string) []SourceSpan) { e.sourceSyntax = fn }
+func (e *Editor) SetSourceSyntax(fn func(text string) []SourceSpan) {
+	e.sourceSyntax = fn
+	e.sourceLaid = false
+}
 
 // SetSourcePalette 设置源码着色。下标与 SourceSpan.Kind 对齐，0 不使用，正文仍用主题文字色。
 func (e *Editor) SetSourcePalette(colors [6]ui.Color) {

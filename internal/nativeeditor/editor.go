@@ -78,6 +78,9 @@ type Editor struct {
 	sourceSyntax   func(string) []SourceSpan
 	sourcePalette  [6]ui.Color
 	sourceSet      bool
+	sourceKey      sourceLayoutKey // 上一次源码排版的输入，未变时复用 sourceLay
+	sourceLay      layout
+	sourceLaid     bool
 	bounds         ui.Rect      // 最近一帧 Scroll 元素在父容器中的矩形
 	collapsed      map[int]bool // details 容器的视图折叠，不写入文档
 }
@@ -140,7 +143,7 @@ func (e *Editor) FontSize(size float32) {
 		size = 96
 	}
 	e.fontSize = size
-	clear(e.cache.text)
+	e.cache.reset()
 	clear(e.cache.faces)
 }
 
@@ -154,7 +157,7 @@ func (e *Editor) SetFontFamily(family string) {
 	}
 	e.cache.family = family
 	clear(e.cache.faces)
-	clear(e.cache.text)
+	e.cache.reset()
 }
 
 // SetLineHeight 设置正文行高倍率。
@@ -402,13 +405,9 @@ func (e *Editor) View(c *ui.Context) {
 		e.cache.caret = e.focus
 	}
 	e.cache.source = e.sourceMode
-	e.cache.sourceSpans = nil
 	e.cache.collapsed = e.collapsed
-	if e.sourceMode && e.sourceSyntax != nil {
-		e.cache.sourceSpans = e.sourceSyntax(e.doc.Text())
-	}
 	e.cache.diagramStyle = diagramStyle(c.Theme())
-	e.lay = flow(e.doc, width, e.fontSize, e.cache, e.images)
+	e.lay = e.reflow(width)
 	if e.typewriter {
 		// 文末留出余量，最后几行也能停在视口中部。
 		e.lay.height += height * .45
@@ -429,7 +428,7 @@ func (e *Editor) View(c *ui.Context) {
 	e.composeAdvance = measure(e.cache, string([]rune(e.compose)[:caret]), e.fontSize, false, false, false)
 	if e.reveal {
 		if e.expandToCaret() {
-			e.lay = flow(e.doc, width, e.fontSize, e.cache, e.images)
+			e.lay = e.reflow(width)
 		}
 		e.keepCaretVisible()
 		e.reveal = false
@@ -453,6 +452,37 @@ func (e *Editor) View(c *ui.Context) {
 			e.paint(p, r, theme, now)
 		})
 	})
+}
+
+// sourceLayoutKey 是源码排版的全部输入。源码整篇是一块等宽纯文本，
+// 版面只取决于正文与这些版面参数，不受光标、主题和图片影响。
+type sourceLayoutKey struct {
+	text                                    string
+	width, fontSize, lineHeight, readingCol float32
+	family                                  string
+	weight                                  int
+	syntax                                  bool
+}
+
+// reflow 按当前宽度排版。源码模式下正文和版面参数没变时复用上一次的结果，
+// 滚动和光标闪烁的帧不必重新着色、折行。返回的排版与缓存共用切片，调用方只读。
+func (e *Editor) reflow(width float32) layout {
+	if !e.sourceMode {
+		e.cache.sourceSpans, e.cache.sourceKinds = nil, nil
+		return flow(e.doc, width, e.fontSize, e.cache, e.images)
+	}
+	key := sourceLayoutKey{text: e.doc.Text(), width: width, fontSize: e.fontSize, lineHeight: e.cache.lineHeight, readingCol: e.cache.readingWidth, family: e.cache.family, weight: e.cache.weight, syntax: e.sourceSyntax != nil}
+	if e.sourceLaid && key == e.sourceKey {
+		return e.sourceLay
+	}
+	e.cache.sourceSpans, e.cache.sourceKinds = nil, nil
+	if e.sourceSyntax != nil {
+		e.cache.sourceSpans = e.sourceSyntax(key.text)
+		e.cache.sourceKinds = sourceKindTable(e.cache.sourceSpans, e.doc.Len())
+	}
+	e.sourceLay = flow(e.doc, width, e.fontSize, e.cache, e.images)
+	e.sourceKey, e.sourceLaid = key, true
+	return e.sourceLay
 }
 
 func abs32(v float32) float32 {
@@ -1091,7 +1121,13 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect, theme *ui.Theme, now time.Time)
 	for _, b := range e.lay.blocks {
 		e.paintBlock(p, r, b, theme)
 	}
+	// 画笔只做横向裁剪：视口外的行在这里跳过，长文档滚动时不必每帧提交全文字形。
+	// 上下各留一屏余量，容纳滚动偏移与本帧绘制位置之间的差。
+	top, bottom := e.scroll.Y-e.viewH, e.scroll.Y+e.viewH*2
 	for _, ln := range e.lay.lines {
+		if e.viewH > 0 && (ln.y+ln.height < top || ln.y > bottom) {
+			continue
+		}
 		e.paintSelection(p, r, ln, sel, theme)
 		e.paintLine(p, r, ln, theme)
 	}

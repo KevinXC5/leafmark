@@ -151,8 +151,11 @@ type faceKey struct {
 
 // faces 缓存同一字体的塑形结果，避免每帧重复 Shape。
 type shapeCache struct {
-	faces      map[faceKey]ui.Font
-	text       map[shapeKey][]ui.Glyph
+	faces map[faceKey]ui.Font
+	text  map[shapeKey][]ui.Glyph
+	// aged 是上一代塑形结果：text 写满后整代退到这里，仍在用的条目命中时搬回 text。
+	// 一帧里用到的字符串多于一代容量时也不会全部重新塑形。
+	aged       map[shapeKey][]ui.Glyph
 	family     string
 	lineHeight float32
 	weight     int
@@ -168,6 +171,8 @@ type shapeCache struct {
 	// source 为真时代码块按源码模式排：无代码块内边距，并用 sourceSpans 着色。
 	source      bool
 	sourceSpans []SourceSpan
+	// sourceKinds 是 sourceSpans 按 rune 展开的着色表，逐字形查色不必再扫全部区间。
+	sourceKinds []uint8
 	images      map[string]*ui.Bitmap
 	collapsed   map[int]bool
 }
@@ -204,13 +209,25 @@ func (c *shapeCache) shape(text string, size float32, bold, italic, code bool) [
 	if g, ok := c.text[k]; ok {
 		return append([]ui.Glyph(nil), g...)
 	}
-	g := ui.Shape(text, c.font(size, bold, italic, code))
+	g, ok := c.aged[k]
+	if !ok {
+		g = ui.Shape(text, c.font(size, bold, italic, code))
+	}
 	// 限制二分测量与长期编辑留下的旧字符串，字形副本归当前排版持有。
-	if len(c.text) >= 2048 {
-		clear(c.text)
+	if len(c.text) >= shapeGeneration {
+		c.aged, c.text = c.text, map[shapeKey][]ui.Glyph{}
 	}
 	c.text[k] = g
 	return append([]ui.Glyph(nil), g...)
+}
+
+// shapeGeneration 是一代字形缓存的条目数，两代合计是缓存上限。
+const shapeGeneration = 16384
+
+// reset 丢弃全部塑形结果，字号或字体变化后调用。
+func (c *shapeCache) reset() {
+	clear(c.text)
+	clear(c.aged)
 }
 
 func (c *shapeCache) metrics(size float32, bold, code bool) ui.FontMetrics {
@@ -956,8 +973,12 @@ func fitRunes(cache *shapeCache, seg styled, rs []rune, width, size float32, hea
 	if width <= 0 {
 		return 0
 	}
+	// 整段放得下时不必二分：多数行都走这里，也不会往字形缓存里塞一串前缀。
+	if measure(cache, string(rs), styledSize(seg, size), headingBold || seg.bold, seg.italic, seg.code) <= width {
+		return len(rs)
+	}
 	// 二分找到放得下的最长前缀，并尽量在空白处断开。
-	lo, hi := 0, len(rs)
+	lo, hi := 0, len(rs)-1
 	best := 0
 	for lo <= hi {
 		mid := (lo + hi) / 2
@@ -1055,7 +1076,7 @@ func placeCode(box *blockBox, code, lang string, fontSize float32, cache *shapeC
 			shiftGlyphs(g, pad)
 			ln.glyphs = g
 			if source {
-				ln.spans = sourceSpans(g, piece, ln.origin, cache.sourceSpans)
+				ln.spans = sourceSpans(g, ln.origin, cache.sourceKinds)
 			} else {
 				ln.spans = codeSpans(g, piece, lang)
 			}
@@ -1098,20 +1119,31 @@ func wrapSource(cache *shapeCache, part string, width, size float32) []string {
 	return out
 }
 
-// sourceSpans 按宿主给出的区间给一行源码着色。区间是全文 rune 偏移，种类为 0 的不单独成段。
-func sourceSpans(glyphs []ui.Glyph, text string, origin int, spans []SourceSpan) []paintSpan {
-	if len(spans) == 0 || len(glyphs) == 0 {
+// sourceKindTable 把着色区间展开成每个 rune 的种类。区间重叠时先出现的生效，与逐个区间查找一致。
+func sourceKindTable(spans []SourceSpan, length int) []uint8 {
+	if len(spans) == 0 || length <= 0 {
+		return nil
+	}
+	kinds := make([]uint8, length)
+	for i := len(spans) - 1; i >= 0; i-- {
+		sp := spans[i]
+		for at := max(sp.Start, 0); at < min(sp.End, length); at++ {
+			kinds[at] = sp.Kind
+		}
+	}
+	return kinds
+}
+
+// sourceSpans 按着色表给一行源码着色。origin 是这一行在全文里的 rune 偏移，种类为 0 的不单独成段。
+func sourceSpans(glyphs []ui.Glyph, origin int, kinds []uint8) []paintSpan {
+	if len(kinds) == 0 || len(glyphs) == 0 {
 		return nil
 	}
 	var out []paintSpan
 	for _, g := range glyphs {
 		kind := uint8(0)
-		at := origin + g.Cluster
-		for _, sp := range spans {
-			if at >= sp.Start && at < sp.End {
-				kind = sp.Kind
-				break
-			}
+		if at := origin + g.Cluster; at >= 0 && at < len(kinds) {
+			kind = kinds[at]
 		}
 		if n := len(out); n > 0 && out[n-1].source == kind {
 			out[n-1].glyphs = append(out[n-1].glyphs, g)
