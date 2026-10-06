@@ -186,17 +186,6 @@ leafmark/
 - `.github/workflows/windows.yml` 在 Windows runner 上运行全部检查与原生窗口验收，并核对 `platform` 为 `Windows Native UI`。
 - 以下内容需人工验收：输入法组合输入、系统文件对话框和消息框、右键菜单、安装与文件关联、真实拖放，以及升级后重启。
 
-### 官网
-
-官网源码在 `site/`，是没有依赖和构建步骤的静态页面，`site/` 有变化时由 `.github/workflows/pages.yml` 发布到 GitHub Pages。本地预览：
-
-```bash
-make site
-```
-
-- 版本号和安装包直链在浏览器中从最新 Release 读取，发布新版本后无需修改官网；安装包文件名需保持 `darwin-arm64.dmg`、`windows-amd64.exe` 这类结尾。
-- `site/assets/img/app-*.webp` 由 `make shots` 在真实 MyGo Native UI 窗口中生成。它分别打开《山中来信》和《叶脉笔记》的验证副本，按 1280×820、14 号字截取浅色与深色画面，再转为 WebP；原始 PNG 位于 `verification/site-shots/`。界面调整后重新生成并查看原图，截图只能证明对应平台与架构的视觉。
-
 ## 许可证
 
 Leafmark 使用 [MIT 许可证](LICENSE)。可以自由使用、修改、分发和商用，但必须保留版权声明和许可声明；软件按“原样”提供，不提供担保。
