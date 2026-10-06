@@ -28,6 +28,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      # 样式与脚本的引用带上提交号，页面更新后浏览器不会沿用缓存的旧文件。
+      - name: 给样式与脚本加版本参数
+        run: |
+          sed -i "s#href=\"styles.css\"#href=\"styles.css?v=${GITHUB_SHA::8}\"#; s#src=\"main.js\"#src=\"main.js?v=${GITHUB_SHA::8}\"#" site/index.html
+          grep -q "styles.css?v=" site/index.html && grep -q "main.js?v=" site/index.html
       # 官网是无构建步骤的静态页面，直接上传 site/ 目录。
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
