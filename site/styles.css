@@ -361,7 +361,10 @@ kbd[data-mod], kbd[data-shift] { font-family: var(--sans); font-size: 14px; }
   transition: transform .3s var(--ease), background .3s, box-shadow .3s;
 }
 .dl-card:hover { transform: translateY(-4px); background: #f6f2e921; box-shadow: inset 0 0 0 1px #f6f2e966; }
-.dl-os { font: 400 12.5px/1 var(--mono); letter-spacing: .06em; color: #aebcad; }
+.dl-os { display: flex; align-items: center; gap: 7px; font: 400 12.5px/1 var(--mono); letter-spacing: .06em; color: #aebcad; }
+.dl-os svg { width: 15px; height: 15px; fill: currentColor; flex: none; }
+.dl-os .os-mac { margin-top: -3px; }
+.dl-os .os-win { width: 13px; height: 13px; }
 .dl-arch { font: 500 23px/1.35 var(--serif); color: #f6f2e9; }
 .dl-file { margin-top: 14px; font: 400 12.5px/1 var(--mono); color: #c4cfc2; }
 .dl-file::before { content: "↓ "; color: #e0a183; }
