@@ -154,11 +154,26 @@ jobs:
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: |
           test -n "$MYGO_UPDATER_PRIVATE_KEY"
-          # MyGo 按二级标题划分版本小节；日志内的标题降一级，保留完整变更内容。
+          # MyGo 只读取当前版本的二级标题小节：把历史版本的说明按三级标题一并写入，
+          # 说明内的标题降两级，应用内据此列出用户当前版本之后的全部变化。
           version="${{ needs.prepare.outputs.tag }}"
-          notes=$(gh release view "$version" --repo "$GITHUB_REPOSITORY" --json body --jq .body | awk '/^\[完整变更记录\]/ {exit} /^##/ {sub(/^#/, "##")} {print}')
+          section() {
+            gh release view "$1" --repo "$GITHUB_REPOSITORY" --json body --jq .body |
+              awk '/^\[完整变更记录\]/ || /^## 下载与安装/ {exit} /^##/ {sub(/^#/, "###")} {print}'
+          }
+          notes=$(section "$version")
           test -n "${notes//[[:space:]]/}" || notes="此版本未提供更新日志。"
-          printf '## %s\n\n%s\n' "${version#v}" "$notes" > .github/release-notes.md
+          printf '## %s\n\n### %s\n\n%s\n' "${version#v}" "${version#v}" "$notes" > .github/release-notes.md
+          # 未公开的旧草稿也计入：它的改动随本次版本一起交付。
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName --jq '.[].tagName' |
+            { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -rV > "$RUNNER_TEMP/tags.txt"
+          while read -r tag; do
+            [ "$tag" != "$version" ] || continue
+            [ "$(printf '%s\n%s\n' "$tag" "$version" | sort -V | tail -n 1)" = "$version" ] || continue
+            notes=$(section "$tag")
+            test -n "${notes//[[:space:]]/}" || continue
+            printf '\n### %s\n\n%s\n' "${tag#v}" "$notes" >> .github/release-notes.md
+          done < "$RUNNER_TEMP/tags.txt"
           bash scripts/build-desktop.sh -platform "${{ matrix.platform }}" -skip-notarize
           python3 - <<'PY'
           import pathlib

@@ -584,6 +584,14 @@ func viewReleaseNotes(c *ui.Context, markdown string) {
 				if i == 0 {
 					top = 0
 				}
+				// 跨版本升级时日志按版本分节，版本号标题比分类标题醒目一级。
+				if _, ok := parseVersion(text); ok {
+					if i > 0 {
+						top = 18
+					}
+					ui.Text(c, text).FontSize(16).FontWeight(700).LineHeight(1.5).Margin(top, 0, 0, 0)
+					break
+				}
 				ui.Text(c, text).FontSize(14).FontWeight(600).LineHeight(1.5).Margin(top, 0, 0, 0)
 			case richtext.List, richtext.Task:
 				marker := "•"

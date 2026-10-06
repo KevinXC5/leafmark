@@ -170,3 +170,30 @@ func TestUpdateProgressRemainsVisibleWithLongNotes(t *testing.T) {
 		t.Fatalf("长日志挤掉了升级按钮：%+v，存在=%v", button, ok)
 	}
 }
+
+func TestUpdateDialogListsEveryVersionSinceCurrent(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "正文")
+	app.updates = &Updates{
+		versionFn: func() string { return "0.5.1" },
+		enabledFn: func() bool { return true },
+		checkFn: func(context.Context) (*mygo.Update, error) {
+			return &mygo.Update{Version: "0.6.1", Notes: "### 0.6.1\n\n修复查找定位。\n\n### 0.6.0\n\n补齐原生编辑能力。\n\n#### 新增功能\n\n- 新增阅读模式。\n\n### 0.5.1\n\n已经装上的版本。\n"}, nil
+		},
+	}
+	if _, err := app.updates.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	app.updateOpen = true
+	view := ui.NewTester(app.View, 1100, 760)
+	view.Frame()
+	for _, text := range []string{"发现新版本 0.6.1", "0.6.1", "修复查找定位。", "0.6.0", "补齐原生编辑能力。", "新增功能", "新增阅读模式。"} {
+		if !view.HasText(text) {
+			t.Fatalf("更新窗口缺少 %q", text)
+		}
+	}
+	if view.HasText("已经装上的版本。") {
+		t.Fatal("更新日志不应包含当前及更早版本的说明")
+	}
+}

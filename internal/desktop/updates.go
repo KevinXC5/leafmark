@@ -3,6 +3,9 @@ package desktop
 import (
 	"context"
 	"errors"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -93,9 +96,76 @@ func (u *Updates) Status() UpdateStatus {
 	status := UpdateStatus{Version: u.version(), Enabled: u.enabled(), Installed: u.installed}
 	if u.pending != nil {
 		status.Available = u.pending.Version
-		status.Notes = u.pending.Notes
+		status.Notes = releaseNotesSince(u.pending.Notes, status.Version)
 	}
 	return status
+}
+
+// parseVersion 解析 "0.6.1" 或 "v0.6.1" 这样的三段版本号。
+func parseVersion(s string) (v [3]int, ok bool) {
+	parts := strings.Split(strings.TrimPrefix(strings.TrimSpace(s), "v"), ".")
+	if len(parts) != len(v) {
+		return v, false
+	}
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 {
+			return v, false
+		}
+		v[i] = n
+	}
+	return v, true
+}
+
+// releaseNotesSince 从按 "### 版本号" 分节的更新日志里取出比 current 新的版本，
+// 跨版本升级时能看到中间每个版本的变化。日志没有分节或 current 不是正式版本号时原样返回；
+// 只剩一个版本时去掉版本标题，窗口标题已经写明了版本。
+func releaseNotesSince(notes, current string) string {
+	type section struct {
+		version [3]int
+		lines   []string
+	}
+	var sections []section
+	for _, line := range strings.Split(strings.ReplaceAll(notes, "\r\n", "\n"), "\n") {
+		if rest, found := strings.CutPrefix(line, "### "); found {
+			if v, ok := parseVersion(rest); ok {
+				sections = append(sections, section{version: v})
+			}
+		}
+		if len(sections) == 0 {
+			// 版本标题之前的内容不属于任何版本，说明日志没有按版本分节。
+			if strings.TrimSpace(line) != "" {
+				return notes
+			}
+			continue
+		}
+		last := &sections[len(sections)-1]
+		last.lines = append(last.lines, line)
+	}
+	if len(sections) == 0 {
+		return notes
+	}
+	kept := sections
+	if base, ok := parseVersion(current); ok {
+		kept = nil
+		for _, s := range sections {
+			if slices.Compare(s.version[:], base[:]) > 0 {
+				kept = append(kept, s)
+			}
+		}
+		if len(kept) == 0 {
+			kept = sections[:1]
+		}
+	}
+	if len(kept) == 1 {
+		return strings.TrimSpace(strings.Join(kept[0].lines[1:], "\n"))
+	}
+	var b strings.Builder
+	for _, s := range kept {
+		b.WriteString(strings.TrimSpace(strings.Join(s.lines, "\n")))
+		b.WriteString("\n\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func (u *Updates) Check(ctx context.Context) (UpdateStatus, error) {

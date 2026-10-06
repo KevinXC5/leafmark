@@ -343,3 +343,21 @@ func TestUpdatesDisabled(t *testing.T) {
 	requireUpdateError(t, err, "当前构建无法自动更新，请使用正式版并将应用安装到可写目录")
 	requireUpdateStatus(t, status, UpdateStatus{})
 }
+
+func TestReleaseNotesSinceKeepsVersionsNewerThanCurrent(t *testing.T) {
+	notes := "### 0.6.1\n\n修复查找。\n\n#### 问题修复\n\n- 查找定位。\n\n### 0.6.0\r\n\r\n补齐编辑能力。\n\n### 0.5.1\n\n旧版本说明。\n"
+	for _, tc := range []struct{ name, notes, current, want string }{
+		{"跨版本升级列出中间版本", notes, "0.5.1", "### 0.6.1\n\n修复查找。\n\n#### 问题修复\n\n- 查找定位。\n\n### 0.6.0\n\n补齐编辑能力。"},
+		{"只差一个版本时不带版本标题", notes, "v0.6.0", "修复查找。\n\n#### 问题修复\n\n- 查找定位。"},
+		{"当前版本不低于日志时保留最新一节", notes, "0.6.1", "修复查找。\n\n#### 问题修复\n\n- 查找定位。"},
+		{"开发版看到全部版本", "### 0.6.1\n\n甲。\n\n### 0.6.0\n\n乙。\n", "", "### 0.6.1\n\n甲。\n\n### 0.6.0\n\n乙。"},
+		{"未分节的日志原样返回", "概述一句。\n\n### 问题修复\n\n- 一条。\n", "0.5.1", "概述一句。\n\n### 问题修复\n\n- 一条。\n"},
+		{"概述在版本标题之前时原样返回", "概述。\n\n### 0.6.1\n\n甲。", "0.5.1", "概述。\n\n### 0.6.1\n\n甲。"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := releaseNotesSince(tc.notes, tc.current); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
