@@ -412,7 +412,7 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 		for _, state := range []string{"downloading", "installed"} {
 			mygo.RunOnMain(func() {
 				app.updates.mu.Lock()
-				app.updates.pending = &mygo.Update{Version: "9.9.9", Notes: "验收用的更新日志，概述一句。\n\n## 新增功能\n\n- 支持**公式排版**与流程图。\n- 新增源码模式。\n\n## 问题修复\n\n- 修复若干问题。\n"}
+				app.updates.pending = &mygo.Update{Version: "9.9.9", Notes: "### 9.9.9\n\n验收用的更新日志，概述一句。\n\n#### 新增功能\n\n- 支持**公式排版**与流程图。\n- 新增源码模式。\n\n### 9.9.8\n\n跨版本升级时列出的上一个版本。\n\n#### 问题修复\n\n- 修复若干问题。\n"}
 				app.updates.installed = state == "installed"
 				app.updates.mu.Unlock()
 				app.updateOpen, app.updateDownloading = true, state == "downloading"

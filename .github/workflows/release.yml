@@ -62,7 +62,17 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           test -n "$DEEPSEEK_API_KEY" || { echo "::error::未配置 DEEPSEEK_API_KEY，无法生成更新说明"; exit 1; }
-          previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$TAG^" 2>/dev/null || true)
+          # 以上一个已公开的版本为起点：发布失败的版本没有发布说明，它的提交并入本次日志。
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName,isDraft --jq '.[] | select(.isDraft | not) | .tagName' |
+            { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -rV > "$RUNNER_TEMP/tags.txt"
+          previous=""
+          while read -r tag; do
+            [ "$tag" != "$TAG" ] || continue
+            [ "$(printf '%s\n%s\n' "$tag" "$TAG" | sort -V | tail -n 1)" = "$TAG" ] || continue
+            git merge-base --is-ancestor "$tag" "$TAG" 2>/dev/null || continue
+            previous="$tag"
+            break
+          done < "$RUNNER_TEMP/tags.txt"
           if [ -n "$previous" ]; then
             range="$previous..$TAG"
             url="https://github.com/$GITHUB_REPOSITORY/compare/$previous...$TAG"
@@ -159,13 +169,12 @@ jobs:
           version="${{ needs.prepare.outputs.tag }}"
           section() {
             gh release view "$1" --repo "$GITHUB_REPOSITORY" --json body --jq .body |
-              awk '/^\[完整变更记录\]/ || /^## 下载与安装/ {exit} /^##/ {sub(/^#/, "###")} {print}'
+              awk '/^\[完整变更记录\]/ || /^## 下载与安装/ {exit} /^## v?[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$/ {next} /^##/ {sub(/^#/, "###")} {print}'
           }
           notes=$(section "$version")
           test -n "${notes//[[:space:]]/}" || notes="此版本未提供更新日志。"
           printf '## %s\n\n### %s\n\n%s\n' "${version#v}" "${version#v}" "$notes" > .github/release-notes.md
-          # 未公开的旧草稿也计入：它的改动随本次版本一起交付。
-          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName --jq '.[].tagName' |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName,isDraft --jq '.[] | select(.isDraft | not) | .tagName' |
             { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -rV > "$RUNNER_TEMP/tags.txt"
           while read -r tag; do
             [ "$tag" != "$version" ] || continue
