@@ -70,12 +70,32 @@ func TestNativeVisualNarrowWindowKeepsActionsInBounds(t *testing.T) {
 	if _, ok := view.Find("文档导航"); ok {
 		t.Fatal("窄窗口应收起侧栏，保留正文空间")
 	}
-	for _, label := range []string{"更多操作", "展开侧栏", "状态栏"} {
+	for _, label := range []string{"新建文档", "更多操作", "展开侧栏", "状态栏"} {
 		r, ok := view.Find(label)
 		if !ok || r.X < 0 || r.Y < 0 || r.X+r.W > 480 || r.Y+r.H > 600 {
 			t.Fatalf("窄窗口操作溢出：%s %+v", label, r)
 		}
 	}
+	checkSelected := func() {
+		t.Helper()
+		view.Frame()
+		name := app.files.Current().Name
+		button, found := view.Find(name)
+		close, closeFound := view.Find("关闭 " + name)
+		create, _ := view.Find("新建文档")
+		if !found || !closeFound || button.X < 40 || close.X+close.W > create.X {
+			t.Fatalf("当前标签及关闭按钮应完整可见：%+v %+v，新建按钮 %+v", button, close, create)
+		}
+	}
+	checkSelected()
+	app.selectTab(0)
+	checkSelected()
+	app.selectTab(len(app.tabs) - 1)
+	checkSelected()
+	if err := view.Click("新建文档"); err != nil {
+		t.Fatal(err)
+	}
+	checkSelected()
 	if err := view.Click("更多操作"); err != nil {
 		t.Fatal(err)
 	}

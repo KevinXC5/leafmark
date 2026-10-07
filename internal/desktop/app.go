@@ -42,6 +42,9 @@ func Run() {
 		}
 		win := mygo.NewWindow(opts)
 		app.attach(win)
+		if runtime.GOOS == "darwin" {
+			mygo.App.SetMenu(nativeApplicationMenu(app))
+		}
 		win.OnFileDrop(func(e *mygo.FileDropEvent) {
 			app.enqueueOpen(e.Paths)
 		})

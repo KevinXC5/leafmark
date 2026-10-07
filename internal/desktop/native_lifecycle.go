@@ -157,6 +157,7 @@ func (a *nativeApp) applyTheme(c *ui.Context) {
 	base.Font = "Inter"
 	base.FontSize = uiThemeFontSize * a.settings.FontSize / uiBaseFontSize
 	c.SetTheme(base)
+	a.effectiveDark = dark
 }
 
 func (a *nativeApp) handleShortcuts(c *ui.Context) {

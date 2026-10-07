@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,11 +136,11 @@ func TestExportDocumentIsStandaloneHTML(t *testing.T) {
 	app, _ := newTestApp(t)
 	useStubEditors(t)
 	app.adopt(app.files.Current(), "# 山中 <来信>\n\n正文 ==高亮==\n")
-	name, body, ok := app.exportBody()
+	name, body, ok := app.exportBody(false)
 	if !ok {
 		t.Fatal("没有可导出的文档")
 	}
-	html := exportDocument("山中<来信>.md", body)
+	html := exportDocument("山中<来信>.md", body, false)
 	for _, want := range []string{"<!doctype html>", "<title>山中&lt;来信&gt;</title>", "<mark>高亮</mark>", "@media print"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("导出文档缺少 %q", want)
@@ -362,11 +363,11 @@ func TestExportEmbedsRenderedMathAndDiagrams(t *testing.T) {
 	useStubEditors(t)
 	source := "行内 $s = vt$ 继续\n\n$$\nQ_n = Q \\cdot r^n\n$$\n\n```mermaid\ngraph LR\nA-->B\n```\n\n见脚注[^a]\n\n[^a]: 注一\n"
 	app.adopt(app.files.Current(), source)
-	_, body, ok := app.exportBody()
+	_, body, ok := app.exportBody(false)
 	if !ok {
 		t.Fatal("没有可导出的文档")
 	}
-	html := exportDocument("笔记.md", body)
+	html := exportDocument("笔记.md", body, false)
 	for _, want := range []string{
 		`<span class="math" style="vertical-align:`,
 		`<div class="math-display"><svg`,
@@ -398,12 +399,51 @@ func TestExportEmbedsRenderedMathAndDiagrams(t *testing.T) {
 	}
 }
 
+func TestExportFollowsEffectiveTheme(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "正文 $s = vt$\n\n```mermaid\ngraph LR\nA-->B\n```\n")
+	for _, tc := range []struct {
+		theme                string
+		systemDark, wantDark bool
+	}{
+		{"light", true, false}, {"dark", false, true},
+		{"system", false, false}, {"system", true, true},
+	} {
+		t.Run(fmt.Sprintf("%s-%v", tc.theme, tc.systemDark), func(t *testing.T) {
+			app.settings.Theme, app.effectiveDark = tc.theme, tc.systemDark
+			dark := app.exportDark()
+			if dark != tc.wantDark {
+				t.Fatalf("导出主题错误：得到 %v，期望 %v", dark, tc.wantDark)
+			}
+			name, body, ok := app.exportBody(dark)
+			if !ok {
+				t.Fatal("没有可导出的正文")
+			}
+			html := exportDocument(name, body, dark)
+			if strings.Contains(html, `<html lang="zh-CN" class="dark">`) != tc.wantDark {
+				t.Fatal("文档主题未随当前外观变化")
+			}
+			fill := `fill="#f3e8dd"`
+			if dark {
+				fill = `fill="#343b44"`
+			}
+			if !strings.Contains(body, fill) || !strings.Contains(body, "currentColor") {
+				t.Fatal("图表或公式未使用正文主题配色")
+			}
+			if strings.Contains(html, "background: #fff") || !strings.Contains(html, "print-color-adjust: exact") {
+				t.Fatal("打印样式必须保留主题配色")
+			}
+		})
+	}
+}
+
 func TestExportKeepsSourceWhenLayoutFails(t *testing.T) {
 	app, _ := newTestApp(t)
 	useStubEditors(t)
 	// \unknown 不是受支持的公式命令，排版失败时应退回源码。
 	app.adopt(app.files.Current(), "行内 $\\unknown$ 结束\n")
-	_, body, ok := app.exportBody()
+	_, body, ok := app.exportBody(false)
 	if !ok {
 		t.Fatal("没有可导出的文档")
 	}

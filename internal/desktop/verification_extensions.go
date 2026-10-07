@@ -391,12 +391,13 @@ func verifyExportGraphics(app *nativeApp, out map[string]any) error {
 		doc := app.files.store.New("导出探针.md", exportProbeMarkdown)
 		app.adopt(doc, doc.Content)
 		tabID = app.active().id
-		name, body, ok := app.exportBody()
+		dark := app.exportDark()
+		name, body, ok := app.exportBody(dark)
 		if !ok {
 			check = fmt.Errorf("导出探针没有生成正文")
 			return
 		}
-		exported = exportDocument(name, body)
+		exported = exportDocument(name, body, dark)
 	})
 	if tabID != "" {
 		mygo.RunOnMain(func() { app.finishClose([]string{tabID}) })
@@ -425,6 +426,25 @@ func verifyExportGraphics(app *nativeApp, out map[string]any) error {
 	}
 	out["exportGraphics"] = true
 	_ = os.WriteFile("verification/native-export-graphics.html", []byte(exported), 0644)
+	var darkGraphics string
+	mygo.RunOnMain(func() {
+		doc := app.files.store.New("深色图形导出探针.md", exportProbeMarkdown)
+		app.adopt(doc, doc.Content)
+		name, body, _ := app.exportBody(true)
+		darkGraphics = exportDocument(name, body, true)
+		app.finishClose([]string{doc.ID})
+	})
+	if !strings.Contains(darkGraphics, `fill="#343b44"`) || !strings.Contains(darkGraphics, "currentColor") {
+		return fmt.Errorf("深色导出的图表或公式未使用主题配色")
+	}
+	pdf, err := renderPDF(darkGraphics)
+	if err != nil {
+		return fmt.Errorf("深色公式与图表 PDF 导出失败：%w", err)
+	}
+	if err := os.WriteFile("verification/native-export-graphics-dark.pdf", pdf, 0644); err != nil {
+		return err
+	}
+	out["exportGraphicsDark"] = true
 	return nil
 }
 

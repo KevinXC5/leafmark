@@ -118,9 +118,12 @@ type nativeApp struct {
 	mu  sync.Mutex
 	win *mygo.Window
 
-	tabs    []*nativeTab
-	current int
-	sidebar float32
+	tabs          []*nativeTab
+	current       int
+	visibleTabID  string // 仅在切换标签时滚动定位，允许用户自由横向浏览。
+	tabScroll     ui.ScrollState
+	sidebar       float32
+	effectiveDark bool // 当前原生界面的实际主题，包含跟随系统的结果。
 
 	// 空值与 outline 都显示原版默认的大纲页。
 	sidebarMode     string

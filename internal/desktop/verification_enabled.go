@@ -194,6 +194,30 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 			return
 		}
 		results["diskSave"] = true
+		if runtime.GOOS == "darwin" {
+			mygo.RunOnMain(func() {
+				menu := mygo.App.Menu()
+				if menu == nil || menu.ItemByID("close-tab") == nil {
+					err = fmt.Errorf("macOS 未安装当前标签关闭菜单")
+					return
+				}
+				var inspect func([]*mygo.MenuItem)
+				inspect = func(items []*mygo.MenuItem) {
+					for _, item := range items {
+						if item.Role == mygo.RoleClose {
+							err = fmt.Errorf("系统关闭窗口菜单仍会抢占 Command+W")
+						}
+						inspect(item.Submenu)
+					}
+				}
+				inspect(menu.Items())
+			})
+			if err != nil {
+				finishNativeVerification(results, err)
+				return
+			}
+			results["closeTabMenu"] = true
+		}
 		mygo.RunOnMain(func() {
 			firstID := app.active().id
 			first := app.active().editor.Markdown()
@@ -362,6 +386,21 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 				err = fmt.Errorf("行内公式仍显示美元符号")
 				return
 			}
+			// 统一示例里的相邻有序列表项应保留项间距，正文行高设置不变。
+			var firstItem, nextItem nativeeditor.LineSnapshot
+			for _, line := range layout.Lines {
+				if strings.Contains(line.Text, "清晨上山") {
+					firstItem = line
+				}
+				if strings.Contains(line.Text, "午后读信") {
+					nextItem = line
+				}
+			}
+			if firstItem.Text == "" || nextItem.Text == "" || nextItem.Y-firstItem.Y-firstItem.Height < 4*app.settings.FontSize/15-.1 {
+				err = fmt.Errorf("列表项未保留随字号缩放的间距：%+v %+v", firstItem, nextItem)
+				return
+			}
+			results["listItemSpacing"] = true
 			results["inlineContent"] = true
 			start := strings.Index(text, "把窗推开")
 			from := len([]rune(text[:start]))
@@ -434,8 +473,12 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 		results["updateDialog"] = true
 		// 导出走与菜单相同的生成路径，只是把结果写进验证目录而不弹保存框。
 		var exportName, exportBody string
-		mygo.RunOnMain(func() { exportName, exportBody, _ = app.exportBody() })
-		exported := exportDocument(exportName, exportBody)
+		var exportDark bool
+		mygo.RunOnMain(func() {
+			exportDark = app.exportDark()
+			exportName, exportBody, _ = app.exportBody(exportDark)
+		})
+		exported := exportDocument(exportName, exportBody, exportDark)
 		if !strings.Contains(exported, "<h1>山中来信</h1>") || !strings.Contains(exported, "<table>") {
 			finishNativeVerification(results, fmt.Errorf("导出的 HTML 缺少标题或表格"))
 			return
@@ -449,6 +492,29 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 		_ = os.WriteFile("verification/native-export.pdf", pdf, 0644)
 		results["exportHTML"] = true
 		results["exportPDFBytes"] = len(pdf)
+		// 深色导出与浅色导出使用同一生成、打印链路，保留产物供页面颜色核对。
+		var darkHTML string
+		mygo.RunOnMain(func() {
+			originalTheme := app.settings.Theme
+			app.settings.Theme = "dark"
+			dark := app.exportDark()
+			name, body, _ := app.exportBody(dark)
+			darkHTML = exportDocument(name, body, dark)
+			app.settings.Theme = originalTheme
+		})
+		if !strings.Contains(darkHTML, `<html lang="zh-CN" class="dark">`) {
+			finishNativeVerification(results, fmt.Errorf("深色 PDF 没有取得当前主题"))
+			return
+		}
+		darkPDF, darkErr := renderPDF(darkHTML)
+		if darkErr == nil {
+			darkErr = os.WriteFile("verification/native-export-dark.pdf", darkPDF, 0644)
+		}
+		if darkErr != nil || !strings.HasPrefix(string(darkPDF[:min(len(darkPDF), 5)]), "%PDF-") {
+			finishNativeVerification(results, fmt.Errorf("深色 PDF 导出失败：%v", darkErr))
+			return
+		}
+		results["exportPDFDarkBytes"] = len(darkPDF)
 		// 在真实窗口验证源码文本域贴右边，以及标题定位不修改原文。
 		mygo.RunOnMain(func() { app.command("source") })
 		// Windows 的窗口刷新是异步的，等待源码视图真正完成布局再读取边界。
@@ -535,6 +601,49 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 			return
 		}
 		results["screenshot"] = "verification/native-window.png"
+		// 在真实窗口中制造标签溢出，核对首尾切换的滚动定位并保留视觉截图。
+		var overflowIDs []string
+		mygo.RunOnMain(func() {
+			for i := 0; i < 12; i++ {
+				doc := app.files.store.New(fmt.Sprintf("标签显示验证-%02d-长文件名.md", i), "")
+				app.adopt(doc, doc.Content)
+				overflowIDs = append(overflowIDs, doc.ID)
+			}
+		})
+		refreshVerificationWindow(win)
+		time.Sleep(200 * time.Millisecond)
+		mygo.RunOnMain(func() {
+			if app.tabScroll.MaxX <= 0 || app.tabScroll.X < app.tabScroll.MaxX-1 {
+				err = fmt.Errorf("末尾标签未完整滚入视口：%+v", app.tabScroll)
+			}
+		})
+		if err == nil {
+			mygo.RunOnMain(func() { app.selectTab(0) })
+			refreshVerificationWindow(win)
+			time.Sleep(200 * time.Millisecond)
+			mygo.RunOnMain(func() {
+				if app.tabScroll.X > 1 {
+					err = fmt.Errorf("首个标签未完整滚入视口：%+v", app.tabScroll)
+				}
+				app.selectTab(len(app.tabs) - 1)
+			})
+			refreshVerificationWindow(win)
+			time.Sleep(200 * time.Millisecond)
+		}
+		if err == nil {
+			var shot []byte
+			shot, err = win.CapturePage()
+			if err == nil {
+				err = os.WriteFile("verification/native-tabs-overflow.png", shot, 0644)
+			}
+		}
+		mygo.RunOnMain(func() { app.finishClose(overflowIDs) })
+		if err != nil {
+			finishNativeVerification(results, err)
+			return
+		}
+		results["tabsOverflow"] = true
+		results["tabsOverflowScreenshot"] = "verification/native-tabs-overflow.png"
 		results["passed"] = true
 		finishNativeVerification(results, nil)
 	}()

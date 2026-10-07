@@ -25,6 +25,7 @@ const (
 	codePad      = 18
 	imageMaxH    = 280
 	innerGap     = 12 // 同一容器内相邻块的间距
+	listItemGap  = 4  // 同级列表项在默认字号 15 下的额外间距
 	looseGap     = 8  // 含多段正文的列表项与下一项的间距
 	footGap      = 10 // 相邻脚注定义的间距
 	footScale    = .9 // 脚注定义区的字号比例
@@ -354,15 +355,21 @@ func flow(doc *richtext.Document, contentW, fontSize float32, cache *shapeCache,
 				if b.Level <= 1 {
 					topOrdered = b.Ordered
 				}
-				// 同一列表的各项紧挨；顶层有序与无序交替时是两个列表，保留块间距。
+				// 同级项略微拉开，子列表仍紧挨父项；不同顶层列表保留块间距。
 				if isListItem(blocks[i+1]) && (blocks[i+1].Level > 1 || blocks[i+1].Ordered == topOrdered) {
-					gap = 0
+					gap = listItemGap * fontSize / 15
+					if blocks[i+1].Level > b.Level {
+						gap = 0
+					}
 				}
 			}
 		case nextListItem(chain, next, shared):
-			// 同一列表的相邻项紧挨；上一项含多段正文时略微拉开。
+			// 同级项留出小幅间距，多段项沿用较大的间距；进入子列表不额外留白。
 			gap = looseGap
 			if marker {
+				gap = listItemGap * fontSize / 15
+			}
+			if len(next) > len(chain) {
 				gap = 0
 			}
 		case shared > 0:

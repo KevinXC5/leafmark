@@ -612,13 +612,55 @@ func TestOriginalTypographyGeometry(t *testing.T) {
 		t.Fatalf("正文未对齐原设计：%+v", ed.lay.blocks[0])
 	}
 	first, second := ed.lay.blocks[2], ed.lay.blocks[3]
-	if abs32(second.y-first.y-first.h) > .1 {
-		t.Fatal("相邻列表项出现段落间距")
+	if abs32(second.y-first.y-first.h-float32(listItemGap)*14/15) > .1 {
+		t.Fatal("相邻列表项应保留随字号缩放的小幅间距")
 	}
 	quote := ed.lay.blocks[4]
 	ln := ed.lay.lines[quote.lines[0]]
 	if ln.y != quote.y+10 || ln.prefix != 19 {
 		t.Fatal("引用内边距不匹配")
+	}
+}
+
+func TestWrappedListItemsKeepLineHeightAndItemSpacing(t *testing.T) {
+	for _, source := range []string{
+		"- " + strings.Repeat("多行列表正文", 12) + "\n- 下一项\n",
+		"- " + strings.Repeat("多行列表正文", 12) + "\n\n  续段\n- 下一项\n",
+	} {
+		for _, size := range []float32{15, 24} {
+			ed := New(source)
+			ed.FontSize(size)
+			ed.SetLineHeight(1.4)
+			tt := ui.NewTester(ed.View, 320, 900)
+			tt.Frame()
+			first := ed.lay.blocks[0]
+			if len(first.lines) < 2 {
+				t.Fatal("测试列表项必须折行")
+			}
+			for i := 1; i < len(first.lines); i++ {
+				before, after := ed.lay.lines[first.lines[i-1]], ed.lay.lines[first.lines[i]]
+				if abs32(after.y-before.y-before.height) > .01 || before.height < size*1.4-.01 {
+					t.Fatal("项内折行应保留设置的行高，不添加项间距")
+				}
+			}
+			last := ed.lay.blocks[len(ed.lay.blocks)-1]
+			prev := ed.lay.blocks[len(ed.lay.blocks)-2]
+			want := float32(listItemGap) * size / 15
+			if len(ed.lay.blocks) > 2 {
+				want = looseGap
+			}
+			if gap := last.y - prev.y - prev.h; abs32(gap-want) > .01 {
+				t.Fatalf("列表项间距=%v，期望 %v", gap, want)
+			}
+			x, y, h := ed.PointForOffset(last.origin)
+			tt.ClickAt(x, y+h/2)
+			if at, _ := ed.Selection(); at != last.origin {
+				t.Fatalf("增加项间距后点击定位错误：%d", at)
+			}
+			if ed.Markdown() != source {
+				t.Fatal("排版不应修改 Markdown 原文")
+			}
+		}
 	}
 }
 
@@ -709,7 +751,7 @@ func TestNestedListAndMathLayout(t *testing.T) {
 	if blocks[1].indent != 0 || blocks[2].indent != nestIndent || !blocks[1].bullet || !blocks[2].bullet || !blocks[3].checked {
 		t.Fatalf("列表层级或标记错误：%+v", blocks)
 	}
-	// 有序与无序是两个列表，中间保留块间距；同一列表的各项紧挨。
+	// 有序与无序是两个列表，中间保留块间距；子项仍紧挨父项。
 	if gap := blocks[1].y - blocks[0].y - blocks[0].h; abs32(gap-blockGap) > .01 {
 		t.Fatalf("不同列表间距=%v", gap)
 	}

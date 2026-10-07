@@ -76,8 +76,14 @@ func (a *nativeApp) viewTitleBar(c *ui.Context, bar ui.TitleBar) {
 				a.command("sidebar")
 			}
 		}
-		ui.ScrollHorizontal(c).Grow(1).MinWidth(0).Height(44).Children(func() { a.viewTabs(c) })
-		nativeIconButton(c, "ellipsis", "更多操作").Menu(a.actionMenu)
+		// 滚动条位于裁剪区下方，标签仍可横向滚动；右侧操作始终完整显示。
+		ui.Box(c).Grow(1).MinWidth(0).Height(36).Clip().Children(func() {
+			ui.ScrollHorizontal(c).FillWidth().Height(48).Shrink(0).AlignItems(ui.Start).TrackScroll(&a.tabScroll).Children(func() { a.viewTabs(c) })
+		})
+		if nativeIconButton(c, "plus", "新建文档").Shrink(0).Clicked() {
+			a.command("new")
+		}
+		nativeIconButton(c, "ellipsis", "更多操作").Shrink(0).Menu(a.actionMenu)
 	})
 }
 func (a *nativeApp) actionMenu(m *ui.Menu) {
@@ -162,6 +168,10 @@ func (a *nativeApp) viewTabs(c *ui.Context) {
 				row := ui.Row(c).Height(36).MaxWidth(240).Radius(10).Padding(0, 8).AlignItems(ui.Center)
 				if i == a.current {
 					row.Background(nativeColors(c.Theme().Dark).tab)
+					if a.visibleTabID != tab.id {
+						row.ScrollIntoView()
+						a.visibleTabID = tab.id
+					}
 				}
 				row.Children(func() {
 					b := ui.ButtonBase(c).Height(36).MaxWidth(200).MinWidth(0).Gap(8).Padding(0, 4).Label(name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
@@ -184,9 +194,6 @@ func (a *nativeApp) viewTabs(c *ui.Context) {
 					}
 				})
 			})
-		}
-		if nativeIconButton(c, "plus", "新建文档").MarginY(4).Clicked() {
-			a.command("new")
 		}
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -128,6 +129,43 @@ func TestShortcutValidationConflictAndParsing(t *testing.T) {
 	}
 	if recordedShortcut(ui.Cmd, ui.KeyEnter) != "" {
 		t.Fatal("不支持的主键不应生成绑定")
+	}
+}
+
+func TestCloseShortcutOnlyClosesSelectedTab(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "未保存的欢迎文档")
+	app.syncAll()
+	welcomeID := app.active().id
+	path := filepath.Join(t.TempDir(), "当前文档.md")
+	if err := os.WriteFile(path, []byte("已保存正文"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := app.files.store.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.adopt(doc, doc.Content)
+	view := ui.NewTester(app.View, 1100, 760)
+	view.Key(ui.Cmd, ui.KeyW)
+	view.Frame()
+	if app.tabByID(doc.ID) != nil || app.tabByID(welcomeID) == nil || app.closePrompt {
+		t.Fatal("关闭当前已保存标签不应询问其他标签或关闭它们")
+	}
+	menu := nativeApplicationMenu(app)
+	var inspect func([]*mygo.MenuItem)
+	inspect = func(items []*mygo.MenuItem) {
+		for _, item := range items {
+			if item.Role == mygo.RoleClose || item.Role == mygo.RoleFileMenu {
+				t.Fatal("系统菜单不能抢占关闭标签的快捷键")
+			}
+			inspect(item.Submenu)
+		}
+	}
+	inspect(menu.Items())
+	if item := menu.ItemByID("close-tab"); item == nil || item.Click == nil || item.Accelerator != "" {
+		t.Fatal("菜单关闭应调用标签命令，快捷键由可自定义绑定统一处理")
 	}
 }
 

@@ -398,8 +398,20 @@ func (a *nativeApp) watchExternal(now time.Time) {
 	}()
 }
 
+// exportDark 在主线程取主题快照，导出期间不随设置或系统外观变化。
+func (a *nativeApp) exportDark() bool {
+	switch a.settings.Theme {
+	case "light":
+		return false
+	case "dark":
+		return true
+	default:
+		return a.effectiveDark
+	}
+}
+
 // exportBody 生成当前文档的 HTML 正文，本地图片内嵌为数据地址，导出的文件可以单独打开。
-func (a *nativeApp) exportBody() (name, body string, ok bool) {
+func (a *nativeApp) exportBody(dark bool) (name, body string, ok bool) {
 	tab := a.active()
 	if tab == nil || tab.editor == nil {
 		return "", "", false
@@ -420,49 +432,51 @@ func (a *nativeApp) exportBody() (name, body string, ok bool) {
 			return ""
 		}
 		return uri
-	}, exportRenderers())
+	}, exportRenderers(dark))
 	return name, body, true
 }
 
 // exportStyle 是导出文档的版式：纸面配色与应用一致，打印时去掉背景色块以外的装饰。
 const exportStyle = `
-:root { color-scheme: light; }
+:root { color-scheme: light; --paper: #faf9f5; --ink: #47423c; --heading: #302e2b; --muted: #797168; --accent: #bd7858; --surface: #f1eee6; --callout: #f3ece5; --border: #e8e1d7; --mark: #f6e3b4; }
+:root.dark { color-scheme: dark; --paper: #242527; --ink: #cbcdd3; --heading: #cbcdd3; --muted: #a9adb5; --accent: #a6b7c8; --surface: #2d2f33; --callout: #34363b; --border: #3d4046; --mark: #66552c; }
 * { box-sizing: border-box; }
-body { margin: 0; background: #faf9f5; color: #47423c; font: 16px/1.6 "Newsreader", "Songti SC", "STSong", "Noto Serif CJK SC", "SimSun", Georgia, serif; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.6 "Newsreader", "Songti SC", "STSong", "Noto Serif CJK SC", "SimSun", Georgia, serif; }
 main { max-width: 856px; margin: 0 auto; padding: 48px 40px 80px; }
-h1, h2, h3, h4, h5, h6 { color: #302e2b; font-weight: 500; line-height: 1.35; margin: 1.4em 0 .6em; }
+h1, h2, h3, h4, h5, h6 { color: var(--heading); font-weight: 500; line-height: 1.35; margin: 1.4em 0 .6em; }
 h1 { font-size: 1.89em; margin-top: 0; } h2 { font-size: 1.28em; } h3 { font-size: 1.06em; }
 p, ul, ol, blockquote, pre, table, .callout { margin: 0 0 1.3em; }
-a { color: #bd7858; }
+a { color: var(--accent); }
 ul, ol { padding-left: 1.4em; } li > ul, li > ol { margin-bottom: 0; }
+li + li { margin-top: calc(4em / 15); }
 li.task { list-style: none; margin-left: -1.4em; }
-blockquote { margin-left: 0; padding: 10px 16px; border-left: 3px solid #bd7858; border-radius: 4px; background: #f1eee6; color: #797168; }
+blockquote { margin-left: 0; padding: 10px 16px; border-left: 3px solid var(--accent); border-radius: 4px; background: var(--surface); color: var(--muted); }
 blockquote p { margin: 0; }
-.callout { padding: 12px 16px; border-radius: 5px; background: #f3ece5; font: 13px/1.5 "Inter", system-ui, sans-serif; }
+.callout { padding: 12px 16px; border-radius: 5px; background: var(--callout); font: 13px/1.5 "Inter", system-ui, sans-serif; }
 .callout p { margin: 0; } .callout-title { font-weight: 600; }
-code { font: .82em "Geist Mono", "SFMono-Regular", Consolas, monospace; background: #f1eee6; border-radius: 3px; padding: 1px 4px; }
-pre { padding: 14px 18px; border: 1px solid #e8e1d7; border-radius: 10px; background: #f1eee6; overflow-x: auto; }
+code { font: .82em "Geist Mono", "SFMono-Regular", Consolas, monospace; background: var(--surface); border-radius: 3px; padding: 1px 4px; }
+pre { padding: 14px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow-x: auto; }
 pre code { background: none; padding: 0; font-size: 14px; line-height: 1.75; }
-mark { background: #f6e3b4; color: inherit; border-radius: 2px; }
+mark { background: var(--mark); color: inherit; border-radius: 2px; }
 .math { font-style: italic; }
-table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #e8e1d7; border-radius: 10px; overflow: hidden; }
-th, td { padding: 7px 11px; border-bottom: 1px solid #e8e1d7; border-right: 1px solid #e8e1d7; text-align: left; }
-th { background: #f1eee6; font-weight: 600; } tr > :last-child { border-right: 0; } tbody tr:last-child > * { border-bottom: 0; }
-hr { border: 0; border-top: 1px solid #e8e1d7; margin: 2em 0; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+th, td { padding: 7px 11px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; }
+th { background: var(--surface); font-weight: 600; } tr > :last-child { border-right: 0; } tbody tr:last-child > * { border-bottom: 0; }
+hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
 img { max-width: 100%; }
 .math svg { vertical-align: middle; }
 .math-display { margin: 0 0 1.3em; text-align: center; }
 .math-display svg { max-width: 100%; height: auto; }
 .diagram { margin: 0 0 1.3em; text-align: center; }
 .diagram svg { max-width: 100%; height: auto; }
-.footnotes { margin-top: 2.6em; padding-top: 1em; border-top: 1px solid #e8e1d7; color: #797168; font-size: .92em; }
+.footnotes { margin-top: 2.6em; padding-top: 1em; border-top: 1px solid var(--border); color: var(--muted); font-size: .92em; }
 .footnotes ol { padding-left: 1.4em; }
 .footnote-back { margin-left: .4em; text-decoration: none; }
-@media print { body { background: #fff; } main { max-width: none; padding: 0; } pre, table, blockquote, .callout, img, .diagram, .math-display { break-inside: avoid; } h1, h2, h3 { break-after: avoid; } }
+@media print { html, body { background: var(--paper); -webkit-print-color-adjust: exact; print-color-adjust: exact; } main { max-width: none; padding: 0; } pre, table, blockquote, .callout, img, .diagram, .math-display { break-inside: avoid; } h1, h2, h3 { break-after: avoid; } }
 `
 
 // exportRenderers 把公式和流程图排成自包含的 SVG。排版失败时返回 false，导出退回源码。
-func exportRenderers() richtext.Renderers {
+func exportRenderers(dark bool) richtext.Renderers {
 	return richtext.Renderers{
 		InlineMath: func(src string) (string, float32, bool) {
 			box, err := mathlayout.Layout(src, exportFontSize, false)
@@ -480,26 +494,31 @@ func exportRenderers() richtext.Renderers {
 			svg, err := box.SVG()
 			return svg, err == nil
 		},
-		Diagram: exportDiagram,
+		Diagram: func(src string) (string, bool) { return exportDiagram(src, dark) },
 	}
 }
 
 // exportDiagram 把 Mermaid 源码排成 SVG。排版失败时返回 false，导出退回源码。
-func exportDiagram(src string) (string, bool) {
+func exportDiagram(src string, dark bool) (string, bool) {
 	graph, err := diagram.Parse(src)
 	if err != nil || graph == nil {
 		return "", false
 	}
-	svg := graph.Layout(exportDiagramStyle(), exportContentWidth).SVG()
+	svg := graph.Layout(exportDiagramStyle(dark), exportContentWidth).SVG()
 	return svg, svg != ""
 }
 
-// exportDiagramStyle 沿用书写界面的纸色与墨色，导出文件不随系统主题变化。
-func exportDiagramStyle() diagram.Style {
-	return diagram.Style{
+// exportDiagramStyle 使用导出时的主题快照，与正文和原生图表配色一致。
+func exportDiagramStyle(dark bool) diagram.Style {
+	st := diagram.Style{
 		Font: ui.Font{Family: "system-ui, sans-serif", Size: 16}, Text: ui.Hex("#47423c"), LabelFill: ui.Hex("#faf9f5"),
 		NodeFill: ui.Hex("#f3e8dd"), NodeLine: ui.Hex("#d6b19a"), Edge: ui.Hex("#9b8b7b"), GroupFill: ui.Hex("#f4f0e8"), GroupLine: ui.Hex("#e0d6c8"),
 	}
+	if dark {
+		st.Text, st.LabelFill = ui.Hex("#cbcdd3"), ui.Hex("#242527")
+		st.NodeFill, st.NodeLine, st.Edge, st.GroupFill, st.GroupLine = ui.Hex("#343b44"), ui.Hex("#6c7c8d"), ui.Hex("#9da7b3"), ui.Hex("#2a2c30"), ui.Hex("#43464d")
+	}
+	return st
 }
 
 const (
@@ -508,10 +527,14 @@ const (
 )
 
 // exportDocument 把正文包成完整的 HTML 文档。
-func exportDocument(name, body string) string {
+func exportDocument(name, body string, dark bool) string {
+	class := ""
+	if dark {
+		class = ` class="dark"`
+	}
 	title := strings.TrimSuffix(name, filepath.Ext(name))
 	escaped := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(title)
-	return "<!doctype html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" + escaped + "</title>\n<style>" + exportStyle + "</style>\n</head>\n<body>\n<main>\n" + body + "</main>\n</body>\n</html>\n"
+	return "<!doctype html>\n<html lang=\"zh-CN\"" + class + ">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" + escaped + "</title>\n<style>" + exportStyle + "</style>\n</head>\n<body>\n<main>\n" + body + "</main>\n</body>\n</html>\n"
 }
 
 // exportName 把文档名换成导出用的文件名建议。
@@ -524,11 +547,12 @@ func exportName(name, ext string) string {
 }
 
 func (a *nativeApp) exportHTML() {
-	name, body, ok := a.exportBody()
+	dark := a.exportDark()
+	name, body, ok := a.exportBody(dark)
 	if !ok {
 		return
 	}
-	html := exportDocument(name, body)
+	html := exportDocument(name, body, dark)
 	win := a.window()
 	go func() {
 		target, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
@@ -570,11 +594,12 @@ func (a *nativeApp) exportPDF() {
 	if a.exporting {
 		return
 	}
-	name, body, ok := a.exportBody()
+	dark := a.exportDark()
+	name, body, ok := a.exportBody(dark)
 	if !ok {
 		return
 	}
-	html := exportDocument(name, body)
+	html := exportDocument(name, body, dark)
 	win := a.window()
 	a.exporting = true
 	go func() {

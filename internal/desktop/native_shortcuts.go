@@ -7,8 +7,28 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
+
+// nativeApplicationMenu 保留系统编辑、窗口和退出操作，文档关闭交给原生快捷键处理。
+// 默认 RoleFileMenu 的 Command+W 会先关闭整窗，绕过当前标签的关闭命令。
+func nativeApplicationMenu(app *nativeApp) *mygo.Menu {
+	return mygo.NewMenu([]*mygo.MenuItem{
+		{Role: mygo.RoleAppMenu},
+		{Label: "文件", Submenu: []*mygo.MenuItem{
+			{ID: "close-tab", Label: "关闭当前标签", Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+				if win != nil && win == app.window() && !app.settingsOn {
+					app.command("close-tab")
+					win.Invalidate()
+				}
+			}},
+		}},
+		{Role: mygo.RoleEditMenu},
+		{Role: mygo.RoleViewMenu},
+		{Role: mygo.RoleWindowMenu},
+	})
+}
 
 // nativeShortcuts 是可自定义的快捷键绑定。写法如 "Mod-Shift-s"：
 // Mod 在 macOS 是 ⌘，其他平台是 Ctrl。
