@@ -5,6 +5,7 @@ package desktop
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/egoist/mygo"
@@ -152,6 +153,10 @@ func TestCloseShortcutOnlyClosesSelectedTab(t *testing.T) {
 	view.Frame()
 	if app.tabByID(doc.ID) != nil || app.tabByID(welcomeID) == nil || app.closePrompt {
 		t.Fatal("关闭当前已保存标签不应询问其他标签或关闭它们")
+	}
+	// 应用只在 macOS 安装此菜单；Windows 的默认窗口菜单仍可关闭窗口。
+	if runtime.GOOS != "darwin" {
+		return
 	}
 	menu := nativeApplicationMenu(app)
 	var inspect func([]*mygo.MenuItem)
