@@ -1735,6 +1735,15 @@ func (e *Editor) LayoutSnapshot() LayoutSnapshot {
 	out := LayoutSnapshot{Width: e.lay.width, Height: e.lay.height, ViewHeight: e.viewH, ScrollX: e.scroll.X, ScrollY: e.scroll.Y}
 	for _, ln := range e.lay.lines {
 		out.Lines = append(out.Lines, LineSnapshot{Text: ln.text, Origin: ln.origin, Count: ln.count, X: e.blockBox(ln.block).x + ln.prefix, Y: ln.y, Height: ln.height})
+		for _, span := range ln.spans {
+			pic := e.images[span.image]
+			if pic == nil || len(span.glyphs) == 0 {
+				continue
+			}
+			w, h := pic.Size()
+			scale := min(span.glyphs[0].Advance/float32(w), (ln.height-2)/float32(h))
+			out.Images = append(out.Images, ImageSnapshot{Width: float32(w) * scale, Height: float32(h) * scale, ContentWidth: e.blockBox(ln.block).w})
+		}
 	}
 	for _, b := range e.lay.blocks {
 		if b.image == nil {

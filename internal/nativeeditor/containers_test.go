@@ -991,3 +991,75 @@ func TestDetailsFoldKeepsSource(t *testing.T) {
 		t.Fatalf("只读时标题仍应能收起且不改文档：folded=%v md=%q", folded, ed.Markdown())
 	}
 }
+
+func TestImageLineWithCaptionUsesContentWidth(t *testing.T) {
+	for _, source := range []string{
+		"![[figure.png]]\n*图注说明*\n",
+		"![示意图](figure.png)\n*图注说明*\n",
+		"![[figure.png|240]]\n*图注说明*\n",
+	} {
+		t.Run(source, func(t *testing.T) {
+			var raw bytes.Buffer
+			_ = png.Encode(&raw, image.NewRGBA(image.Rect(0, 0, 400, 200)))
+			ed := New(source)
+			ed.SetReadImage(func(string) *ui.Bitmap { bm, _ := ui.DecodeBitmap(raw.Bytes()); return bm })
+			view := ui.NewTester(ed.View, 800, 700)
+			view.Frame()
+			view.Frame()
+			found := false
+			for _, ln := range ed.lay.lines {
+				for _, sp := range ln.spans {
+					if sp.image == "" {
+						continue
+					}
+					found = true
+					want := ed.blockBox(ln.block).w
+					if strings.Contains(source, "|240") {
+						want = 240
+					}
+					if abs32(sp.glyphs[0].Advance-want) > .1 || abs32(ln.height-2-want/2) > .1 {
+						t.Fatalf("独行图片未等比铺满：宽 %v，高 %v，目标宽 %v", sp.glyphs[0].Advance, ln.height, want)
+					}
+				}
+			}
+			if !found || ed.Markdown() != source {
+				t.Fatal("图片未显示或原文被改写")
+			}
+			at := offsetOf(t, ed, "图注")
+			ed.SetSelection(at, at)
+			ed.HandleInput(nil, ui.InputEvent{Kind: ui.InputText, Text: "新增"})
+			ed.Undo()
+			if ed.Markdown() != source {
+				t.Fatal("编辑图注后撤销应还原图片与原文")
+			}
+		})
+	}
+}
+
+func TestTablePreservesShortColumns(t *testing.T) {
+	source := "| 字段 | 类型 | 默认值 | 说明 |\n| --- | --- | --- | --- |\n| `disable_markdown_filter` | bool | `false` | true：去掉 Markdown 语法，保留可读文字。false：保留原字符，不做额外处理。 |\n| `latex_parser` | string | `v2` | 启用 LaTeX 朗读。 |\n"
+	ed := New(source)
+	view := ui.NewTester(ed.View, 900, 700)
+	view.Frame()
+	for _, text := range []string{"类型", "默认值", "bool", "false", "string"} {
+		found := false
+		for _, ln := range ed.lay.lines {
+			if ln.text == text {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("短列不应被拆行：%s", text)
+		}
+	}
+	view.SetSize(400, 700)
+	view.Frame()
+	for _, box := range ed.lay.blocks {
+		if len(box.cols) > 0 && abs32(box.cols[len(box.cols)-1]-box.w) > .1 {
+			t.Fatal("窄窗口表格超出正文宽度")
+		}
+	}
+	if ed.Markdown() != source {
+		t.Fatal("重新排版不应改写表格原文")
+	}
+}

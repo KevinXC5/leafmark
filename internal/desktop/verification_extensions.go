@@ -41,7 +41,11 @@ func verifyNativeExtensions(win *mygo.Window, app *nativeApp) (map[string]any, e
 
 // extensionMarkdown 覆盖脚注、含子段落与代码块的列表项、嵌套引用、多段提示块、
 // 缩进代码块、引用式链接与图片、图片嵌入，以及常用 HTML 子集。
-const extensionMarkdown = "# 扩展语法\n\n![[叶片 示意.svg]]\n\n" +
+const extensionMarkdown = "# 扩展语法\n\n" +
+	"| 字段 | 类型 | 默认值 | 说明 |\n| --- | --- | --- | --- |\n" +
+	"| `disable_markdown_filter` | bool | `false` | 去掉 Markdown 语法并保留可读文字；关闭时保留原字符，不做额外处理。 |\n" +
+	"| `latex_parser` | string | `v2` | 启用 LaTeX 朗读。 |\n\n" +
+	"![[叶片 示意.svg]]\n*图注：独占一行的图片应铺满正文。*\n\n" +
 	"正文见脚注[^注]。\n\n" +
 	"[^注]: 脚注说明。\n\n" +
 	"- 列表首段\n\n" +
@@ -157,6 +161,20 @@ func verifyNewSyntax(win *mygo.Window, app *nativeApp, out map[string]any) error
 			return
 		}
 		out["imageFillsContentWidth"] = true
+		for _, text := range []string{"类型", "默认值", "bool", "false", "string"} {
+			found := false
+			for _, ln := range ed.LayoutSnapshot().Lines {
+				if ln.Text == text {
+					found = true
+				}
+			}
+			if !found {
+				check = fmt.Errorf("原生表格短列被拆行：%s", text)
+				return
+			}
+		}
+		out["tableShortColumnsUnwrapped"] = true
+		out["imageWithCaptionFillsWidth"] = true
 		out["syntaxWikiImage"] = embedded
 		if !embedded {
 			check = fmt.Errorf("图片嵌入没有按文件名找到并显示附件目录里的 SVG")

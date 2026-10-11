@@ -660,6 +660,8 @@ type styled struct {
 	underline, kbd      bool
 	link                string
 	image               string // 行内图片地址
+	imageBlock          bool   // 独占源文本一行的图片，即使与图注同属一个段落也按正文宽度显示
+	imageSize           string
 	footnote            string // 脚注引用，text 是标签
 	math                bool   // 行内公式，text 是 TeX 源码
 	partial             bool   // 已被拆到下一行的剩余部分
@@ -672,7 +674,7 @@ func htmlMarks(marks richtext.Mark) (underline, kbd bool) {
 
 func runsToStyled(runs []richtext.Run) []styled {
 	out := make([]styled, 0, len(runs))
-	for _, r := range runs {
+	for ri, r := range runs {
 		if r.Text == "" {
 			continue
 		}
@@ -685,6 +687,20 @@ func runsToStyled(runs []richtext.Run) []styled {
 		}
 		if r.Image != nil {
 			s.image = r.Image.URL
+			s.imageSize = r.Image.Size
+			var before, after strings.Builder
+			for _, prev := range runs[:ri] {
+				before.WriteString(prev.Text)
+			}
+			for _, next := range runs[ri+1:] {
+				after.WriteString(next.Text)
+			}
+			left, right := before.String(), after.String()
+			left = left[strings.LastIndex(left, "\n")+1:]
+			if at := strings.IndexByte(right, '\n'); at >= 0 {
+				right = right[:at]
+			}
+			s.imageBlock = strings.TrimSpace(left) == "" && strings.TrimSpace(right) == ""
 			if r.Image.Alt != "" {
 				s.text = r.Image.Alt
 			}
@@ -771,7 +787,7 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 			ln.markers = g
 		}
 		var built strings.Builder
-		var mathUp, mathDown float32
+		var mathUp, mathDown, imageHeight float32
 		for len(pending) > 0 {
 			seg := pending[0]
 			rs := []rune(seg.text)
@@ -815,6 +831,13 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 					}
 					if w < 12 {
 						w = 12
+					}
+					if seg.imageBlock && pw > 0 && ph > 0 {
+						w = width
+						if want := float32(richtext.ImageWidth(seg.imageSize)); want > 0 {
+							w = min(w, want)
+						}
+						imageHeight = w*float32(ph)/float32(pw) + 2
 					}
 					g = nil
 				}
@@ -932,6 +955,7 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 		if above, below := max(ln.ascent, mathUp+2), max(ln.height-ln.ascent, mathDown+2); above+below > ln.height {
 			ln.ascent, ln.height = above, above+below
 		}
+		ln.height = max(ln.height, imageHeight)
 		ln.y = box.y + y
 		ln.width = x
 		// 行尾若还有剩余，这一行是软换行，不占文档 rune。
@@ -1211,6 +1235,44 @@ func codeSpans(glyphs []ui.Glyph, text, lang string) []paintSpan {
 	return spans
 }
 
+// fitTableWidths 保留能完整显示的短列，只有超出公平份额的长列需要换行。
+func fitTableWidths(natural []float32, available float32) []float32 {
+	widths := append([]float32(nil), natural...)
+	total := float32(0)
+	for _, w := range widths {
+		total += w
+	}
+	if total <= available {
+		for i := range widths {
+			widths[i] *= available / total
+		}
+		return widths
+	}
+	remaining, count := available, len(widths)
+	fixed := make([]bool, count)
+	for count > 0 {
+		share := remaining / float32(count)
+		changed := false
+		for i, w := range widths {
+			if !fixed[i] && w <= share {
+				fixed[i] = true
+				remaining -= w
+				count--
+				changed = true
+			}
+		}
+		if !changed {
+			for i := range widths {
+				if !fixed[i] {
+					widths[i] = share
+				}
+			}
+			break
+		}
+	}
+	return widths
+}
+
 func placeTable(box *blockBox, table *richtext.TableData, fontSize float32, cache *shapeCache, lay *layout) float32 {
 	if table == nil || len(table.Rows) == 0 {
 		return fontSize + 8
@@ -1222,21 +1284,27 @@ func placeTable(box *blockBox, table *richtext.TableData, fontSize float32, cach
 	if cols == 0 {
 		return fontSize + 8
 	}
-	// 表格列宽按内容分配；同一列所有行共享边界和对齐方式。
+	// 先满足短列的自然宽度，再由长列分摊剩余空间，避免说明列挤碎短表头。
 	widths := make([]float32, cols)
-	total := float32(0)
 	for c := 0; c < cols; c++ {
 		widths[c] = 48
-		for _, row := range table.Rows {
-			if c < len(row) {
-				widths[c] = max(widths[c], measure(cache, visibleRuns(row[c].Runs), fontSize, false, false, false)+cellPad*2)
+		for ri, row := range table.Rows {
+			if c >= len(row) {
+				continue
 			}
+			oldWeight := cache.weight
+			if table.Header && ri == 0 {
+				cache.weight = 600
+			}
+			var natural float32
+			for _, seg := range runsToStyled(row[c].Runs) {
+				natural += measure(cache, seg.text, styledSize(seg, fontSize), seg.bold, seg.italic, seg.code)
+			}
+			cache.weight = oldWeight
+			widths[c] = max(widths[c], natural+cellPad*2+1)
 		}
-		total += widths[c]
 	}
-	for c := range widths {
-		widths[c] = box.w * widths[c] / total
-	}
+	widths = fitTableWidths(widths, box.w)
 	box.cols = append(box.cols, 0)
 	for _, w := range widths {
 		box.cols = append(box.cols, box.cols[len(box.cols)-1]+w)
