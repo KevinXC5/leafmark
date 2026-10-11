@@ -193,11 +193,16 @@ func TestLayoutDirectionsAndSeparation(t *testing.T) {
 		if len(geo.routes) != len(g.Edges) {
 			t.Fatalf("%s：连线数=%d", dir, len(geo.routes))
 		}
+		horizontal := dir == "LR" || dir == "RL"
 		for _, r := range geo.routes {
 			from, to := at[r.edge.From], at[r.edge.To]
 			first, last := r.pts[0], r.pts[len(r.pts)-1]
 			if r.loop {
 				continue
+			}
+			// 绘制按 route.horizontal 决定出入方向和箭头朝向，横向图的连线必须带上整图方向。
+			if r.horizontal != horizontal {
+				t.Fatalf("%s：连线 %s→%s 的方向标记为 %v", dir, r.edge.From, r.edge.To, r.horizontal)
 			}
 			if abs(first[0]-from.x) > from.w/2+.5 || abs(first[1]-from.y) > from.h/2+.5 || abs(last[0]-to.x) > to.w/2+.5 || abs(last[1]-to.y) > to.h/2+.5 {
 				t.Fatalf("%s：连线 %s→%s 的端点没有落在节点边上", dir, r.edge.From, r.edge.To)

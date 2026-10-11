@@ -39,7 +39,7 @@ type route struct {
 	edge           *Edge
 	pts            [][2]float32
 	loop           bool // 自环，pts 是节点右侧的四个控制点
-	horizontal     bool // 连线沿水平方向出入节点；零值跟随整图方向
+	horizontal     bool // 连线沿水平方向出入节点：按整图方向初始化，方向不同的子图内部再单独覆盖
 	labelLines     []string
 	labelX, labelY float32 // 标签中心
 	labelW, labelH float32
@@ -487,7 +487,7 @@ func arrange(g *Graph, m metrics) geometry {
 		return (float32(before) - float32(len(near)-1)/2) * step
 	}
 	for i, e := range g.Edges {
-		r := route{edge: e, labelLines: labelLines[i], labelW: labelW[i], labelH: labelH[i]}
+		r := route{edge: e, horizontal: horizontal, labelLines: labelLines[i], labelW: labelW[i], labelH: labelH[i]}
 		if e.from == e.to {
 			p := geo.nodes[e.from]
 			right, reach := p.x+p.w/2, 30*k
