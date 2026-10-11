@@ -234,7 +234,7 @@ func TestSettingsPageSectionsAndControls(t *testing.T) {
 	var tops []float32
 	for _, tab := range settingsTabs {
 		r, found := view.Find(tab.label)
-		if !found || r.H != 42 || r.W != 220 {
+		if !found || r.H != 42 || r.W != sidebarDefaultWidth-44 {
 			t.Fatalf("分类标签“%s”尺寸不符：%+v", tab.label, r)
 		}
 		tops = append(tops, r.Y)
@@ -245,7 +245,7 @@ func TestSettingsPageSectionsAndControls(t *testing.T) {
 		}
 	}
 	side, ok := view.Find("设置导航")
-	if !ok || side.X != 8 || side.Y != 8 || side.W != 248 || side.H != 744 {
+	if !ok || side.X != 8 || side.Y != 8 || side.W != sidebarDefaultWidth-16 || side.H != 744 {
 		t.Fatalf("设置侧栏尺寸不符：%+v", side)
 	}
 	for _, text := range []string{"Leafmark", "排版与布局", "书写与保存", "个性化", "留一点空间，给书写。", "调整即时生效", "恢复默认设置"} {
@@ -421,5 +421,39 @@ func TestNativeThemeSharedColorsAndContrast(t *testing.T) {
 		if dark && contrast(theme.TextMuted, settings.fill) < 4.5 {
 			t.Fatal("深色设置分组的说明文字对比度不足")
 		}
+	}
+}
+
+func TestSettingsSharesResizedSidebar(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.settings.SidebarWidth = 320
+	view := ui.NewTester(app.View, 1100, 760)
+	view.Frame()
+	main, ok := view.Find("文档导航")
+	if !ok {
+		t.Fatal("未找到主侧栏")
+	}
+	app.settingsOn = true
+	view.Frame()
+	settings, ok := view.Find("设置导航")
+	if !ok || settings.X != main.X || settings.W != main.W {
+		t.Fatalf("切换设置后侧栏不一致：主界面 %+v，设置 %+v", main, settings)
+	}
+	menu := nativeApplicationMenu(app)
+	for _, id := range []string{"settings", "check-updates"} {
+		item := menu.ItemByID(id)
+		if item == nil || item.Click == nil {
+			t.Fatalf("缺少菜单命令：%s", id)
+		}
+	}
+	app.settingsOn = false
+	menu.ItemByID("settings").Click(nil, nil)
+	if !app.settingsOn {
+		t.Fatal("菜单没有打开设置")
+	}
+	menu.ItemByID("settings").Click(nil, nil)
+	if !app.settingsOn {
+		t.Fatal("重复选择设置不应关闭设置")
 	}
 }

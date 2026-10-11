@@ -15,7 +15,30 @@ import (
 // 默认 RoleFileMenu 的 Command+W 会先关闭整窗，绕过当前标签的关闭命令。
 func nativeApplicationMenu(app *nativeApp) *mygo.Menu {
 	return mygo.NewMenu([]*mygo.MenuItem{
-		{Role: mygo.RoleAppMenu},
+		{Role: mygo.RoleAppMenu, Submenu: []*mygo.MenuItem{
+			{Role: mygo.RoleAbout},
+			{ID: "settings", Label: "设置…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				// 菜单始终打开设置，快捷键仍由用户自定义绑定处理。
+				app.settingsOn = true
+				if win := app.window(); win != nil {
+					win.Invalidate()
+				}
+			}},
+			{ID: "check-updates", Label: "检查更新", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				app.checkUpdate()
+				if win := app.window(); win != nil {
+					win.Invalidate()
+				}
+			}},
+			mygo.Separator(),
+			{Role: mygo.RoleServices},
+			mygo.Separator(),
+			{Role: mygo.RoleHide},
+			{Role: mygo.RoleHideOthers},
+			{Role: mygo.RoleUnhide},
+			mygo.Separator(),
+			{Role: mygo.RoleQuit},
+		}},
 		{Label: "文件", Submenu: []*mygo.MenuItem{
 			{ID: "close-tab", Label: "关闭当前标签", Click: func(_ *mygo.MenuItem, win *mygo.Window) {
 				if win != nil && win == app.window() && !app.settingsOn {

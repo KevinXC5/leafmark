@@ -189,12 +189,14 @@ type nativeApp struct {
 	pending   []string
 
 	// verifyStep 由原生验证在真实帧末尾驱动界面，正式运行保持 nil。
-	verifyStep      func(*ui.Context)
-	closePrompt     bool
-	unrestored      []nativeDraft
-	recoveryBlocked bool
-	updateBusy      bool
-	recoveryAt      time.Time
+	verifyStep            func(*ui.Context)
+	sidebarHandle         ui.Handle
+	settingsSidebarHandle ui.Handle
+	closePrompt           bool
+	unrestored            []nativeDraft
+	recoveryBlocked       bool
+	updateBusy            bool
+	recoveryAt            time.Time
 	// externalAt 与 externalBusy 控制对当前文档磁盘变化的轮询。
 	externalAt   time.Time
 	externalBusy bool

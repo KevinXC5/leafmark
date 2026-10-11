@@ -119,14 +119,17 @@ func (a *nativeApp) viewSettings(c *ui.Context) {
 }
 
 func (a *nativeApp) viewSettingsSidebar(c *ui.Context, p settingsPalette, section int, narrow, compact bool) {
-	side := nativeGlass(c).Gap(0).Shrink(0).Label("设置导航")
+	side := nativeGlass(c).Gap(0).Shrink(0).Label("设置导航").Bind(&a.settingsSidebarHandle)
 	switch {
 	case compact:
 		side.FillWidth().Radius(10).Padding(8)
 	case narrow:
-		side.Width(170).FillHeight().Padding(20, 10, 16, 10)
+		width, _ := c.Size()
+		side.Width(sidebarWidth(a.settings.SidebarWidth, width)-16).FillHeight().Padding(20, 10, 16, 10)
 	default:
-		side.Width(248).FillHeight().Padding(24, 14, 18, 14)
+		// 与主界面共用拖动后的侧栏宽度，并扣除两侧各 8 的留白。
+		width, _ := c.Size()
+		side.Width(sidebarWidth(a.settings.SidebarWidth, width)-16).FillHeight().Padding(24, 14, 18, 14)
 	}
 	if !compact && c.TitleBar().Left > 0 {
 		side.Padding(48, 14, 18, 14) // 让出 macOS 的红绿灯

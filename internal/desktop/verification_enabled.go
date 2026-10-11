@@ -440,6 +440,40 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 			results["sidebarDocumentsScreenshot"] = "verification/native-sidebar-documents.png"
 		}
 		mygo.RunOnMain(func() { app.sidebarMode = "" })
+		// 在真实窗口中改变侧栏宽度，再切到设置核对已提交的布局边界。
+		var mainSide, settingsSide ui.Rect
+		var originalSidebar float32
+		mygo.RunOnMain(func() {
+			originalSidebar = app.settings.SidebarWidth
+			app.settings.SidebarWidth = 320
+			app.verifyStep = func(c *ui.Context) { mainSide = app.sidebarHandle.Bounds(c) }
+		})
+		for i := 0; i < 3; i++ {
+			win.Invalidate()
+			refreshVerificationWindow(win)
+			time.Sleep(100 * time.Millisecond)
+		}
+		mygo.RunOnMain(func() {
+			app.settingsOn = true
+			app.verifyStep = func(c *ui.Context) { settingsSide = app.settingsSidebarHandle.Bounds(c) }
+		})
+		for i := 0; i < 3; i++ {
+			win.Invalidate()
+			refreshVerificationWindow(win)
+			time.Sleep(100 * time.Millisecond)
+		}
+		mygo.RunOnMain(func() {
+			app.verifyStep = nil
+			if mainSide.W <= 0 || mainSide.X != settingsSide.X || mainSide.W != settingsSide.W {
+				err = fmt.Errorf("切换设置后侧栏宽度不一致：%+v / %+v", mainSide, settingsSide)
+			}
+			app.settings.SidebarWidth = originalSidebar
+		})
+		if err != nil {
+			finishNativeVerification(results, err)
+			return
+		}
+		results["settingsSidebarMatchesMain"] = true
 		// 设置页逐个分类截图，核对与设计一致。
 		for _, tab := range settingsTabs {
 			mygo.RunOnMain(func() { app.settingsOn, app.settingsSection = true, tab.id })

@@ -205,7 +205,7 @@ func (a *nativeApp) viewTabs(c *ui.Context) {
 }
 func (a *nativeApp) viewSidebar(c *ui.Context) {
 	// 顶部不留内边距：品牌行自己占满标题栏高度，和红绿灯、标签栏共用一条中线。
-	nativeGlass(c).Fill().Padding(0, 16, 16, 16).Label("文档导航").Children(func() {
+	nativeGlass(c).Fill().Padding(0, 16, 16, 16).Label("文档导航").Bind(&a.sidebarHandle).Children(func() {
 		bar := c.TitleBar()
 		// macOS 的红绿灯压在侧栏左上角，品牌标识让出它的位置。
 		brandLeft := float32(0)
