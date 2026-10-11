@@ -306,7 +306,7 @@ h3 { font: 500 20px/1.4 var(--serif); color: var(--ink); letter-spacing: .01em; 
 .stack .window { width: 82%; cursor: pointer; transition: transform .8s var(--ease), filter .8s var(--ease); }
 .stack-light { z-index: 1; transform-origin: 0 100%; }
 .stack-dark { position: absolute; top: 0; right: 0; z-index: 1; transform-origin: 100% 0; }
-.stack-dark .window-screen { background: #242527; }
+.stack-dark .window-screen { background: #242220; }
 .stack[data-front="light"] .stack-light, .stack[data-front="dark"] .stack-dark { z-index: 2; }
 .stack[data-front="light"] .stack-dark, .stack[data-front="dark"] .stack-light { transform: scale(.965); filter: brightness(.94) saturate(.9); }
 .stack[data-front="light"] .stack-dark:hover { transform: scale(.965) translate(10px, -10px); }

@@ -126,12 +126,12 @@
     recommend("");
   }
 
-  // 从最新发布读取版本号与安装包直链；请求失败时保留指向发布页的链接。
+  // 兼容 MyGo 自带架构的新名称与历史版本的平台后缀；请求失败时保留发布页链接。
   const patterns = {
-    "darwin-arm64": /darwin-arm64\.dmg$/,
-    "darwin-amd64": /darwin-amd64\.dmg$/,
-    "windows-amd64": /windows-amd64\.exe$/,
-    "windows-arm64": /windows-arm64\.exe$/,
+    "darwin-arm64": /(?: arm64|-darwin-arm64)\.dmg$/,
+    "darwin-amd64": /(?: amd64|-darwin-amd64)\.dmg$/,
+    "windows-amd64": / Setup .*(?: amd64|-windows-amd64)\.exe$/,
+    "windows-arm64": / Setup .*(?: arm64|-windows-arm64)\.exe$/,
   };
   fetch("https://api.github.com/repos/KevinXC5/leafmark/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
     .then(response => response.ok ? response.json() : Promise.reject(response.status))
