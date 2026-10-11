@@ -46,13 +46,21 @@ func TestTabsKeepDraftsAndDiskSnapshots(t *testing.T) {
 	}
 }
 func TestSaveAsRejectsTargetOpenInAnotherTab(t *testing.T) {
- dir := t.TempDir()
- a, b := filepath.Join(dir,"a.md"), filepath.Join(dir,"b.md")
- os.WriteFile(a, []byte("甲"),0600); os.WriteFile(b, []byte("乙"),0600)
- s := NewStore("","")
- first, _ := s.Load(a); s.Load(b); s.Select(first.ID)
- if _, err := s.Save(first.ID, "甲覆盖", b); err == nil { t.Fatal("允许覆盖另一个标签的文件") }
- raw, _ := os.ReadFile(b); if string(raw) != "乙" { t.Fatal("拒绝后目标仍被覆盖") }
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.md"), filepath.Join(dir, "b.md")
+	os.WriteFile(a, []byte("甲"), 0600)
+	os.WriteFile(b, []byte("乙"), 0600)
+	s := NewStore("", "")
+	first, _ := s.Load(a)
+	s.Load(b)
+	s.Select(first.ID)
+	if _, err := s.Save(first.ID, "甲覆盖", b); err == nil {
+		t.Fatal("允许覆盖另一个标签的文件")
+	}
+	raw, _ := os.ReadFile(b)
+	if string(raw) != "乙" {
+		t.Fatal("拒绝后目标仍被覆盖")
+	}
 }
 func TestCloseLastTabLeavesNoGhostDocument(t *testing.T) {
 	s := NewStore("未命名.md", "")
