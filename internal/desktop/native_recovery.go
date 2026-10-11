@@ -43,12 +43,22 @@ var nativeRecoveryGeneration atomic.Uint64
 var nativeRecoveryMu sync.Mutex
 
 func writeNativeRecoveryVersion(drafts []nativeDraft, ticket uint64) error {
+	dir, err := nativeDataDir()
+	if err != nil {
+		return err
+	}
+	return writeNativeRecoveryVersionIn(dir, drafts, ticket)
+}
+
+// writeNativeRecoveryVersionIn 写入调用方事先确定的目录。后台写盘要在发起时就定下目录，
+// 否则协程执行时环境可能已变（例如测试结束后还原了 LEAFMARK_NATIVE_DATA_DIR），写进用户的真实配置。
+func writeNativeRecoveryVersionIn(dir string, drafts []nativeDraft, ticket uint64) error {
 	nativeRecoveryMu.Lock()
 	defer nativeRecoveryMu.Unlock()
 	if ticket != nativeRecoveryGeneration.Load() {
 		return nil
 	}
-	return writeNativeRecovery(drafts)
+	return writeNativeRecoveryIn(dir, drafts)
 }
 
 func readNativeRecovery() []nativeDraft { drafts, _ := readNativeRecoveryState(); return drafts }
@@ -98,6 +108,14 @@ func validDraft(draft nativeDraft) bool {
 }
 
 func writeNativeRecovery(drafts []nativeDraft) error {
+	dir, err := nativeDataDir()
+	if err != nil {
+		return err
+	}
+	return writeNativeRecoveryIn(dir, drafts)
+}
+
+func writeNativeRecoveryIn(dir string, drafts []nativeDraft) error {
 	clean := make([]nativeDraft, 0, len(drafts))
 	seen := map[string]bool{}
 	for _, draft := range drafts {
@@ -114,7 +132,7 @@ func writeNativeRecovery(drafts []nativeDraft) error {
 	if len(raw) > maxRecoveryBytes {
 		return errors.New("恢复草稿总量超过 5 MB，未更新恢复文件")
 	}
-	return writeNativeFile(nativeRecoveryName, raw)
+	return writeNativeFile(dir, nativeRecoveryName, raw)
 }
 
 func loadNativeSettings() nativeSettings {
@@ -136,6 +154,14 @@ func loadNativeSettings() nativeSettings {
 }
 
 func saveNativeSettings(settings nativeSettings) error {
+	dir, err := nativeDataDir()
+	if err != nil {
+		return err
+	}
+	return saveNativeSettingsIn(dir, settings)
+}
+
+func saveNativeSettingsIn(dir string, settings nativeSettings) error {
 	if settings != settings.normalized() {
 		return errors.New("设置含有无效的值")
 	}
@@ -143,14 +169,10 @@ func saveNativeSettings(settings nativeSettings) error {
 	if err != nil {
 		return err
 	}
-	return writeNativeFile(nativeSettingsName, raw)
+	return writeNativeFile(dir, nativeSettingsName, raw)
 }
 
-func writeNativeFile(name string, raw []byte) error {
-	dir, err := nativeDataDir()
-	if err != nil {
-		return err
-	}
+func writeNativeFile(dir, name string, raw []byte) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}

@@ -73,6 +73,8 @@ func useStubEditors(t *testing.T) {
 func newTestApp(t *testing.T) (*nativeApp, string) {
 	t.Helper()
 	dir := t.TempDir()
+	// 设置与草稿写到临时目录，测试不能改动本机用户的配置。
+	t.Setenv("LEAFMARK_NATIVE_DATA_DIR", filepath.Join(dir, "native"))
 	backend, err := workspace.NewAt(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +82,8 @@ func newTestApp(t *testing.T) (*nativeApp, string) {
 	files := &Files{store: documents.NewStore("欢迎.md", welcome), workspace: &Workspace{}}
 	files.workspace.once.Do(func() { files.workspace.store = backend })
 	app := newNativeApp(files, files.workspace, NewAssets(files), &Updates{})
+	// 后进先出：先等后台写盘结束，再删除临时目录。
+	t.Cleanup(app.writes.Wait)
 	return app, dir
 }
 
@@ -142,7 +146,7 @@ func TestNativeRecoveryRoundTrip(t *testing.T) {
 
 func TestNativeRecoveryRejectsRelativePath(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("LEAFMARK_NATIVE_DATA_DIR", filepath.Join(dir, "native"))
 	err := writeNativeRecovery([]nativeDraft{{ID: "a", Name: "笔记.md", Path: "relative.md", Content: "x"}})
 	if err == nil {
 		t.Fatal("相对路径应被拒绝")
@@ -151,7 +155,8 @@ func TestNativeRecoveryRejectsRelativePath(t *testing.T) {
 
 func TestNativeSettingsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	// macOS 的 os.UserConfigDir 不读 XDG_CONFIG_HOME，用专用环境变量隔离，免得写进用户配置。
+	t.Setenv("LEAFMARK_NATIVE_DATA_DIR", filepath.Join(dir, "native"))
 	want := defaultNativeSettings()
 	want.Font, want.FontSize, want.LineHeight, want.ReadingWidth, want.Theme = "mono", 20, 1.75, "wide", "dark"
 	want.AutoSave, want.FocusMode, want.Typewriter = false, true, true

@@ -66,6 +66,7 @@ func nativeTextButton(c *ui.Context, label string) ui.Element {
 	b.Children(func() { ui.Text(c, label).FontSize(scaled(c, 12)).SingleLine() })
 	return b
 }
+
 // nativeTitleBarHeight 是标题栏高度；红绿灯、标签栏和侧栏品牌行的中心都落在它的一半处。
 const nativeTitleBarHeight = 52
 
@@ -261,10 +262,17 @@ func sidebarWidth(w, window float32) float32 {
 // viewSidebarHandle 是侧栏右缘的拖动手柄：按住左右拖动改变宽度，双击恢复默认宽度。
 func (a *nativeApp) viewSidebarHandle(c *ui.Context, window float32) {
 	h := ui.Box(c.Key("sidebar-resize")).Width(sidebarHandleWidth).Shrink(0).FillHeight().Label("调整侧栏宽度").Cursor(ui.CursorResizeColumn).Center()
-	dx, _, pressed := h.Dragged()
+	// 宽度按“按下时的宽度 + 指针相对按下点的位移”计算，不累加逐帧位移：
+	// 同一帧可能构建多轮，累加位移会被重复计入，宽度一路涨到上限。
+	_, _, pressed := h.Dragged()
+	px, _, _ := h.PointerPosition()
+	pointer := h.Bounds().X + px
 	if pressed {
-		a.sidebarDrag = true
-		a.settings.SidebarWidth = sidebarWidth(sidebarWidth(a.settings.SidebarWidth, window)+dx, window)
+		if !a.sidebarDrag {
+			a.sidebarDrag = true
+			a.sidebarFrom, a.sidebarStart = pointer, sidebarWidth(a.settings.SidebarWidth, window)
+		}
+		a.settings.SidebarWidth = sidebarWidth(a.sidebarStart+pointer-a.sidebarFrom, window)
 	} else if a.sidebarDrag {
 		a.sidebarDrag = false
 		a.persistSettings()

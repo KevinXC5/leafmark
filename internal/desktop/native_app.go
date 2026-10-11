@@ -126,16 +126,19 @@ type nativeApp struct {
 	assets    *Assets
 	updates   *Updates
 
-	mu  sync.Mutex
-	win *mygo.Window
+	mu     sync.Mutex
+	writes sync.WaitGroup // 后台写设置与草稿的协程，测试清理前等它们结束
+	win    *mygo.Window
 
 	tabs          []*nativeTab
 	current       int
 	visibleTabID  string // 仅在切换标签时滚动定位，允许用户自由横向浏览。
 	tabScroll     ui.ScrollState
 	sidebar       float32
-	sidebarDrag   bool // 正在拖动侧栏边缘，松手时才保存宽度
-	effectiveDark bool // 当前原生界面的实际主题，包含跟随系统的结果。
+	sidebarDrag   bool    // 正在拖动侧栏边缘，松手时才保存宽度
+	sidebarFrom   float32 // 按下时指针在窗口中的横坐标
+	sidebarStart  float32 // 按下时的侧栏宽度
+	effectiveDark bool    // 当前原生界面的实际主题，包含跟随系统的结果。
 
 	// 空值与 outline 都显示原版默认的大纲页。
 	sidebarMode     string
@@ -1259,11 +1262,16 @@ func (a *nativeApp) dismissUpdate() {
 
 func (a *nativeApp) persistSettings() {
 	settings := a.settings
-	go func() {
-		if err := saveNativeSettings(settings); err != nil {
+	dir, err := nativeDataDir()
+	if err != nil {
+		log.Printf("保存设置失败：%v", err)
+		return
+	}
+	a.writes.Go(func() {
+		if err := saveNativeSettingsIn(dir, settings); err != nil {
 			log.Printf("保存设置失败：%v", err)
 		}
-	}()
+	})
 }
 
 func (a *nativeApp) persistRecovery() {
@@ -1278,12 +1286,17 @@ func (a *nativeApp) persistRecovery() {
 		}
 		drafts = append(drafts, nativeDraft{ID: doc.ID, Name: doc.Name, Path: doc.Path, Content: doc.Content})
 	}
+	dir, err := nativeDataDir()
+	if err != nil {
+		log.Printf("保存恢复草稿失败：%v", err)
+		return
+	}
 	ticket := nativeRecoveryGeneration.Add(1)
-	go func() {
-		if err := writeNativeRecoveryVersion(drafts, ticket); err != nil {
+	a.writes.Go(func() {
+		if err := writeNativeRecoveryVersionIn(dir, drafts, ticket); err != nil {
 			log.Printf("保存恢复草稿失败：%v", err)
 		}
-	}()
+	})
 }
 
 func (a *nativeApp) clearRecovery() {

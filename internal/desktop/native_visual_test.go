@@ -334,8 +334,14 @@ func TestSidebarResizeByDragging(t *testing.T) {
 		t.Fatal("侧栏缺少拖动手柄")
 	}
 	x, y := handle.X+handle.W/2, handle.Y+handle.H/2
+	// 拖动中途多次移动并插入空帧，宽度只跟随指针相对按下点的位移，不重复累加。
 	view.Press(x, y)
+	view.Move(x+30, y)
+	view.Frame()
+	view.Frame()
 	view.Move(x+80, y)
+	view.Frame()
+	view.Frame()
 	view.Release(x+80, y)
 	view.Frame()
 	if app.settings.SidebarWidth != sidebarDefaultWidth+80 {
