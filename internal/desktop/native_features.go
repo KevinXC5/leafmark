@@ -84,11 +84,11 @@ func (s *sourceEditor) Markdown() string { return s.ed.Markdown() }
 func (s *sourceEditor) Text() string     { return s.ed.Text() }
 func (s *sourceEditor) Changed() bool    { return s.ed.Changed() }
 
-func (s *sourceEditor) Undo()                                { s.ed.Undo(); s.findHit = "" }
-func (s *sourceEditor) Redo()                                { s.ed.Redo(); s.findHit = "" }
-func (s *sourceEditor) Format(string)                        {}
-func (s *sourceEditor) SetReadImage(func(string) *ui.Bitmap) {}
-func (s *sourceEditor) Selection() (int, int)                { return s.ed.Selection() }
+func (s *sourceEditor) Undo()                                             { s.ed.Undo(); s.findHit = "" }
+func (s *sourceEditor) Redo()                                             { s.ed.Redo(); s.findHit = "" }
+func (s *sourceEditor) Format(string)                                     {}
+func (s *sourceEditor) SetReadPicture(func(string) *nativeeditor.Picture) {}
+func (s *sourceEditor) Selection() (int, int)                             { return s.ed.Selection() }
 func (s *sourceEditor) SetSelection(start, end int) {
 	s.ed.SetSelection(start, end)
 	s.findHit = ""
@@ -212,7 +212,7 @@ func (a *nativeApp) toggleSource() {
 		a.configureEditor(fresh)
 		a.connectEditor(fresh)
 		if a.assets != nil {
-			fresh.SetReadImage(imageReader(a.assets, tab.id))
+			fresh.SetReadPicture(imageReader(a.assets, tab.id))
 		}
 		tab.editor = fresh
 		return

@@ -303,7 +303,7 @@ func writeLeaf(out *strings.Builder, b *editBlock, image func(url string) string
 				src = mapped
 			}
 		}
-		out.WriteString(`<p><img src="` + html.EscapeString(src) + `" alt="` + html.EscapeString(b.Alt) + `"` + title + "></p>\n")
+		out.WriteString(`<p><img src="` + html.EscapeString(src) + `" alt="` + html.EscapeString(b.Alt) + `"` + title + imageSize(b.Size) + "></p>\n")
 	case Raw:
 		source := b.Raw
 		if source == "" {
@@ -406,7 +406,20 @@ func imageTag(img *InlineImage, image func(url string) string) string {
 	if img.Title != "" {
 		title = ` title="` + html.EscapeString(img.Title) + `"`
 	}
-	return `<img src="` + html.EscapeString(src) + `" alt="` + html.EscapeString(img.Alt) + `"` + title + `>`
+	return `<img src="` + html.EscapeString(src) + `" alt="` + html.EscapeString(img.Alt) + `"` + title + imageSize(img.Size) + `>`
+}
+
+// imageSize 把嵌入语法的尺寸写成 img 的 width 与 height 属性。
+func imageSize(size string) string {
+	w, h, _ := strings.Cut(size, "x")
+	if w == "" {
+		return ""
+	}
+	out := ` width="` + html.EscapeString(w) + `"`
+	if h != "" {
+		out += ` height="` + html.EscapeString(h) + `"`
+	}
+	return out
 }
 
 // writeRunsNumbered 写出一段文字。numbers 给出脚注标签对应的显示编号，为空时沿用原文。

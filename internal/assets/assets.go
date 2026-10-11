@@ -4,6 +4,7 @@ package assets
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"image"
@@ -11,6 +12,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -43,10 +45,87 @@ func ReadImage(documentPath, resource string) (string, error) {
 		return "", err
 	}
 	defer root.Close()
-	// 清理路径前也检查被 .. 消去的片段，避免符号链接藏在规范化路径中。
 	u, _ := url.Parse(resource)
+	return readResource(root, filepath.FromSlash(u.Path), relative)
+}
+
+// FindImage 先按相对路径读取；文件不存在时按 Obsidian 的习惯，在文档目录和所属工作区里
+// 按文件名或路径后缀查找。workspaceRoot 只能来自工作区的授权记录，文档不在其中时不搜索它。
+func FindImage(documentPath, workspaceRoot, resource string) (string, error) {
+	uri, err := ReadImage(documentPath, resource)
+	if err == nil || !errors.Is(err, fs.ErrNotExist) {
+		return uri, err
+	}
+	relative, pathErr := resourcePath(resource)
+	if pathErr != nil {
+		return "", pathErr
+	}
+	dir := filepath.Dir(documentPath)
+	dirs := []string{dir}
+	if rel, relErr := filepath.Rel(workspaceRoot, dir); workspaceRoot != "" && filepath.IsAbs(workspaceRoot) && relErr == nil && rel != "." && filepath.IsLocal(rel) {
+		dirs = append(dirs, workspaceRoot)
+	}
+	for _, dir := range dirs {
+		root, openErr := os.OpenRoot(dir)
+		if openErr != nil {
+			continue
+		}
+		found, ok := locate(root, relative)
+		if ok {
+			uri, err = readResource(root, found, found)
+		}
+		root.Close()
+		if ok {
+			return uri, err
+		}
+	}
+	return "", err
+}
+
+const maxSearchEntries = 10000
+const maxSearchDepth = 64
+
+// locate 在 root 下找文件名或路径后缀与 relative 相同的普通文件，不区分大小写，
+// 多个匹配时取层级最浅的。隐藏目录、node_modules 和符号链接不进入。
+func locate(root *os.Root, relative string) (string, bool) {
+	want := "/" + strings.ToLower(filepath.ToSlash(relative))
+	best, bestDepth, seen := "", 0, 0
+	_ = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if p == "." {
+			return nil
+		}
+		if seen++; seen > maxSearchEntries {
+			return fs.SkipAll
+		}
+		depth := strings.Count(p, "/")
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") || d.Name() == "node_modules" || depth >= maxSearchDepth {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() || !strings.HasSuffix("/"+strings.ToLower(p), want) {
+			return nil
+		}
+		if best == "" || depth < bestDepth || depth == bestDepth && p < best {
+			best, bestDepth = p, depth
+		}
+		return nil
+	})
+	return filepath.FromSlash(best), best != ""
+}
+
+// readResource 读取 root 下的 relative。written 是清理前的路径，用来检查被 .. 消去的片段。
+func readResource(root *os.Root, written, relative string) (string, error) {
+	// 清理路径前也检查被 .. 消去的片段，避免符号链接藏在规范化路径中。
 	prefix := ""
-	for _, part := range strings.Split(filepath.FromSlash(u.Path), string(filepath.Separator)) {
+	for _, part := range strings.Split(written, string(filepath.Separator)) {
 		if prefix == "" {
 			prefix = part
 		} else {
@@ -169,10 +248,13 @@ func readImage(f *os.File) ([]byte, string, string, error) {
 	if len(raw) > MaxImageBytes {
 		return nil, "", "", errors.New("图片不能超过 8 MB")
 	}
+	if isSVG(raw) {
+		return raw, "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(raw), "svg", nil
+	}
 	config, format, err := image.DecodeConfig(bytes.NewReader(raw))
 	mime := map[string]string{"png": "image/png", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}[format]
 	if err != nil || mime == "" || config.Width <= 0 || config.Height <= 0 {
-		return nil, "", "", errors.New("请选择有效的 PNG、JPEG、GIF 或 WebP 图片")
+		return nil, "", "", errors.New("请选择有效的 PNG、JPEG、GIF、WebP 或 SVG 图片")
 	}
 	// 先检查像素数，再实际解码，避免压缩图片造成过量内存分配。
 	if config.Width > MaxImagePixels/config.Height {
@@ -182,6 +264,20 @@ func readImage(f *os.File) ([]byte, string, string, error) {
 		return nil, "", "", errors.New("图片内容损坏")
 	}
 	return raw, "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw), format, nil
+}
+
+// isSVG 检查根元素是否是 SVG 命名空间下的 svg，只读到根元素为止。
+func isSVG(raw []byte) bool {
+	dec := xml.NewDecoder(bytes.NewReader(raw))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return false
+		}
+		if start, ok := tok.(xml.StartElement); ok {
+			return start.Name.Local == "svg" && start.Name.Space == "http://www.w3.org/2000/svg"
+		}
+	}
 }
 
 // ReadAuthorizedImage 的 source 必须来自原生选择框，不能由前端直接指定。
@@ -239,7 +335,7 @@ func ImportImage(documentPath, source string) (*ImportResult, error) {
 	// 保留匹配实际格式的原文件名；伪装或缺失的扩展名按真实格式修正。
 	actualExt := strings.ToLower(ext)
 	if actualExt != "."+format && !(format == "jpeg" && actualExt == ".jpg") {
-		ext = map[string]string{"png": ".png", "jpeg": ".jpg", "gif": ".gif", "webp": ".webp"}[format]
+		ext = map[string]string{"png": ".png", "jpeg": ".jpg", "gif": ".gif", "webp": ".webp", "svg": ".svg"}[format]
 	}
 	for suffix := 0; ; suffix++ {
 		name = stem + ext

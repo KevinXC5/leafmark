@@ -82,7 +82,7 @@ type blockBox struct {
 	w, h        float32
 	origin      int
 	runes       int
-	image       *ui.Bitmap
+	image       *Picture
 	alt         string
 	raw         bool
 	rows        []float32
@@ -174,7 +174,7 @@ type shapeCache struct {
 	sourceSpans []SourceSpan
 	// sourceKinds 是 sourceSpans 按 rune 展开的着色表，逐字形查色不必再扫全部区间。
 	sourceKinds []uint8
-	images      map[string]*ui.Bitmap
+	images      map[string]*Picture
 	collapsed   map[int]bool
 }
 
@@ -236,7 +236,7 @@ func (c *shapeCache) metrics(size float32, bold, code bool) ui.FontMetrics {
 }
 
 // flow 按当前宽度把文档排成行。contentW 是可视内容宽度。
-func flow(doc *richtext.Document, contentW, fontSize float32, cache *shapeCache, images map[string]*ui.Bitmap) layout {
+func flow(doc *richtext.Document, contentW, fontSize float32, cache *shapeCache, images map[string]*Picture) layout {
 	if contentW < 80 {
 		contentW = 80
 	}
@@ -1341,14 +1341,19 @@ func placePlaceholder(box *blockBox, b richtext.Block, fontSize float32, cache *
 	return h
 }
 
-func placeImage(box *blockBox, b richtext.Block, images map[string]*ui.Bitmap, fontSize float32, cache *shapeCache) float32 {
+func placeImage(box *blockBox, b richtext.Block, images map[string]*Picture, fontSize float32, cache *shapeCache) float32 {
 	box.alt = b.Alt
 	h := float32(72)
 	if bm := images[b.URL]; bm != nil {
 		w, ih := bm.Size()
 		box.image = bm
 		if w > 0 {
-			scale := box.w / float32(w)
+			shown := box.w
+			// 嵌入语法指定了宽度时按该宽度显示，不超过正文宽度。
+			if want := float32(richtext.ImageWidth(b.Size)); want > 0 && want < shown {
+				shown = want
+			}
+			scale := shown / float32(w)
 			h = float32(ih) * scale
 			if h > imageMaxH {
 				h = imageMaxH

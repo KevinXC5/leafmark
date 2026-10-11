@@ -19,7 +19,7 @@ var md = goldmark.New(
 	goldmark.WithExtensions(
 		extension.GFM,
 	),
-	goldmark.WithParserOptions(inlineMarkParsers(), footnoteParsers(), footnoteInlines()),
+	goldmark.WithParserOptions(inlineMarkParsers(), footnoteParsers(), footnoteInlines(), wikiImageInlines()),
 )
 
 // NewPlainText 把全文收成单个代码块。Text 与 Code 都等于 text，
@@ -474,14 +474,18 @@ func trimTrailingBreak(s string) string {
 	return s
 }
 
-// loneImage 识别独占一行的 ![alt](url)，引用式图片不认。
+// loneImage 识别独占一行的 ![alt](url) 或 ![[名称]]，引用式图片不认。
 func loneImage(p *ast.Paragraph, src []byte) (editBlock, bool) {
 	var img *ast.Image
+	var wiki *wikiImage
 	count := 0
 	for c := p.FirstChild(); c != nil; c = c.NextSibling() {
 		switch t := c.(type) {
 		case *ast.Image:
 			img = t
+			count++
+		case *wikiImage:
+			wiki = t
 			count++
 		case *ast.Text:
 			if len(bytes.TrimSpace(t.Value(src))) != 0 {
@@ -490,6 +494,10 @@ func loneImage(p *ast.Paragraph, src []byte) (editBlock, bool) {
 		default:
 			return editBlock{}, false
 		}
+	}
+	if count == 1 && wiki != nil {
+		address, _ := wikiURL(wiki.target)
+		return editBlock{Block: Block{Kind: Image, Alt: wiki.alt, URL: address, Wiki: true, Size: wiki.size}}, true
 	}
 	if count != 1 || img == nil {
 		return editBlock{}, false
@@ -892,6 +900,10 @@ func walkInline(n ast.Node, src []byte, marks Mark, link *Link, out *[]Run) bool
 			if t.Reference != nil {
 				img.Ref = string(t.Reference.Value)
 			}
+			*out = append(*out, Run{Text: objectReplacement, Marks: marks, Link: cloneLink(link), Image: img})
+		case *wikiImage:
+			address, _ := wikiURL(t.target)
+			img := &InlineImage{Alt: t.alt, URL: address, Wiki: true, Size: t.size}
 			*out = append(*out, Run{Text: objectReplacement, Marks: marks, Link: cloneLink(link), Image: img})
 		case *ast.RawHTML:
 			if !applyInlineHTML(string(t.Text(src)), &marks) {

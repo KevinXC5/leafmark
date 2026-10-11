@@ -313,7 +313,6 @@ func TestSettingsPageSectionsAndControls(t *testing.T) {
 	if !view.HasText("当前版本：开发版") || !view.HasText("检查更新") {
 		t.Fatal("通用页缺少软件更新")
 	}
-	app.recent = nil
 	if err := view.Click("开始清理恢复草稿"); err != nil {
 		t.Fatal(err)
 	}

@@ -544,20 +544,6 @@ func (a *nativeApp) viewDocuments(c *ui.Context) {
 		})
 	})
 	a.viewTree(c, a.tree, 0)
-	if len(a.recent) > 0 {
-		ui.Text(c, "近期文档").FontSize(scaled(c, 11)).FontWeight(500).TextColor(c.Theme().TextMuted).Padding(16, 8, 6, 8)
-		for _, item := range a.recent {
-			if !nativeMatches(item.Name, a.navQuery) {
-				continue
-			}
-			path := item.Path
-			ui.Box(c.Key("recent:" + path)).FillWidth().Children(func() {
-				if nativeNavigationItem(c, item.Name, 8).Clicked() {
-					a.openRecent(path)
-				}
-			})
-		}
-	}
 }
 func nativeMatches(name, query string) bool {
 	return strings.Contains(strings.ToLower(name), strings.ToLower(strings.TrimSpace(query)))

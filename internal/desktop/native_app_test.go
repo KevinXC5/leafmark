@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"leafmark/internal/documents"
+	"leafmark/internal/nativeeditor"
 	"leafmark/internal/workspace"
 )
 
@@ -51,7 +52,7 @@ func (e *stubEditor) Find(query string) bool {
 	return e.findHit
 }
 func (e *stubEditor) FontSize(size float32) { e.size = size }
-func (e *stubEditor) SetReadImage(fn func(string) *ui.Bitmap) {
+func (e *stubEditor) SetReadPicture(fn func(string) *nativeeditor.Picture) {
 	if fn != nil {
 		e.reader = func(path string) (string, error) { _ = fn(path); return "", nil }
 	}

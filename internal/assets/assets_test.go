@@ -219,3 +219,60 @@ func TestImportAndConcurrentNoOverwrite(t *testing.T) {
 		t.Fatal("现有图片被覆盖")
 	}
 }
+
+func TestFindImageByNameAndSVG(t *testing.T) {
+	put := func(t *testing.T, path string, data []byte) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		put(t, path, data)
+	}
+	workspace := t.TempDir()
+	dir := filepath.Join(workspace, "学习")
+	doc := filepath.Join(dir, "教程.md")
+	svg := []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>`)
+	put(t, filepath.Join(dir, "assets", "教程", "架构 图.drawio.svg"), svg)
+	put(t, filepath.Join(dir, "assets", "其他", "deep", "a.png"), imageBytes(t, "png"))
+	put(t, filepath.Join(dir, "assets", "教程", "a.png"), imageBytes(t, "png"))
+	put(t, filepath.Join(workspace, "附件", "shared.PNG"), imageBytes(t, "png"))
+	put(t, filepath.Join(dir, ".trash", "hidden.png"), imageBytes(t, "png"))
+	outside := filepath.Join(t.TempDir(), "outside.png")
+	put(t, outside, imageBytes(t, "png"))
+	if err := os.Symlink(outside, filepath.Join(dir, "linked.png")); err != nil {
+		t.Fatal(err)
+	}
+
+	uri, err := FindImage(doc, workspace, "%E6%9E%B6%E6%9E%84%20%E5%9B%BE.drawio.svg")
+	if err != nil || !bytes.HasPrefix([]byte(uri), []byte("data:image/svg+xml;base64,")) {
+		t.Fatalf("应按文件名找到 SVG：%v %.40s", err, uri)
+	}
+	// 同名文件取层级最浅的；路径后缀也能匹配。
+	shallow, err := FindImage(doc, workspace, "a.png")
+	direct, _ := ReadImage(doc, "assets/教程/a.png")
+	if err != nil || shallow != direct {
+		t.Fatalf("同名文件应取层级最浅的：%v", err)
+	}
+	if _, err := FindImage(doc, workspace, "deep/a.png"); err != nil {
+		t.Fatalf("应按路径后缀查找：%v", err)
+	}
+	if _, err := FindImage(doc, workspace, "shared.png"); err != nil {
+		t.Fatalf("应在工作区里不区分大小写地查找：%v", err)
+	}
+	if _, err := FindImage(doc, "", "shared.png"); err == nil {
+		t.Fatal("没有工作区授权时不应搜索文档目录之外")
+	}
+	if _, err := FindImage(filepath.Join(t.TempDir(), "外部.md"), workspace, "shared.png"); err == nil {
+		t.Fatal("文档不在工作区内时不应搜索工作区")
+	}
+	for _, resource := range []string{"hidden.png", "linked.png", "outside.png", "../outside.png", "missing.png"} {
+		if _, err := FindImage(doc, workspace, resource); err == nil {
+			t.Fatalf("不应读到 %s", resource)
+		}
+	}
+	// 不是 SVG 命名空间的 XML 不算图片。
+	put(t, filepath.Join(dir, "fake.svg"), []byte("<svg></svg>"))
+	if _, err := FindImage(doc, workspace, "fake.svg"); err == nil {
+		t.Fatal("应拒绝非 SVG 命名空间的文件")
+	}
+}

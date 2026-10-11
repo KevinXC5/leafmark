@@ -1027,6 +1027,10 @@ func writeBlockMD(b *strings.Builder, bl *editBlock) {
 	case TableBlock:
 		writeTableMD(b, bl.Table)
 	case Image:
+		if embed, ok := wikiEmbed(bl.URL, bl.Alt, bl.Size); ok && bl.Wiki {
+			b.WriteString(embed)
+			return
+		}
 		b.WriteString("![" + escapeText(bl.Alt) + "](" + linkDestination(bl.URL) + linkTitle(bl.Title) + ")")
 	case Raw:
 		if bl.Raw != "" {
@@ -1081,6 +1085,10 @@ func writeMarkedRuns(b *strings.Builder, runs []Run, depth int) {
 		}
 		if r.Image != nil {
 			img := r.Image
+			if embed, ok := wikiEmbed(img.URL, img.Alt, img.Size); ok && img.Wiki {
+				b.WriteString(embed)
+				continue
+			}
 			alt := "![" + escapeText(img.Alt) + "]"
 			if img.Ref != "" {
 				b.WriteString(alt + "[" + img.Ref + "]")

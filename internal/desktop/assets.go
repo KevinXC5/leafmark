@@ -36,7 +36,19 @@ func (a *Assets) ReadImage(id, resource string) (string, error) {
 	if doc.Path == "" {
 		return "", errors.New("请先保存文档后再读取相对图片")
 	}
-	return assets.ReadImage(doc.Path, resource)
+	return assets.FindImage(doc.Path, a.workspaceRoot(), resource)
+}
+
+// workspaceRoot 返回当前工作区的授权根目录，供按文件名查找图片；没有工作区时为空。
+func (a *Assets) workspaceRoot() string {
+	if a.files.workspace == nil {
+		return ""
+	}
+	state, err := a.files.workspace.Current()
+	if err != nil || state.Workspace == nil {
+		return ""
+	}
+	return state.Workspace.Path
 }
 
 // ImportImageIn 与 ImportImage 相同，但对话框挂在调用方给出的窗口上。
@@ -58,7 +70,7 @@ func (a *Assets) importImage(ctx context.Context, win *mygo.Window, id string) (
 	}
 	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 		Parent: win, Title: "选择图片",
-		Filters: []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg", "gif", "webp"}}},
+		Filters: []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg", "gif", "webp", "svg"}}},
 	})
 	if err != nil || len(paths) == 0 {
 		return nil, err

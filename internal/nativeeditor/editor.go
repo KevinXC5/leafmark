@@ -26,13 +26,16 @@ const (
 // 返回 nil 表示无法显示，图片块仍保留替代文字。
 type ReadImage = func(markdownPath string) *ui.Bitmap
 
+// ReadPicture 与 ReadImage 相同，但也能返回矢量图。
+type ReadPicture = func(markdownPath string) *Picture
+
 // Editor 是所见即所得编辑控件。画面只显示排版结果，不显示 Markdown 标记。
 type Editor struct {
 	doc            *richtext.Document
 	anchor         int
 	focus          int
 	fontSize       float32
-	read           ReadImage
+	read           ReadPicture
 	pending        richtext.Mark // 折叠光标上待输入的格式
 	compose        string
 	comCaret       int
@@ -44,7 +47,7 @@ type Editor struct {
 	scroll         ui.ScrollState
 	reveal         bool
 	cache          *shapeCache
-	images         map[string]*ui.Bitmap
+	images         map[string]*Picture
 	fetched        map[string]struct{}
 	remoteN        int
 	remoteB        int
@@ -92,7 +95,7 @@ func New(markdown string) *Editor {
 		collapsed: map[int]bool{},
 		fontSize:  15,
 		cache:     newShapeCache(),
-		images:    map[string]*ui.Bitmap{},
+		images:    map[string]*Picture{},
 		fetched:   map[string]struct{}{},
 		imgCh:     make(chan imageResult, 8),
 		client:    &http.Client{Timeout: 8 * time.Second},
@@ -108,7 +111,19 @@ func wordModifier() ui.Modifiers {
 }
 
 // SetReadImage 设置 Markdown 图片路径的授权读取回调。
-func (e *Editor) SetReadImage(fn func(string) *ui.Bitmap) { e.read = fn }
+func (e *Editor) SetReadImage(fn func(string) *ui.Bitmap) {
+	if fn == nil {
+		e.read = nil
+		return
+	}
+	e.read = func(path string) *Picture { return BitmapPicture(fn(path)) }
+}
+
+// ImageReady 报告某个图片地址是否已经取得可绘制的图片。
+func (e *Editor) ImageReady(url string) bool { return e.images[url] != nil }
+
+// SetReadPicture 设置能返回矢量图的授权读取回调，与 SetReadImage 二选一。
+func (e *Editor) SetReadPicture(fn func(string) *Picture) { e.read = fn }
 
 // SetInvalidate 设置后台图片完成时的线程安全窗口刷新回调。
 func (e *Editor) SetInvalidate(fn func()) {
@@ -1275,7 +1290,7 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 			if b.alt != "" {
 				ih -= e.fontSize + 6
 			}
-			p.Image(b.image, ui.Rect{X: x, Y: y, W: b.w, H: ih}, ui.Contain)
+			b.image.paint(p, ui.Rect{X: x, Y: y, W: b.w, H: ih}, theme.Dark)
 		} else {
 			p.Fill(ui.Rect{X: x, Y: y, W: min(b.w, 240), H: 64}, theme.Surface, 6)
 		}
@@ -1370,7 +1385,7 @@ func (e *Editor) paintLine(p *ui.Painter, r ui.Rect, ln line, theme *ui.Theme) {
 				p.Glyphs(span.display, baseX+start, baseY+span.dy, theme.Accent)
 			} else if span.image != "" {
 				if bm := e.images[span.image]; bm != nil {
-					p.Image(bm, ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}, ui.Contain)
+					bm.paint(p, ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}, theme.Dark)
 				} else {
 					cap := ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}
 					p.Fill(cap, theme.Surface, 3)
@@ -1558,11 +1573,11 @@ func (e *Editor) wantImage(url string) {
 	e.fetched[url] = struct{}{}
 	if e.read != nil {
 		// 本地路径只能交给桌面的授权回调，控件自己从不打开磁盘路径。
-		if bm := e.read(url); bitmapAllowed(bm) {
-			e.images[url] = bm
+		if pic := e.read(url); pictureAllowed(pic) {
+			e.images[url] = pic
 		}
 	} else if bm := decodeDataURI(url); bm != nil {
-		e.images[url] = bm
+		e.images[url] = BitmapPicture(bm)
 	}
 }
 
@@ -1583,14 +1598,6 @@ type imageResult struct {
 const maxCachedImages = 32
 const maxImagePixels = 16 << 20
 
-func bitmapAllowed(bm *ui.Bitmap) bool {
-	if bm == nil {
-		return false
-	}
-	w, h := bm.Size()
-	return w > 0 && h > 0 && int64(w)*int64(h) <= maxImagePixels
-}
-
 // drainImages 在 UI 线程解码，后台从不读写图片缓存或布局。
 func (e *Editor) drainImages(c *ui.Context) {
 	for {
@@ -1601,8 +1608,12 @@ func (e *Editor) drainImages(c *ui.Context) {
 				continue
 			}
 			e.remoteB += len(res.data)
-			if bm := decodeImage(res.data); bm != nil {
-				e.images[res.url] = bm
+			pic := BitmapPicture(decodeImage(res.data))
+			if pic == nil {
+				pic = DecodeSVG(res.data)
+			}
+			if pic != nil {
+				e.images[res.url] = pic
 				if c != nil {
 					c.Invalidate()
 				}

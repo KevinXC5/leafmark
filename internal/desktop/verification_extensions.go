@@ -40,7 +40,7 @@ func verifyNativeExtensions(win *mygo.Window, app *nativeApp) (map[string]any, e
 }
 
 // extensionMarkdown 覆盖脚注、含子段落与代码块的列表项、嵌套引用、多段提示块、
-// 缩进代码块、引用式链接与图片，以及常用 HTML 子集。
+// 缩进代码块、引用式链接与图片、图片嵌入，以及常用 HTML 子集。
 const extensionMarkdown = "# 扩展语法\n\n" +
 	"正文见脚注[^注]。\n\n" +
 	"[^注]: 脚注说明。\n\n" +
@@ -53,7 +53,15 @@ const extensionMarkdown = "# 扩展语法\n\n" +
 	"引用式链接见[叶脉][leaf]，图片见 ![叶][leaf-img]。\n\n" +
 	"[leaf]: https://example.com/leaf \"叶脉\"\n" +
 	"[leaf-img]: leaf.png \"一片叶子\"\n\n" +
+	"![[叶片 示意.svg|240]]\n\n" +
 	"<div class=\"note\"><p>常用 <strong>HTML</strong> 子集</p></div>\n"
+
+// extensionLeafSVG 是图片嵌入验收用的矢量图，配色取自界面的暖纸色与弱墨色。
+const extensionLeafSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120">` +
+	`<rect width="240" height="120" rx="12" fill="#efeadf"/>` +
+	`<path d="M40 60 C80 10 160 10 200 60 C160 110 80 110 40 60 Z" fill="#dfd8c8" stroke="#8a8272" stroke-width="2"/>` +
+	`<path d="M40 60 L200 60 M90 60 L110 34 M120 60 L140 34 M90 60 L110 86 M120 60 L140 86" fill="none" stroke="#8a8272" stroke-width="2" stroke-linecap="round"/>` +
+	`</svg>`
 
 // verifyNewSyntax 打开一份独立副本，确认新语法不再落成 Raw 占位，
 // 未编辑时 Markdown 与原文逐字节一致，并在列表项子段落里输入后撤销。
@@ -68,6 +76,15 @@ func verifyNewSyntax(win *mygo.Window, app *nativeApp, out map[string]any) error
 		return err
 	}
 	defer os.Remove(path)
+	// 嵌入只写文件名，图片放在文档的附件目录里，由按名查找找到。
+	attachments := filepath.Join(dir, "assets", "扩展语法验证")
+	if err = os.MkdirAll(attachments, 0700); err != nil {
+		return err
+	}
+	defer os.RemoveAll(filepath.Join(dir, "assets"))
+	if err = os.WriteFile(filepath.Join(attachments, "叶片 示意.svg"), []byte(extensionLeafSVG), 0600); err != nil {
+		return err
+	}
 
 	var tabID string
 	var opened error
@@ -128,6 +145,17 @@ func verifyNewSyntax(win *mygo.Window, app *nativeApp, out map[string]any) error
 			return
 		}
 		out["syntaxStructured"] = true
+		embedded := false
+		for _, block := range doc.Blocks() {
+			if block.Kind == richtext.Image && block.Wiki {
+				embedded = block.Size == "240" && ed.ImageReady(block.URL)
+			}
+		}
+		out["syntaxWikiImage"] = embedded
+		if !embedded {
+			check = fmt.Errorf("图片嵌入没有按文件名找到并显示附件目录里的 SVG")
+			return
+		}
 
 		text := ed.Text()
 		at := strings.Index(text, "列表子段落")

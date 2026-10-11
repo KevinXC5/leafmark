@@ -15,6 +15,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"leafmark/internal/documents"
+	"leafmark/internal/nativeeditor"
 	"leafmark/internal/workspace"
 )
 
@@ -30,9 +31,9 @@ type documentEditor interface {
 	InsertImage(alt, path string)
 	Find(query string) bool
 	FontSize(size float32)
-	// SetReadImage 的参数是 Markdown 里的图片路径，不是调用方已经准备好的 data URI。
+	// SetReadPicture 的参数是 Markdown 里的图片路径，不是调用方已经准备好的 data URI。
 	// 桌面闭包用当前文档授权读取；返回 nil 时编辑器保留替代文字。
-	SetReadImage(fn func(markdownPath string) *ui.Bitmap)
+	SetReadPicture(fn func(markdownPath string) *nativeeditor.Picture)
 	Text() string
 	Selection() (start, end int)
 	SetSelection(start, end int)
@@ -169,7 +170,6 @@ type nativeApp struct {
 	notice string
 
 	tree       []workspace.Node
-	recent     []workspace.RecentDocument
 	folderName string
 	openDirs   map[string]bool
 
@@ -321,7 +321,7 @@ func (a *nativeApp) adopt(doc documents.Document, markdown string) {
 	if a.assets != nil {
 		id := doc.ID
 		assets := a.assets
-		editor.SetReadImage(imageReader(assets, id))
+		editor.SetReadPicture(imageReader(assets, id))
 	}
 	a.syncEditor(a.active())
 	a.seenText[doc.ID] = markdown
@@ -341,7 +341,7 @@ func (a *nativeApp) replaceEditor(id, markdown string) {
 	a.configureEditor(fresh)
 	a.connectEditor(fresh)
 	if a.assets != nil {
-		fresh.SetReadImage(imageReader(a.assets, id))
+		fresh.SetReadPicture(imageReader(a.assets, id))
 	}
 	tab.editor = fresh
 	delete(a.seenText, id)
@@ -608,7 +608,6 @@ func (a *nativeApp) reloadNavigation() {
 	gen := a.treeGen.Add(1)
 	go func() {
 		var nodes []workspace.Node
-		var recent []workspace.RecentDocument
 		folder := ""
 		if a.workspace != nil {
 			if state, err := a.workspace.Current(); err == nil && state.Workspace != nil {
@@ -617,16 +616,12 @@ func (a *nativeApp) reloadNavigation() {
 			if tree, err := a.workspace.Tree(); err == nil {
 				nodes = tree
 			}
-			if list, err := a.workspace.Recent(); err == nil {
-				recent = list
-			}
 		}
 		a.update(func() {
 			if gen != a.treeGen.Load() {
 				return
 			}
 			a.tree = nodes
-			a.recent = recent
 			a.folderName = folder
 		})
 	}()
@@ -1009,25 +1004,6 @@ func (a *nativeApp) openWorkspace(relative string) {
 	}()
 }
 
-func (a *nativeApp) openRecent(path string) {
-	a.syncEditor(a.active())
-	go func() {
-		doc, err := a.workspace.OpenRecent(path)
-		a.update(func() {
-			if err != nil {
-				a.notice = err.Error()
-				return
-			}
-			loaded, loadErr := a.files.store.LoadSnapshot(doc.Path, doc.Raw)
-			if loadErr != nil {
-				a.notice = loadErr.Error()
-				return
-			}
-			a.adopt(loaded, loaded.Content)
-		})
-	}()
-}
-
 func (a *nativeApp) askLink() {
 	if a.reading {
 		return
@@ -1326,8 +1302,8 @@ func (a *nativeApp) markClosed() { a.closed.Store(true) }
 
 // imageReader 把 Markdown 图片路径限制在当前文档已授权的资源内。
 // 相对路径经 Assets.ReadImage 变成 data URI 再解码；已经是 data URI 的只解码，不读磁盘。
-func imageReader(store *Assets, id string) func(string) *ui.Bitmap {
-	return func(markdownPath string) *ui.Bitmap {
+func imageReader(store *Assets, id string) func(string) *nativeeditor.Picture {
+	return func(markdownPath string) *nativeeditor.Picture {
 		if store == nil || markdownPath == "" {
 			return nil
 		}
@@ -1343,7 +1319,7 @@ func imageReader(store *Assets, id string) func(string) *ui.Bitmap {
 	}
 }
 
-func decodeImageData(dataURI string) *ui.Bitmap {
+func decodeImageData(dataURI string) *nativeeditor.Picture {
 	const marker = "base64,"
 	i := strings.Index(strings.ToLower(dataURI), marker)
 	if i < 0 {
@@ -1353,11 +1329,14 @@ func decodeImageData(dataURI string) *ui.Bitmap {
 	if err != nil || len(raw) == 0 || len(raw) > 8<<20 {
 		return nil
 	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(dataURI)), "data:image/svg+xml") {
+		return nativeeditor.DecodeSVG(raw)
+	}
 	bm, err := ui.DecodeBitmap(raw)
 	if err != nil {
 		return nil
 	}
-	return bm
+	return nativeeditor.BitmapPicture(bm)
 }
 
 // noteEdits 记下正文发生变化的时刻。编辑器未暴露改动时间，不能用打开时刻代替。

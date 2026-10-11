@@ -103,6 +103,8 @@ type InlineImage struct {
 	URL   string
 	Title string
 	Ref   string // 引用式图片的定义标签
+	Wiki  bool   // 原文是 ![[名称]] 形式的嵌入，URL 是逐段转义后的相对地址
+	Size  string // 嵌入指定的显示尺寸，形如 300 或 300x200
 }
 
 // Run 是一段样式一致的可见文本。Text 按 rune 计偏移。
@@ -150,6 +152,8 @@ type Block struct {
 	Alt        string // 图片替代文本
 	URL        string // 图片地址
 	Title      string // 图片标题
+	Wiki       bool   // 图片原文是 ![[名称]] 形式的嵌入，URL 是逐段转义后的相对地址
+	Size       string // 嵌入指定的显示尺寸，形如 300 或 300x200
 	Raw        string // 未支持语法的原文
 }
 
