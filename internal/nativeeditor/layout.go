@@ -23,7 +23,6 @@ const (
 	quoteBar     = 3
 	quoteInset   = 19
 	codePad      = 18
-	imageMaxH    = 280
 	innerGap     = 12 // 同一容器内相邻块的间距
 	listItemGap  = 4  // 同级列表项在默认字号 15 下的额外间距
 	looseGap     = 8  // 含多段正文的列表项与下一项的间距
@@ -1355,12 +1354,7 @@ func placeImage(box *blockBox, b richtext.Block, images map[string]*Picture, fon
 			}
 			scale := shown / float32(w)
 			h = float32(ih) * scale
-			if h > imageMaxH {
-				h = imageMaxH
-			}
-			if h < 24 {
-				h = 24
-			}
+			// 默认铺满正文宽度，高度只由原图比例决定，避免高图被整体缩小。
 		}
 	}
 	if b.Alt != "" {

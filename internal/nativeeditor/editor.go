@@ -1286,7 +1286,7 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 		p.Fill(ui.Rect{X: x, Y: y + b.h/2, W: b.w, H: 1}, theme.Border, 0)
 	case richtext.Image:
 		if b.image != nil {
-			ih := b.h
+			ih := b.h - 8 // 块末尾的留白不参与图片缩放。
 			if b.alt != "" {
 				ih -= e.fontSize + 6
 			}
@@ -1718,6 +1718,12 @@ func safeURL(url string, image bool) bool {
 type LayoutSnapshot struct {
 	Width, Height, ViewHeight, ScrollX, ScrollY float32
 	Lines                                       []LineSnapshot
+	Images                                      []ImageSnapshot
+}
+
+// ImageSnapshot 记录图片实际显示尺寸与所在正文块的可用宽度。
+type ImageSnapshot struct {
+	Width, Height, ContentWidth float32
 }
 type LineSnapshot struct {
 	Text          string
@@ -1729,6 +1735,18 @@ func (e *Editor) LayoutSnapshot() LayoutSnapshot {
 	out := LayoutSnapshot{Width: e.lay.width, Height: e.lay.height, ViewHeight: e.viewH, ScrollX: e.scroll.X, ScrollY: e.scroll.Y}
 	for _, ln := range e.lay.lines {
 		out.Lines = append(out.Lines, LineSnapshot{Text: ln.text, Origin: ln.origin, Count: ln.count, X: e.blockBox(ln.block).x + ln.prefix, Y: ln.y, Height: ln.height})
+	}
+	for _, b := range e.lay.blocks {
+		if b.image == nil {
+			continue
+		}
+		h := b.h - 8
+		if b.alt != "" {
+			h -= e.fontSize + 6
+		}
+		w, ih := b.image.Size()
+		scale := min(b.w/float32(w), h/float32(ih))
+		out.Images = append(out.Images, ImageSnapshot{Width: float32(w) * scale, Height: float32(ih) * scale, ContentWidth: b.w})
 	}
 	return out
 }

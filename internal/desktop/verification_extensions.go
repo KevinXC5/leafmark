@@ -41,7 +41,7 @@ func verifyNativeExtensions(win *mygo.Window, app *nativeApp) (map[string]any, e
 
 // extensionMarkdown 覆盖脚注、含子段落与代码块的列表项、嵌套引用、多段提示块、
 // 缩进代码块、引用式链接与图片、图片嵌入，以及常用 HTML 子集。
-const extensionMarkdown = "# 扩展语法\n\n" +
+const extensionMarkdown = "# 扩展语法\n\n![[叶片 示意.svg]]\n\n" +
 	"正文见脚注[^注]。\n\n" +
 	"[^注]: 脚注说明。\n\n" +
 	"- 列表首段\n\n" +
@@ -148,9 +148,15 @@ func verifyNewSyntax(win *mygo.Window, app *nativeApp, out map[string]any) error
 		embedded := false
 		for _, block := range doc.Blocks() {
 			if block.Kind == richtext.Image && block.Wiki {
-				embedded = block.Size == "240" && ed.ImageReady(block.URL)
+				embedded = embedded || (block.Size == "240" && ed.ImageReady(block.URL))
 			}
 		}
+		images := ed.LayoutSnapshot().Images
+		if len(images) < 2 || images[0].Width != images[0].ContentWidth || images[0].Height <= 280 || images[0].Width != images[0].Height*2 {
+			check = fmt.Errorf("默认图片未铺满正文或未保持比例：%+v", images)
+			return
+		}
+		out["imageFillsContentWidth"] = true
 		out["syntaxWikiImage"] = embedded
 		if !embedded {
 			check = fmt.Errorf("图片嵌入没有按文件名找到并显示附件目录里的 SVG")

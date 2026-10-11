@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"leafmark/internal/richtext"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -112,5 +113,29 @@ func TestWikiImageUsesAuthorizedReader(t *testing.T) {
 	}
 	if ed.Markdown() != "![[图 1.drawio.svg]]\n\n文字 ![[a.png|40]] 文字\n" {
 		t.Fatalf("原文不应变化：%q", ed.Markdown())
+	}
+}
+
+func TestBlockImageFillsContentWidth(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		width, height, content float32
+		size                   string
+		wantHeight             float32
+	}{
+		{"横图", 800, 600, 720, "", 540},
+		{"长图", 400, 1600, 720, "", 2880},
+		{"小图放大", 100, 50, 720, "", 360},
+		{"窄正文", 800, 600, 360, "", 270},
+		{"指定宽度", 800, 600, 720, "240", 180},
+		{"指定宽度不超正文", 800, 600, 360, "900", 270},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			box := blockBox{w: tc.content}
+			h := placeImage(&box, richtext.Block{URL: "图", Size: tc.size}, map[string]*Picture{"图": {w: tc.width, h: tc.height}}, 16, nil)
+			if h != tc.wantHeight+8 {
+				t.Fatalf("图片应按正文或指定宽度等比排版，高度得到 %v，期望 %v", h, tc.wantHeight+8)
+			}
+		})
 	}
 }
