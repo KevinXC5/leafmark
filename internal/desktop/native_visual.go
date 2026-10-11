@@ -66,13 +66,16 @@ func nativeTextButton(c *ui.Context, label string) ui.Element {
 	b.Children(func() { ui.Text(c, label).FontSize(scaled(c, 12)).SingleLine() })
 	return b
 }
+// nativeTitleBarHeight 是标题栏高度；红绿灯、标签栏和侧栏品牌行的中心都落在它的一半处。
+const nativeTitleBarHeight = 52
+
 func (a *nativeApp) viewTitleBar(c *ui.Context, bar ui.TitleBar) {
 	left := float32(12)
 	w, _ := c.Size()
 	if a.sidebar < 80 || w < 600 {
 		left = max(8, bar.Left+8)
 	}
-	ui.Row(c).Height(52).Padding(8, max(12, bar.Right), 8, left).Gap(4).AlignItems(ui.Center).DragWindow().Children(func() {
+	ui.Row(c).Height(nativeTitleBarHeight).Padding(8, max(12, bar.Right), 8, left).Gap(4).AlignItems(ui.Center).DragWindow().Children(func() {
 		if a.sidebar < 80 || w < 600 {
 			if nativeIconButton(c, "panel-left", "展开侧栏").Clicked() {
 				a.command("sidebar")
@@ -200,22 +203,24 @@ func (a *nativeApp) viewTabs(c *ui.Context) {
 	})
 }
 func (a *nativeApp) viewSidebar(c *ui.Context) {
-	nativeGlass(c).Fill().Label("文档导航").Children(func() {
+	// 顶部不留内边距：品牌行自己占满标题栏高度，和红绿灯、标签栏共用一条中线。
+	nativeGlass(c).Fill().Padding(0, 16, 16, 16).Label("文档导航").Children(func() {
 		bar := c.TitleBar()
 		// macOS 的红绿灯压在侧栏左上角，品牌标识让出它的位置。
 		brandLeft := float32(0)
 		if bar.Left > 0 {
-			brandLeft = 82
+			brandLeft = 64
 		}
-		ui.Row(c).Height(30).Padding(0, 0, 0, brandLeft).Gap(6).AlignItems(ui.Center).DragWindow().Children(func() {
-			ui.Icon(c, nativeIcons["leaf"]).Size(scaled(c, 16), scaled(c, 16)).Shrink(0).TextColor(c.Theme().TextMuted)
-			ui.Text(c, "叶笺").FontSize(scaled(c, 12)).TextColor(c.Theme().TextMuted)
+		// 侧栏外边距 8 加行高的一半正好落在标题栏中线 26 上；固定高度不随窗口变矮而压缩，按钮不会上移。
+		ui.Row(c).Height(nativeTitleBarHeight-16).Shrink(0).Margin(0, -6, 0, 0).Padding(0, 0, 0, brandLeft).Gap(7).AlignItems(ui.Center).DragWindow().Children(func() {
+			ui.Icon(c, nativeIcons["leaf"]).Size(scaled(c, 15), scaled(c, 15)).Shrink(0).TextColor(c.Theme().TextMuted)
+			ui.Text(c, "叶笺").FontSize(scaled(c, 13)).FontWeight(600).TextColor(c.Theme().Text).SingleLine()
 			ui.Spacer(c)
-			if nativeIconButton(c, "panel-left", "收起侧栏").Clicked() {
+			if nativeIconButton(c, "panel-left", "收起侧栏").Shrink(0).Clicked() {
 				a.command("sidebar")
 			}
 		})
-		ui.Row(c).Height(scaled(c, 34)).Padding(3).Gap(3).Radius(10).Background(nativeColors(c.Theme().Dark).switchBG).Children(func() {
+		ui.Row(c).Height(scaled(c, 34)).Shrink(0).Padding(3).Gap(3).Radius(10).Background(nativeColors(c.Theme().Dark).switchBG).Children(func() {
 			for _, item := range []struct{ id, label string }{{"documents", "文档"}, {"outline", "大纲"}} {
 				selected := a.sidebarMode == item.id || (a.sidebarMode == "" && item.id == "outline")
 				ink := c.Theme().TextMuted
@@ -227,7 +232,7 @@ func (a *nativeApp) viewSidebar(c *ui.Context) {
 					p := nativeColors(c.Theme().Dark)
 					b.Background(p.switchOn).Shadow(0, 1, 4, 0, p.shadow)
 				}
-				b.Children(func() { ui.Text(c, item.label).FontSize(scaled(c, 11)).TextColor(ink).SingleLine() })
+				b.Children(func() { ui.Text(c, item.label).FontSize(scaled(c, 12)).TextColor(ink).SingleLine() })
 				if b.Clicked() {
 					a.sidebarMode = item.id
 				}
@@ -454,13 +459,29 @@ func (a *nativeApp) viewOutline(c *ui.Context) {
 	}
 }
 func (a *nativeApp) viewDocuments(c *ui.Context) {
-	ui.SearchField(c, &a.navQuery).Label("筛选 Markdown 文件").Placeholder("筛选 Markdown…").Height(scaled(c, 30)).FillWidth().FontSize(scaled(c, 11)).Radius(10)
-	ui.Row(c).Height(scaled(c, 32)).Gap(4).AlignItems(ui.Center).Children(func() {
+	ui.SearchField(c, &a.navQuery).Label("筛选 Markdown 文件").Placeholder("筛选 Markdown…").Height(scaled(c, 30)).FillWidth().FontSize(scaled(c, 12)).Radius(10)
+	// 工作区标题：左侧是带底色的文件夹图块，名称用主文字加粗，和下面的文件列表左缘对齐。
+	ui.Row(c).Height(scaled(c, 36)).Margin(6, 0, 2, 0).Gap(2).AlignItems(ui.Center).Children(func() {
 		name := a.folderName
 		if name == "" {
 			name = "打开文件夹…"
 		}
-		if nativeTextButton(c, name).Grow(1).MinWidth(0).Clicked() {
+		b := ui.ButtonBase(c).Grow(1).MinWidth(0).Height(scaled(c, 36)).Radius(10).Padding(0, 8, 0, 4).Justify(ui.Start).Gap(9).Label(name).Cursor(ui.CursorPointer)
+		if b.Hovered() {
+			b.Background(c.Theme().Surface)
+		}
+		b.Children(func() {
+			tile := scaled(c, 26)
+			ui.Box(c).Size(tile, tile).Shrink(0).Radius(8).Background(nativeColors(c.Theme().Dark).switchBG).Center().TextColor(c.Theme().TextMuted).Children(func() {
+				ui.Icon(c, nativeIcons["folder"]).Size(scaled(c, 14), scaled(c, 14))
+			})
+			ink := c.Theme().Text
+			if a.folderName == "" {
+				ink = c.Theme().TextMuted
+			}
+			ui.Text(c, name).FontSize(scaled(c, 13)).FontWeight(600).TextColor(ink).SingleLine().Grow(1).MinWidth(0)
+		})
+		if b.Clicked() {
 			a.command("folder")
 		}
 		nativeIconButton(c, "ellipsis", "文档导航操作").Menu(func(m *ui.Menu) {
@@ -484,7 +505,7 @@ func (a *nativeApp) viewDocuments(c *ui.Context) {
 	})
 	a.viewTree(c, a.tree, 0)
 	if len(a.recent) > 0 {
-		ui.Text(c, "近期文档").FontSize(scaled(c, 10)).TextColor(c.Theme().TextMuted).Padding(12, 4, 8, 4)
+		ui.Text(c, "近期文档").FontSize(scaled(c, 11)).FontWeight(500).TextColor(c.Theme().TextMuted).Padding(16, 8, 6, 8)
 		for _, item := range a.recent {
 			if !nativeMatches(item.Name, a.navQuery) {
 				continue
@@ -513,13 +534,13 @@ func nativeTreeMatches(n workspace.Node, query string) bool {
 	return false
 }
 func nativeNavigationItem(c *ui.Context, name string, inset float32) ui.Element {
-	b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 30)).Radius(10).Padding(4, 8, 4, inset).Justify(ui.Start).Gap(6).Label(name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 32)).Radius(10).Padding(4, 8, 4, inset).Justify(ui.Start).Gap(6).Label(name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Surface)
 	}
 	b.Children(func() {
-		ui.Icon(c, nativeIcons["file-text"]).Size(scaled(c, 12), scaled(c, 12)).Shrink(0)
-		ui.Text(c, name).FontSize(scaled(c, 11)).SingleLine().Grow(1).MinWidth(0)
+		ui.Icon(c, nativeIcons["file-text"]).Size(scaled(c, 14), scaled(c, 14)).Shrink(0)
+		ui.Text(c, name).FontSize(scaled(c, 13)).SingleLine().Grow(1).MinWidth(0)
 	})
 	return b
 }
@@ -541,14 +562,14 @@ func (a *nativeApp) viewTree(c *ui.Context, nodes []workspace.Node, depth int) {
 			if open {
 				icon = "chevron-down"
 			}
-			b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 30)).Radius(10).Padding(4, 8, 4, float32(8+depth*12)).Justify(ui.Start).Gap(6).Label(current.Name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
+			b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 32)).Radius(10).Padding(4, 8, 4, float32(8+depth*12)).Justify(ui.Start).Gap(6).Label(current.Name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 			if b.Hovered() {
 				b.Background(c.Theme().Surface)
 			}
 			b.Children(func() {
 				ui.Icon(c, nativeIcons[icon]).Size(scaled(c, 12), scaled(c, 12)).Shrink(0)
-				ui.Icon(c, nativeIcons["folder"]).Size(scaled(c, 12), scaled(c, 12)).Shrink(0)
-				ui.Text(c, current.Name).FontSize(scaled(c, 11)).SingleLine().Grow(1).MinWidth(0)
+				ui.Icon(c, nativeIcons["folder"]).Size(scaled(c, 14), scaled(c, 14)).Shrink(0)
+				ui.Text(c, current.Name).FontSize(scaled(c, 13)).SingleLine().Grow(1).MinWidth(0)
 			})
 			b.ContextMenu(a.treeMenu(current))
 			if b.Clicked() {

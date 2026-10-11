@@ -430,6 +430,16 @@ func startNativeVerification(win *mygo.Window, app *nativeApp) {
 			results["formatBarScreenshot"] = "verification/native-format-bar.png"
 		}
 		mygo.RunOnMain(func() { app.active().editor.SetSelection(0, 0) })
+		// 侧栏切到文档页截图，核对工作区标题、文件树字号与红绿灯的对齐。
+		mygo.RunOnMain(func() { app.sidebarMode = "documents" })
+		win.Invalidate()
+		refreshVerificationWindow(win)
+		time.Sleep(150 * time.Millisecond)
+		if shot, captureErr := win.CapturePage(); captureErr == nil {
+			_ = os.WriteFile("verification/native-sidebar-documents.png", shot, 0644)
+			results["sidebarDocumentsScreenshot"] = "verification/native-sidebar-documents.png"
+		}
+		mygo.RunOnMain(func() { app.sidebarMode = "" })
 		// 设置页逐个分类截图，核对与设计一致。
 		for _, tab := range settingsTabs {
 			mygo.RunOnMain(func() { app.settingsOn, app.settingsSection = true, tab.id })

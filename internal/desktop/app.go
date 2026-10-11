@@ -32,13 +32,14 @@ func Run() {
 		opts := mygo.WindowOptions{
 			Title: "Leafmark · 叶笺", Width: 1200, Height: 900,
 			MinWidth: 760, MinHeight: 560, StateKey: "main",
-			TitleBarStyle: mygo.TitleBarHiddenInset, TitleBarHeight: 52,
+			TitleBarStyle: mygo.TitleBarHiddenInset, TitleBarHeight: nativeTitleBarHeight,
 			BackgroundColor: "light-dark(" + nativeLightPaper + ", " + nativeDarkPaper + ")",
 			Vibrancy:        mygo.VibrancySidebar, AutoHideMenuBar: true,
 			Content: ui.View(app.View),
 		}
 		if runtime.GOOS == "darwin" {
-			opts.TrafficLightPosition = &mygo.Point{X: 20, Y: 18}
+			// 按钮直径 12，顶边 20 让中心落在标题栏中线 26 上。
+			opts.TrafficLightPosition = &mygo.Point{X: 20, Y: 20}
 		}
 		win := mygo.NewWindow(opts)
 		app.attach(win)

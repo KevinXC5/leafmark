@@ -1175,7 +1175,7 @@ func (e *Editor) paintFrame(p *ui.Painter, r ui.Rect, f frame, theme *ui.Theme) 
 		p.Glyphs(f.title, x+37, y+12+f.titleAscent, theme.Text)
 		paintBulb(p, x+13, y+12, theme.TextMuted)
 	case f.marker && f.kind == richtext.Task:
-		paintCheck(p, ui.Rect{X: x + 2.5, Y: r.Y + f.lineY + (f.lineH-15)/2 + 1, W: 15, H: 15}, f.checked, theme)
+		paintCheck(p, taskCheckRect(x+2.5, r.Y+f.lineY+f.ascent, e.fontSize), f.checked, theme)
 	case f.marker && f.bullet:
 		p.FillPath(new(ui.Path).Circle(x+4, r.Y+f.lineY+f.lineH/2+1, 1.7), theme.TextMuted.Alpha(.75))
 	case f.marker:
@@ -1210,6 +1210,14 @@ func paintDisclosure(p *ui.Painter, x, y float32, open bool, c ui.Color) {
 	p.FillPath(path, c)
 }
 
+// taskCheckRect 把复选框的中心放在文字的视觉中线上。行盒中线受字体上下伸部比例影响，
+// 衬线体会比文字低一截；中英文字面的中心大约在基线上方 0.35 个字号处。
+func taskCheckRect(x, baseline, fontSize float32) ui.Rect {
+	const size = 15
+	center := baseline - fontSize*.35
+	return ui.Rect{X: x, Y: center - size/2, W: size, H: size}
+}
+
 // paintCheck 画任务复选框。
 func paintCheck(p *ui.Painter, check ui.Rect, checked bool, theme *ui.Theme) {
 	if !checked {
@@ -1238,7 +1246,7 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 	case richtext.Task:
 		if len(b.lines) > 0 {
 			ln := e.lay.lines[b.lines[0]]
-			paintCheck(p, ui.Rect{X: x + b.indent + 2.5, Y: r.Y + ln.y + (ln.height-15)/2 + 1, W: 15, H: 15}, b.checked, theme)
+			paintCheck(p, taskCheckRect(x+b.indent+2.5, r.Y+ln.y+ln.ascent, e.fontSize), b.checked, theme)
 		}
 	case richtext.Quote:
 		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Surface, 4)
