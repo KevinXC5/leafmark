@@ -227,10 +227,14 @@ jobs:
               archive = root / unquote(urlparse(data['url']).path.split('/')[-1])
               assert archive.is_file() and archive.stat().st_size == data['size']
               assert data['signature']
-              for delta in data.get('deltas', []):
+              deltas = data.get('deltas', [])
+              for delta in deltas:
                   patch = root / unquote(urlparse(delta['url']).path.split('/')[-1])
                   assert patch.is_file() and patch.stat().st_size == delta['size']
                   assert delta['signature']
+              # 记录每个平台的增量包，便于核对增量更新是否生成；首个版本或旧版未发布时可以为空。
+              sizes = ', '.join(f"{d.get('from', '?')} {d['size'] / 1048576:.1f} MB" for d in deltas) or '无'
+              print(f"{manifest.name}: 完整包 {data['size'] / 1048576:.1f} MB，增量包 {len(deltas)} 份（{sizes}）")
           PY
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
 
