@@ -58,14 +58,14 @@ func (c *shapeCache) diagram(src string, width float32) *diagram.Layout {
 	return lay
 }
 
-// diagramStyle 按当前主题给出流程图的配色：节点、连线与分组取纸色和墨色的同一色调。
-func diagramStyle(theme *ui.Theme) diagram.Style {
+// DiagramStyle 按当前主题给出流程图的配色：节点、连线与分组取纸色和墨色的同一色调。
+func DiagramStyle(theme *ui.Theme) diagram.Style {
 	st := diagram.Style{
 		Font: ui.Font{Family: "system-ui, sans-serif", Size: 16}, Text: theme.Text, LabelFill: theme.Background,
 		NodeFill: ui.Hex("#f3e8dd"), NodeLine: ui.Hex("#d6b19a"), Edge: ui.Hex("#9b8b7b"), GroupFill: ui.Hex("#f4f0e8"), GroupLine: ui.Hex("#e0d6c8"),
 	}
 	if theme.Dark {
-		st.NodeFill, st.NodeLine, st.Edge, st.GroupFill, st.GroupLine = ui.Hex("#343b44"), ui.Hex("#6c7c8d"), ui.Hex("#9da7b3"), ui.Hex("#2a2c30"), ui.Hex("#43464d")
+		st.NodeFill, st.NodeLine, st.Edge, st.GroupFill, st.GroupLine = ui.Hex("#3a322c"), ui.Hex("#6e5a4c"), ui.Hex("#9c8f82"), ui.Hex("#2b2926"), ui.Hex("#44403b")
 	}
 	return st
 }

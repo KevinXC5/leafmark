@@ -33,7 +33,7 @@ func Run() {
 			Title: "Leafmark · 叶笺", Width: 1200, Height: 900,
 			MinWidth: 760, MinHeight: 560, StateKey: "main",
 			TitleBarStyle: mygo.TitleBarHiddenInset, TitleBarHeight: 52,
-			BackgroundColor: "light-dark(#faf9f5, #222426)",
+			BackgroundColor: "light-dark(" + nativeLightPaper + ", " + nativeDarkPaper + ")",
 			Vibrancy:        mygo.VibrancySidebar, AutoHideMenuBar: true,
 			Content: ui.View(app.View),
 		}

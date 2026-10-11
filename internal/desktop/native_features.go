@@ -437,9 +437,21 @@ func (a *nativeApp) exportBody(dark bool) (name, body string, ok bool) {
 }
 
 // exportStyle 是导出文档的版式：纸面配色与应用一致，打印时去掉背景色块以外的装饰。
-const exportStyle = `
-:root { color-scheme: light; --paper: #faf9f5; --ink: #47423c; --heading: #302e2b; --muted: #797168; --accent: #bd7858; --surface: #f1eee6; --callout: #f3ece5; --border: #e8e1d7; --mark: #f6e3b4; }
-:root.dark { color-scheme: dark; --paper: #242527; --ink: #cbcdd3; --heading: #cbcdd3; --muted: #a9adb5; --accent: #a6b7c8; --surface: #2d2f33; --callout: #34363b; --border: #3d4046; --mark: #66552c; }
+var exportStyle = exportThemeStyle(false) + exportThemeStyle(true) + exportLayoutStyle
+
+func exportThemeStyle(dark bool) string {
+	t := nativeTheme(dark)
+	selector, scheme := ":root", "light"
+	if dark {
+		selector, scheme = ":root.dark", "dark"
+	}
+	hex := func(c ui.Color) string { return fmt.Sprintf("#%02x%02x%02x%02x", c.R, c.G, c.B, c.A) }
+	return fmt.Sprintf("%s { color-scheme: %s; --paper: %s; --ink: %s; --heading: %s; --muted: %s; --accent: %s; --surface: %s; --code-surface: %s; --callout: %s; --border: %s; --rule: %s; --bullet: %s; --mark: #e9b94959; }\n",
+		selector, scheme, hex(t.Background), hex(t.Text), hex(t.Text), hex(t.TextMuted), hex(t.Accent), hex(t.Surface),
+		hex(nativeeditor.CodeBackground(t)), hex(nativeeditor.CalloutBackground(t)), hex(t.Border), hex(nativeeditor.QuoteRule(t)), hex(t.TextMuted.Alpha(.75)))
+}
+
+const exportLayoutStyle = `
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.6 "Newsreader", "Songti SC", "STSong", "Noto Serif CJK SC", "SimSun", Georgia, serif; }
 main { max-width: 856px; margin: 0 auto; padding: 48px 40px 80px; }
@@ -448,20 +460,21 @@ h1 { font-size: 1.89em; margin-top: 0; } h2 { font-size: 1.28em; } h3 { font-siz
 p, ul, ol, blockquote, pre, table, .callout { margin: 0 0 1.3em; }
 a { color: var(--accent); }
 ul, ol { padding-left: 1.4em; } li > ul, li > ol { margin-bottom: 0; }
+ul > li::marker { color: var(--bullet); }
 li + li { margin-top: calc(4em / 15); }
 li.task { list-style: none; margin-left: -1.4em; }
-blockquote { margin-left: 0; padding: 10px 16px; border-left: 3px solid var(--accent); border-radius: 4px; background: var(--surface); color: var(--muted); }
+blockquote { margin-left: 0; padding: 10px 16px; border-left: 3px solid var(--rule); border-radius: 4px; background: var(--surface); color: var(--muted); }
 blockquote p { margin: 0; }
 .callout { padding: 12px 16px; border-radius: 5px; background: var(--callout); font: 13px/1.5 "Inter", system-ui, sans-serif; }
 .callout p { margin: 0; } .callout-title { font-weight: 600; }
-code { font: .82em "Geist Mono", "SFMono-Regular", Consolas, monospace; background: var(--surface); border-radius: 3px; padding: 1px 4px; }
-pre { padding: 14px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow-x: auto; }
+code, kbd { font: .82em "Geist Mono", "SFMono-Regular", Consolas, monospace; background: var(--surface); border-radius: 3px; padding: 1px 4px; }
+pre { padding: 14px 18px; border-radius: 10px; background: var(--code-surface); overflow-x: auto; }
 pre code { background: none; padding: 0; font-size: 14px; line-height: 1.75; }
 mark { background: var(--mark); color: inherit; border-radius: 2px; }
 .math { font-style: italic; }
-table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-th, td { padding: 7px 11px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; }
-th { background: var(--surface); font-weight: 600; } tr > :last-child { border-right: 0; } tbody tr:last-child > * { border-bottom: 0; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; }
+th, td { padding: 7px 11px; border-bottom: 1px solid var(--border); text-align: left; }
+th { background: var(--surface); font-weight: 600; border-bottom: 0; } th:first-child { border-radius: 10px 0 0 10px; } th:last-child { border-radius: 0 10px 10px 0; } th:only-child { border-radius: 10px; } tbody tr:last-child > * { border-bottom: 0; }
 hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
 img { max-width: 100%; }
 .math svg { vertical-align: middle; }
@@ -510,15 +523,7 @@ func exportDiagram(src string, dark bool) (string, bool) {
 
 // exportDiagramStyle 使用导出时的主题快照，与正文和原生图表配色一致。
 func exportDiagramStyle(dark bool) diagram.Style {
-	st := diagram.Style{
-		Font: ui.Font{Family: "system-ui, sans-serif", Size: 16}, Text: ui.Hex("#47423c"), LabelFill: ui.Hex("#faf9f5"),
-		NodeFill: ui.Hex("#f3e8dd"), NodeLine: ui.Hex("#d6b19a"), Edge: ui.Hex("#9b8b7b"), GroupFill: ui.Hex("#f4f0e8"), GroupLine: ui.Hex("#e0d6c8"),
-	}
-	if dark {
-		st.Text, st.LabelFill = ui.Hex("#cbcdd3"), ui.Hex("#242527")
-		st.NodeFill, st.NodeLine, st.Edge, st.GroupFill, st.GroupLine = ui.Hex("#343b44"), ui.Hex("#6c7c8d"), ui.Hex("#9da7b3"), ui.Hex("#2a2c30"), ui.Hex("#43464d")
-	}
-	return st
+	return nativeeditor.DiagramStyle(nativeTheme(dark))
 }
 
 const (
@@ -685,7 +690,7 @@ func (a *nativeApp) viewRawEditor(c *ui.Context) {
 		ui.Text(c, "公式、图表与其他扩展语法以 Markdown 原文保存。清空内容会删除这一块。").FontSize(scaled(c, 12)).TextColor(c.Theme().TextMuted)
 		ui.TextArea(c, &a.rawText).Width(520).Height(240).Font(sourceFontFamily).FontSize(scaled(c, 13)).LineHeight(1.6).Label("原文源码").AutoFocus()
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			if ui.Button(c, "取消").Cursor(ui.CursorPointer).Clicked() {
+			if ui.Button(c, "取消").Border(0, ui.Transparent).Cursor(ui.CursorPointer).Clicked() {
 				a.rawOpen = false
 			}
 			if ui.PrimaryButton(c, "确定").Cursor(ui.CursorPointer).Clicked() || c.Shortcut(ui.Cmd, ui.KeyEnter) {

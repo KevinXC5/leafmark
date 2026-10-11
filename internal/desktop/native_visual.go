@@ -14,18 +14,20 @@ import (
 	"leafmark/internal/workspace"
 )
 
-// 颜色、间距与图标沿用原版应用，GPU 渐变与阴影承载玻璃侧栏。
-type nativePalette struct{ glassTop, glassBottom, glassEdge, shadow, tab, outline, outlineInk, switchBG ui.Color }
+// 侧栏、标签与切换控件的配色。深浅两套同一暖色相，层次靠填充明度区分，不描边。
+type nativePalette struct{ glassTop, glassBottom, shadow, tab, switchBG, switchOn ui.Color }
 
 func nativeColors(dark bool) nativePalette {
 	if dark {
-		return nativePalette{ui.Hex("#42454b"), ui.Hex("#25282e"), ui.Hex("#687079"), ui.Hex("#00000055"), ui.Hex("#34363b"), ui.Hex("#343b44"), ui.Hex("#d3dce6"), ui.Hex("#292b2f")}
+		return nativePalette{ui.Hex("#302d2a"), ui.Hex("#282624"), ui.Hex("#00000040"), ui.Hex("#33302d"), ui.Hex("#23211f"), ui.Hex("#3d3935")}
 	}
-	return nativePalette{ui.Hex("#f5f1e8"), ui.Hex("#eadfd0"), ui.Hex("#fffdf9b0"), ui.Hex("#7052392b"), ui.Hex("#eeeae2"), ui.Hex("#f1dac5"), ui.Hex("#965b3a"), ui.Hex("#e8e0d5")}
+	return nativePalette{ui.Hex("#f5f1e8"), ui.Hex("#eee6da"), ui.Hex("#7052391f"), ui.Hex("#eeeae2"), ui.Hex("#e8e0d5"), ui.Hex(nativeLightPaper)}
 }
-func nativeGlass(c *ui.Context) *ui.Element {
+
+// nativeGlass 是浮起的侧栏面板：轻微渐变加柔和阴影，不画描边。
+func nativeGlass(c *ui.Context) ui.Element {
 	p := nativeColors(c.Theme().Dark)
-	return ui.Column(c).Radius(18).Gradient(p.glassTop, p.glassBottom, 180).Border(1, p.glassEdge).Shadow(3, 5, 24, 0, p.shadow).Padding(16).Gap(14)
+	return ui.Column(c).Radius(18).Gradient(p.glassTop, p.glassBottom, 180).Shadow(2, 4, 20, 0, p.shadow).Padding(16).Gap(14)
 }
 
 // uiBaseFontSize 是界面设计稿对应的正文字号：字号设置取这个值时界面按原尺寸绘制。
@@ -38,7 +40,7 @@ const uiThemeFontSize = 12
 func scaled(c *ui.Context, v float32) float32 {
 	return v * c.Theme().FontSize / uiThemeFontSize
 }
-func nativeIconButton(c *ui.Context, icon, label string) *ui.Element {
+func nativeIconButton(c *ui.Context, icon, label string) ui.Element {
 	b := ui.ButtonBase(c).Size(28, 28).Radius(10).Label(label).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Surface).TextColor(c.Theme().Text)
@@ -48,7 +50,7 @@ func nativeIconButton(c *ui.Context, icon, label string) *ui.Element {
 }
 
 // nativeCloseButton 是标签上的小号关闭按钮。
-func nativeCloseButton(c *ui.Context, label string) *ui.Element {
+func nativeCloseButton(c *ui.Context, label string) ui.Element {
 	b := ui.ButtonBase(c).Size(18, 18).Radius(6).Label(label).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Border).TextColor(c.Theme().Text)
@@ -56,7 +58,7 @@ func nativeCloseButton(c *ui.Context, label string) *ui.Element {
 	b.Children(func() { ui.Icon(c, nativeIcons["x"]).Size(11, 11) })
 	return b
 }
-func nativeTextButton(c *ui.Context, label string) *ui.Element {
+func nativeTextButton(c *ui.Context, label string) ui.Element {
 	b := ui.ButtonBase(c).Height(scaled(c, 30)).Padding(4, 10).Radius(10).Label(label).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Surface)
@@ -164,7 +166,7 @@ func (a *nativeApp) viewTabs(c *ui.Context) {
 			if name == "" {
 				name = "未命名.md"
 			}
-			ui.Box(c).Key(tab.id).Children(func() {
+			ui.Box(c.Key(tab.id)).Children(func() {
 				row := ui.Row(c).Height(36).MaxWidth(240).Radius(10).Padding(0, 8).AlignItems(ui.Center)
 				if i == a.current {
 					row.Background(nativeColors(c.Theme().Dark).tab)
@@ -222,7 +224,8 @@ func (a *nativeApp) viewSidebar(c *ui.Context) {
 				}
 				b := ui.ButtonBase(c).Grow(1).MinWidth(0).Height(scaled(c, 28)).Radius(10).Label(item.label).Cursor(ui.CursorPointer)
 				if selected {
-					b.Background(c.Theme().Background).Shadow(0, 1, 4, 0, nativeColors(c.Theme().Dark).shadow)
+					p := nativeColors(c.Theme().Dark)
+					b.Background(p.switchOn).Shadow(0, 1, 4, 0, p.shadow)
 				}
 				b.Children(func() { ui.Text(c, item.label).FontSize(scaled(c, 11)).TextColor(ink).SingleLine() })
 				if b.Clicked() {
@@ -325,6 +328,79 @@ func nativeBlockRunes(b richtext.Block) int {
 	}
 	return n
 }
+
+const nativeOutlineGap float32 = 6
+
+type nativeOutlineVein struct {
+	mainX, top, bottom, center, tipX float32
+}
+
+func nativeOutlineTip(level int) float32 {
+	return 24 + float32(max(1, min(level, 6))-1)*12
+}
+
+// 外层矩形包含按钮下方的间距，主脉在相邻容器的边界相接；中点只取实际按钮高度。
+func nativeOutlineVeinGeometry(r ui.Rect, level int, first, last bool) nativeOutlineVein {
+	center := r.Y + max(0, r.H-nativeOutlineGap)/2
+	v := nativeOutlineVein{mainX: r.X + 10, top: r.Y, bottom: r.Y + r.H, center: center, tipX: r.X + nativeOutlineTip(level)}
+	if first {
+		v.top = center
+	}
+	if last {
+		v.bottom = center
+	}
+	return v
+}
+
+func nativeDrawOutlineVein(p *ui.Painter, r ui.Rect, level int, first, last, active bool, muted, accent ui.Color) {
+	v := nativeOutlineVeinGeometry(r, level, first, last)
+	if v.bottom > v.top {
+		p.Line(v.mainX, v.top, v.mainX, v.bottom, 1, muted.Alpha(.25))
+	}
+	ink, radius := muted.Alpha(.3), float32(1.3)
+	if active {
+		ink, radius = accent, 2.2
+	}
+	var branch, dot ui.Path
+	branch.MoveTo(v.mainX, v.center).CubeTo(v.mainX+3, v.center+6, v.tipX-7, v.center, v.tipX, v.center)
+	p.StrokePath(&branch, 1, ink)
+	dot.Circle(v.tipX, v.center, radius)
+	p.FillPath(&dot, ink)
+}
+
+// 叶形只用于侧栏空状态，轮廓、主脉、四对侧脉和叶柄共用低对比的主题中性色。
+func nativeDrawEmptyLeaf(p *ui.Painter, r ui.Rect, ink ui.Color) {
+	s := min(r.W, r.H) / 52
+	x, y := r.X+(r.W-52*s)/2, r.Y+(r.H-52*s)/2
+	var leaf ui.Path
+	leaf.MoveTo(x+13*s, y+40*s).
+		CubeTo(x+2*s, y+25*s, x+14*s, y+8*s, x+43*s, y+6*s).
+		CubeTo(x+46*s, y+28*s, x+32*s, y+43*s, x+13*s, y+40*s).Close()
+	leaf.MoveTo(x+10*s, y+47*s).QuadTo(x+19*s, y+25*s, x+43*s, y+6*s)
+	for _, vein := range [][5]float32{
+		{.3, 12, 33, 10, 27}, {.3, 22, 38, 29, 37},
+		{.48, 17, 25, 15, 19}, {.48, 28, 30, 37, 28},
+		{.66, 24, 18, 23, 12}, {.66, 35, 22, 41, 20},
+		{.82, 32, 11, 32, 8}, {.82, 39, 14, 43, 13},
+	} {
+		// 从主脉二次曲线的采样点分叉，避免侧脉与主脉之间出现缝隙。
+		t := vein[0]
+		vx, vy := 10+18*t+15*t*t, 47-44*t+3*t*t
+		leaf.MoveTo(x+vx*s, y+vy*s).QuadTo(x+vein[1]*s, y+vein[2]*s, x+vein[3]*s, y+vein[4]*s)
+	}
+	p.StrokePath(&leaf, 1, ink.Alpha(.3))
+}
+
+func nativeEmptyOutline(c *ui.Context) {
+	ui.Column(c).FillWidth().Padding(24, 0, 8, 0).Gap(12).AlignItems(ui.Center).Children(func() {
+		ink := c.Theme().TextMuted
+		ui.Box(c).Size(52, 52).Shrink(0).Label("大纲空状态叶子").Draw(func(p *ui.Painter, r ui.Rect) {
+			nativeDrawEmptyLeaf(p, r, ink)
+		})
+		ui.Text(c, "文档中的标题会显示在这里").FontSize(scaled(c, 11)).TextColor(ink).TextAlign(ui.Center).FillWidth()
+	})
+}
+
 func (a *nativeApp) viewOutline(c *ui.Context) {
 	ui.Text(c, "当前文档").FontSize(scaled(c, 10)).TextColor(c.Theme().TextMuted).LetterSpacing(1.2).Padding(8, 4, 10, 4)
 	tab := a.active()
@@ -350,16 +426,22 @@ func (a *nativeApp) viewOutline(c *ui.Context) {
 		}
 	}
 	for i, h := range headings {
-		ui.Box(c).Key(fmt.Sprintf("heading:%d", h.at)).FillWidth().Children(func() {
-			b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 39)).Margin(0, 0, 6, 0).Padding(8, 8, 8, float32(8+(h.level-1)*12)).Gap(8).Radius(10).Justify(ui.Start).Label("大纲：" + h.text).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
+		muted, accent := c.Theme().TextMuted, c.Theme().Accent
+		ui.Box(c.Key(fmt.Sprintf("heading:%d", h.at))).FillWidth().DrawOver(func(p *ui.Painter, r ui.Rect) {
+			nativeDrawOutlineVein(p, r, h.level, i == 0, i == len(headings)-1, i == active, muted, accent)
+		}).Children(func() {
+			b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 39)).Margin(0, 0, nativeOutlineGap, 0).Padding(8, 8, 8, nativeOutlineTip(h.level)+9).Radius(10).Justify(ui.Start).Label("大纲：" + h.text).TextColor(muted).Cursor(ui.CursorPointer)
 			if i == active {
-				p := nativeColors(c.Theme().Dark)
-				b.Background(p.outline).TextColor(p.outlineInk).FontWeight(500)
+				b.Background(accent.Alpha(.06)).TextColor(c.Theme().Text).FontWeight(500)
 			} else if b.Hovered() {
 				b.Background(c.Theme().Surface)
 			}
-			b.Children(func() {
-				ui.Textf(c, "H%d", h.level).FontSize(scaled(c, 9))
+			b.Gap(6).Children(func() {
+				// 层级小标与叶脉并存：侧脉表达层次，小标直接写明标题级别。
+				level := ui.Textf(c, "H%d", h.level).FontSize(scaled(c, 9)).Shrink(0).TextColor(muted.Alpha(.8))
+				if i == active {
+					level.TextColor(accent)
+				}
 				ui.Text(c, h.text).FontSize(scaled(c, 12)).SingleLine().Grow(1).MinWidth(0)
 			})
 			if b.Clicked() {
@@ -368,7 +450,7 @@ func (a *nativeApp) viewOutline(c *ui.Context) {
 		})
 	}
 	if len(headings) == 0 {
-		ui.Text(c, "文档中的标题会显示在这里").FontSize(scaled(c, 11)).TextColor(c.Theme().TextMuted).Padding(8)
+		nativeEmptyOutline(c)
 	}
 }
 func (a *nativeApp) viewDocuments(c *ui.Context) {
@@ -408,7 +490,7 @@ func (a *nativeApp) viewDocuments(c *ui.Context) {
 				continue
 			}
 			path := item.Path
-			ui.Box(c).Key("recent:" + path).FillWidth().Children(func() {
+			ui.Box(c.Key("recent:" + path)).FillWidth().Children(func() {
 				if nativeNavigationItem(c, item.Name, 8).Clicked() {
 					a.openRecent(path)
 				}
@@ -430,7 +512,7 @@ func nativeTreeMatches(n workspace.Node, query string) bool {
 	}
 	return false
 }
-func nativeNavigationItem(c *ui.Context, name string, inset float32) *ui.Element {
+func nativeNavigationItem(c *ui.Context, name string, inset float32) ui.Element {
 	b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 30)).Radius(10).Padding(4, 8, 4, inset).Justify(ui.Start).Gap(6).Label(name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(c.Theme().Surface)
@@ -447,7 +529,7 @@ func (a *nativeApp) viewTree(c *ui.Context, nodes []workspace.Node, depth int) {
 		if !nativeTreeMatches(current, a.navQuery) {
 			continue
 		}
-		ui.Box(c).Key("tree:" + current.Path).FillWidth().Children(func() {
+		ui.Box(c.Key("tree:" + current.Path)).FillWidth().Children(func() {
 			if !current.Directory {
 				if nativeNavigationItem(c, current.Name, float32(8+depth*12)).ContextMenu(a.treeMenu(current)).Clicked() {
 					a.openWorkspace(current.Path)
@@ -528,11 +610,12 @@ func (a *nativeApp) viewFormatBar(c *ui.Context, editor documentEditor) {
 	if top < 6 {
 		top = y + lineH + 6
 	}
-	bg, line := c.Theme().Background, c.Theme().Border
+	// 浮动工具栏靠阴影与纸面分开，不描边。
+	bg, shadow := c.Theme().Background, ui.Hex("#7052392e")
 	if c.Theme().Dark {
-		bg, line = ui.Hex("#303238"), ui.Hex("#4d5159")
+		bg, shadow = ui.Hex("#35322f"), ui.Hex("#00000066")
 	}
-	bar := ui.Row(c).Absolute().Left(left).Top(top).Padding(6, 8).Gap(2).AlignItems(ui.Center).Radius(9).Background(bg).Border(1, line).Shadow(0, 4, 14, 0, nativeColors(c.Theme().Dark).shadow).Label("格式工具栏")
+	bar := ui.Row(c).Absolute().Left(left).Top(top).Padding(6, 8).Gap(2).AlignItems(ui.Center).Radius(9).Background(bg).Shadow(0, 4, 16, 0, shadow).Label("格式工具栏")
 	bar.Children(func() {
 		for _, item := range nativeFormatBar {
 			if nativeIconButton(c, item.icon, item.label).Size(32, 32).Clicked() {
@@ -626,7 +709,7 @@ func (a *nativeApp) viewStatus(c *ui.Context) {
 			status = "文件冲突，请另存为"
 		}
 	}
-	ui.Row(c).Height(scaled(c, 34)).Padding(0, 24).Gap(12).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(c.Theme().Border).FontSize(scaled(c, 11)).TextColor(c.Theme().TextMuted).Label("状态栏").Children(func() {
+	ui.Row(c).Height(scaled(c, 34)).Padding(0, 24).Gap(12).AlignItems(ui.Center).FontSize(scaled(c, 11)).TextColor(c.Theme().TextMuted).Label("状态栏").Children(func() {
 		ui.Row(c).Gap(16).Children(func() { ui.Textf(c, "%d 字", count); ui.Textf(c, "%d 分钟阅读", max(1, (count+299)/300)) })
 		ui.Spacer(c)
 		ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {

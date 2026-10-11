@@ -130,23 +130,23 @@ func (e *Editor) cellSpan(block, index int) (start, end, row, col int) {
 }
 
 // contextMenu 是正文的右键菜单：剪贴板命令，以及表格里的行列操作。
-func (e *Editor) contextMenu(c *ui.Context, m *ui.Menu) {
+func (e *Editor) contextMenu(services ui.Services, m *ui.Menu) {
 	sel := e.selection()
 	empty := sel.Start == sel.End
 	if e.readOnly {
 		if m.Item("复制").Disabled(empty).Chosen() {
-			e.copy(c, false)
+			e.copy(services, false)
 		}
 		return
 	}
 	if m.Item("剪切").Disabled(empty).Chosen() {
-		e.copy(c, true)
+		e.copy(services, true)
 	}
 	if m.Item("复制").Disabled(empty).Chosen() {
-		e.copy(c, false)
+		e.copy(services, false)
 	}
 	if m.Item("粘贴").Chosen() {
-		e.paste(c)
+		e.paste(services)
 	}
 	block, row, col, ok := e.doc.TableCell(e.focus)
 	if !ok {

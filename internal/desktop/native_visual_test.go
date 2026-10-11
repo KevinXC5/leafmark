@@ -3,12 +3,107 @@
 package desktop
 
 import (
+	"math"
 	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"leafmark/internal/richtext"
 )
+
+func TestNativeOutlineVeinGeometry(t *testing.T) {
+	for _, height := range []float32{31.2, 39, 62.4, 72.8} {
+		rows := []ui.Rect{{X: 24, Y: 117, W: 216, H: height + nativeOutlineGap}}
+		for i := 1; i < 3; i++ {
+			previous := rows[i-1]
+			rows = append(rows, ui.Rect{X: previous.X, Y: previous.Y + previous.H, W: previous.W, H: previous.H})
+		}
+		var previous nativeOutlineVein
+		for i, row := range rows {
+			v := nativeOutlineVeinGeometry(row, i+1, i == 0, i == len(rows)-1)
+			if math.Abs(float64(v.center-(row.Y+height/2))) > .001 {
+				t.Fatalf("叶脉应对齐实际按钮中点：高度 %v，几何 %+v", height, v)
+			}
+			if i == 0 && v.top != v.center || i == len(rows)-1 && v.bottom != v.center {
+				t.Fatalf("首尾主脉应止于标题中点：%+v", v)
+			}
+			if i > 0 && (v.top != previous.bottom || v.mainX != previous.mainX || v.tipX <= previous.tipX) {
+				t.Fatalf("主脉应连续且深层侧脉更长：%+v → %+v", previous, v)
+			}
+			previous = v
+		}
+		single := nativeOutlineVeinGeometry(rows[0], 1, true, true)
+		if single.top != single.bottom || single.top != single.center {
+			t.Fatalf("单个标题不应留下悬空主脉：%+v", single)
+		}
+	}
+}
+
+type outlineSelectionEditor struct {
+	stubEditor
+	at int
+}
+
+func (e *outlineSelectionEditor) Selection() (int, int) { return e.at, e.at }
+func (e *outlineSelectionEditor) SetSelection(start, end int) {
+	e.at = start
+}
+
+func TestNativeOutlineVeinsKeepNavigationAndSpacing(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	markdown := "# 根\n\n正文\n\n## 分枝\n\n正文\n\n###### 末梢\n"
+	app.adopt(app.files.Current(), markdown)
+	editor := &outlineSelectionEditor{stubEditor: stubEditor{text: markdown}}
+	app.active().editor = editor
+	view := ui.NewTester(app.View, 1100, 760)
+	headings := nativeOutline(markdown)
+	for _, size := range []float32{12, 15, 24, 28} {
+		app.setFont(size)
+		view.Frame()
+		var previous ui.Rect
+		for i, h := range headings {
+			label := "大纲：" + h.text
+			row, ok := view.Find(label)
+			if !ok {
+				t.Fatalf("叶脉大纲缺少原有按钮 %q", label)
+			}
+			if i > 0 && math.Abs(float64(row.Y-(previous.Y+previous.H+nativeOutlineGap))) > .01 {
+				t.Fatalf("主脉容器必须覆盖实际行间距：%+v → %+v", previous, row)
+			}
+			text, ok := view.Find(h.text)
+			if !ok || text.X <= row.X+nativeOutlineTip(h.level) || text.X+text.W > row.X+row.W {
+				t.Fatalf("标题文字应位于叶脉末端之后且保持在按钮内：%+v %+v", row, text)
+			}
+			if err := view.Click(label); err != nil {
+				t.Fatal(err)
+			}
+			if editor.at != h.at {
+				t.Fatalf("大纲点击未定位到标题：得到 %d，期望 %d", editor.at, h.at)
+			}
+			previous = row
+		}
+	}
+}
+
+func TestNativeOutlineEmptyLeafIsCentered(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "没有标题的正文")
+	view := ui.NewTester(app.View, 1100, 760)
+	for _, size := range []float32{15, 28} {
+		app.setFont(size)
+		view.Frame()
+		leaf, found := view.Find("大纲空状态叶子")
+		text, textFound := view.Find("文档中的标题会显示在这里")
+		if !found || !textFound || leaf.W < 48 || leaf.W > 56 || math.Abs(float64(leaf.H-leaf.W)) > .01 || leaf.Y+leaf.H >= text.Y {
+			t.Fatalf("空状态叶子应在原有文案上方且尺寸克制：%+v %+v", leaf, text)
+		}
+		if math.Abs(float64((leaf.X+leaf.W/2)-(text.X+text.W/2))) > .01 {
+			t.Fatalf("叶子与文案应水平居中：%+v %+v", leaf, text)
+		}
+	}
+}
 
 func TestNativeOutlineUsesModelRuneCoordinates(t *testing.T) {
 	markdown := "# 同名\n\n中文😀段落\n\n| 甲 | 乙 |\n| --- | --- |\n| 同名 | 内容 |\n\n```text\n# 同名\n```\n\n## 同名\n\n尾声\n"

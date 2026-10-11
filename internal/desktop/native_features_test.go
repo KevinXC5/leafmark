@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"leafmark/internal/nativeeditor"
 	"leafmark/internal/workspace"
 )
 
@@ -426,7 +427,7 @@ func TestExportFollowsEffectiveTheme(t *testing.T) {
 			}
 			fill := `fill="#f3e8dd"`
 			if dark {
-				fill = `fill="#343b44"`
+				fill = `fill="#3a322c"`
 			}
 			if !strings.Contains(body, fill) || !strings.Contains(body, "currentColor") {
 				t.Fatal("图表或公式未使用正文主题配色")
@@ -449,5 +450,29 @@ func TestExportKeepsSourceWhenLayoutFails(t *testing.T) {
 	}
 	if !strings.Contains(body, `<span class="math">\unknown</span>`) || strings.Contains(body, "<svg") {
 		t.Fatalf("失败的公式应保留源码：\n%s", body)
+	}
+}
+
+func TestExportStyleMatchesNativeColors(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		theme := nativeTheme(dark)
+		css := exportThemeStyle(dark)
+		for name, color := range map[string]ui.Color{
+			"paper": theme.Background, "ink": theme.Text, "heading": theme.Text,
+			"muted": theme.TextMuted, "accent": theme.Accent, "surface": theme.Surface,
+			"border": theme.Border, "rule": nativeeditor.QuoteRule(theme),
+			"code-surface": nativeeditor.CodeBackground(theme), "callout": nativeeditor.CalloutBackground(theme),
+		} {
+			want := fmt.Sprintf("--%s: #%02x%02x%02x%02x;", name, color.R, color.G, color.B, color.A)
+			if !strings.Contains(css, want) {
+				t.Fatalf("深色=%v：导出未使用原生颜色 %s", dark, want)
+			}
+		}
+		if got, want := exportDiagramStyle(dark), nativeeditor.DiagramStyle(theme); got != want {
+			t.Fatalf("深色=%v：导出与原生图表配色不一致", dark)
+		}
+	}
+	if !strings.Contains(exportStyle, "th:only-child { border-radius: 10px; }") {
+		t.Fatal("单列表头应保留两侧圆角")
 	}
 }

@@ -122,6 +122,45 @@ func (a *nativeApp) View(c *ui.Context) {
 	}
 }
 
+const (
+	nativeLightPaper = "#faf9f5"
+	nativeDarkPaper  = "#242220"
+)
+
+// nativeTheme 统一书写、设置、源码和导出的语义色，也覆盖控件库的交互状态。
+func nativeTheme(dark bool) *ui.Theme {
+	base := ui.LightTheme()
+	if dark {
+		base = ui.DarkTheme()
+	}
+	// 叶笺的纸色，不沿用控件库的纯白默认。
+	if !dark {
+		base.Background = ui.Hex(nativeLightPaper)
+		base.Surface = ui.Hex("#f1eee6")
+		base.Text = ui.Hex("#47423c")
+		base.TextMuted = ui.Hex("#797168")
+		base.Border = ui.Hex("#e8e1d7")
+		base.Accent = ui.Hex("#bd7858")
+	} else {
+		// 深色与浅色同一暖色相，只降低明度，不混入蓝灰。
+		base.Background = ui.Hex(nativeDarkPaper)
+		base.Surface = ui.Hex("#2e2b28")
+		base.Text = ui.Hex("#d6d1ca")
+		base.TextMuted = ui.Hex("#a29a90")
+		base.Border = ui.Hex("#3b3834")
+		base.Accent = ui.Hex("#d49a7b")
+	}
+	base.SurfaceHover = base.Surface.Mix(base.Text, .06)
+	base.SurfacePressed = base.Surface.Mix(base.Text, .12)
+	base.AccentHover = base.Accent.Mix(ui.RGB(255, 255, 255), .08)
+	base.AccentPressed = base.Accent.Mix(ui.RGB(255, 255, 255), .16)
+	// 暖色按钮上使用深墨色，避免深色主题中白字与浅强调色对比不足。
+	base.AccentText = ui.Hex(nativeDarkPaper)
+	base.Selection = base.Accent.Alpha(.25)
+	base.Focus = base.Accent.Alpha(.55)
+	return base
+}
+
 func (a *nativeApp) applyTheme(c *ui.Context) {
 	dark := c.Theme().Dark
 	switch a.settings.Theme {
@@ -130,26 +169,7 @@ func (a *nativeApp) applyTheme(c *ui.Context) {
 	case "dark":
 		dark = true
 	}
-	base := ui.LightTheme()
-	if dark {
-		base = ui.DarkTheme()
-	}
-	// 叶笺的纸色，不沿用控件库的纯白默认。
-	if !dark {
-		base.Background = ui.Hex("#faf9f5")
-		base.Surface = ui.Hex("#f1eee6")
-		base.Text = ui.Hex("#47423c")
-		base.TextMuted = ui.Hex("#797168")
-		base.Border = ui.Hex("#e8e1d7")
-		base.Accent = ui.Hex("#bd7858")
-	} else {
-		base.Background = ui.Hex("#242527")
-		base.Surface = ui.Hex("#2d2f33")
-		base.Text = ui.Hex("#cbcdd3")
-		base.TextMuted = ui.Hex("#a9adb5")
-		base.Border = ui.Hex("#3d4046")
-		base.Accent = ui.Hex("#a6b7c8")
-	}
+	base := nativeTheme(dark)
 	// 滚动条用细而淡的墨色，悬停在滚动区上才出现。
 	base.Scrollbar = base.TextMuted.Alpha(0.3)
 	base.ScrollbarWidth = 4
@@ -212,7 +232,7 @@ func (a *nativeApp) viewPrompt(c *ui.Context) {
 				a.promptOpen = false
 				a.syncEditor(a.active())
 			}
-			if ui.Button(c, "取消").Cursor(ui.CursorPointer).Clicked() {
+			if ui.Button(c, "取消").Border(0, ui.Transparent).Cursor(ui.CursorPointer).Clicked() {
 				a.promptOpen = false
 			}
 		})

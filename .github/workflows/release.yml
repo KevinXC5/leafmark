@@ -192,13 +192,10 @@ jobs:
           python3 - <<'PY'
           import pathlib
           import os, subprocess
-          for platform in pathlib.Path('build').iterdir():
-              if not platform.is_dir():
-                  continue
-              for installer in [*platform.glob('*Setup*.exe'), *platform.glob('*.dmg')]:
-                  installer.rename(installer.with_name(f'{installer.stem}-{platform.name}{installer.suffix}'))
+          # MyGo 的 DMG 与 Setup 文件名已包含架构，按原名上传。
+          # 更新清单与更新包也保留原名，供已安装的旧版本继续读取。
           files = [p for p in pathlib.Path('build').rglob('*') if p.is_file()]
-          packages = sorted(str(p) for p in files if p.suffix == '.dmg' or ('Setup' in p.name and p.suffix == '.exe') or p.name.endswith('.tar.gz'))
+          packages = sorted(str(p) for p in files if p.suffix == '.dmg' or ('Setup' in p.name and p.suffix == '.exe') or p.name.endswith(('.tar.gz', '.delta')))
           manifests = sorted(str(p) for p in files if p.name.startswith('update-') and p.suffix == '.json')
           assert packages and manifests
           for batch in [packages, manifests]:
@@ -230,6 +227,10 @@ jobs:
               archive = root / unquote(urlparse(data['url']).path.split('/')[-1])
               assert archive.is_file() and archive.stat().st_size == data['size']
               assert data['signature']
+              for delta in data.get('deltas', []):
+                  patch = root / unquote(urlparse(delta['url']).path.split('/')[-1])
+                  assert patch.is_file() and patch.stat().st_size == delta['size']
+                  assert delta['signature']
           PY
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
 

@@ -143,7 +143,7 @@ func (e *Editor) updatePointer(x, y float32, mods ui.Modifiers) bool {
 }
 
 // activate 执行单击动作：脚注往返跳转或打开链接。
-func (e *Editor) activate(c *ui.Context, h hot) {
+func (e *Editor) activate(services ui.Services, h hot) {
 	switch h.kind {
 	case hotDetails:
 		if e.collapsed == nil {
@@ -173,8 +173,8 @@ func (e *Editor) activate(c *ui.Context, h hot) {
 		}
 		if e.openLink != nil {
 			e.openLink(h.value)
-		} else if c != nil {
-			c.OpenURL(h.value)
+		} else {
+			services.OpenURL(h.value)
 		}
 	}
 }

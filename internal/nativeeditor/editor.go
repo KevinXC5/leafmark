@@ -406,7 +406,7 @@ func (e *Editor) View(c *ui.Context) {
 	}
 	e.cache.source = e.sourceMode
 	e.cache.collapsed = e.collapsed
-	e.cache.diagramStyle = diagramStyle(c.Theme())
+	e.cache.diagramStyle = DiagramStyle(c.Theme())
 	e.lay = e.reflow(width)
 	if e.typewriter {
 		// 文末留出余量，最后几行也能停在视口中部。
@@ -443,7 +443,9 @@ func (e *Editor) View(c *ui.Context) {
 		box.Focus()
 		e.wantFocus = false
 	}
-	box.TrackScroll(&e.scroll).HandleInput(e.onInput(c)).ContextMenu(func(m *ui.Menu) { e.contextMenu(c, m) })
+	// 输入与菜单回调可在构建结束后执行，只捕获不受帧生命周期限制的窗口服务。
+	services := c.Services()
+	box.TrackScroll(&e.scroll).HandleInput(e.onInput(services)).ContextMenu(func(m *ui.Menu) { e.contextMenu(services, m) })
 	cr := e.caretRect()
 	box.TextCaret(ui.Rect{X: cr[0] - e.scroll.X, Y: cr[1] - e.scroll.Y, W: 1, H: cr[3]})
 	theme, now := c.Theme(), c.Now()
@@ -495,7 +497,7 @@ func abs32(v float32) float32 {
 // HandleInput 处理一次输入。剪贴板命令需要 c，没有时忽略复制粘贴。
 // 原生验收和 ui.Tester 都走这个入口。
 func (e *Editor) HandleInput(c *ui.Context, ev ui.InputEvent) bool {
-	return e.onInput(c)(ev)
+	return e.onInput(c.Services())(ev)
 }
 
 // Text 返回当前可见纯文本。
@@ -556,7 +558,7 @@ func (e *Editor) BlockRect(index int) (x, y, w, h float32, ok bool) {
 	return b.x, b.y, b.w, b.h, true
 }
 
-func (e *Editor) onInput(c *ui.Context) func(ui.InputEvent) bool {
+func (e *Editor) onInput(services ui.Services) func(ui.InputEvent) bool {
 	return func(ev ui.InputEvent) bool {
 		switch ev.Kind {
 		case ui.InputPointerDown, ui.InputPointerMove, ui.InputPointerUp, ui.InputScroll:
@@ -612,27 +614,25 @@ func (e *Editor) onInput(c *ui.Context) func(ui.InputEvent) bool {
 			h := e.pressHot
 			e.dragging, e.pressHot = false, hot{}
 			if h.kind != hotNone && ev.Button == 0 && e.anchor == e.focus && e.hotAt(x, y) == h {
-				e.activate(c, h)
+				e.activate(services, h)
 			}
 			e.updatePointer(x, y, ev.Mods)
 			return true
 		case ui.InputKeyUp:
 			// 松开 Mod 后链接不再可点，指针形状跟着变。
-			if e.updatePointer(ev.X+e.scroll.X, ev.Y+e.scroll.Y, ev.Mods) && c != nil {
-				c.Invalidate()
+			if e.updatePointer(ev.X+e.scroll.X, ev.Y+e.scroll.Y, ev.Mods) {
+				services.Invalidate()
 			}
 			return false
 		case ui.InputScroll:
 			// 内容在指针下滚过，下一帧按新位置重算指针形状。
-			if c != nil {
-				c.Invalidate()
-			}
+			services.Invalidate()
 			return false
 		case ui.InputKeyDown:
-			if e.updatePointer(ev.X+e.scroll.X, ev.Y+e.scroll.Y, ev.Mods) && c != nil {
-				c.Invalidate()
+			if e.updatePointer(ev.X+e.scroll.X, ev.Y+e.scroll.Y, ev.Mods) {
+				services.Invalidate()
 			}
-			return e.onKey(c, ev)
+			return e.onKey(services, ev)
 		case ui.InputText:
 			if e.readOnly {
 				return false
@@ -651,14 +651,14 @@ func (e *Editor) onInput(c *ui.Context) func(ui.InputEvent) bool {
 			e.reveal = true
 			return true
 		case ui.InputCommand:
-			return e.onCommand(c, ev.Text)
+			return e.onCommand(services, ev.Text)
 		default:
 			return false
 		}
 	}
 }
 
-func (e *Editor) onKey(c *ui.Context, ev ui.InputEvent) bool {
+func (e *Editor) onKey(services ui.Services, ev ui.InputEvent) bool {
 	mods := ev.Mods &^ ui.Shift
 	word := mods == e.wordMod
 	if e.readOnly {
@@ -710,17 +710,17 @@ func (e *Editor) onKey(c *ui.Context, ev ui.InputEvent) bool {
 		}
 	case ui.KeyC:
 		if mods == ui.Cmd {
-			e.copy(c, false)
+			e.copy(services, false)
 			return true
 		}
 	case ui.KeyX:
 		if mods == ui.Cmd {
-			e.copy(c, true)
+			e.copy(services, true)
 			return true
 		}
 	case ui.KeyV:
 		if mods == ui.Cmd {
-			e.paste(c)
+			e.paste(services)
 			return true
 		}
 	case ui.KeyZ:
@@ -747,17 +747,17 @@ func (e *Editor) onKey(c *ui.Context, ev ui.InputEvent) bool {
 	return mods == 0 || (runtime.GOOS == "darwin" && mods == ui.Alt)
 }
 
-func (e *Editor) onCommand(c *ui.Context, name string) bool {
+func (e *Editor) onCommand(services ui.Services, name string) bool {
 	if e.readOnly && name != "copy" && name != "selectAll" {
 		return false
 	}
 	switch name {
 	case "copy":
-		e.copy(c, false)
+		e.copy(services, false)
 	case "cut":
-		e.copy(c, true)
+		e.copy(services, true)
 	case "paste":
-		e.paste(c)
+		e.paste(services)
 	case "selectAll":
 		e.anchor, e.focus = 0, e.doc.Len()
 	case "undo":
@@ -1020,8 +1020,8 @@ func (e *Editor) replaceSelection(text string) {
 // 只有 InputText 能提交输入法内容；移动和删除仅取消预编辑串。
 func (e *Editor) cancelCompose() { e.compose = ""; e.comCaret = 0 }
 
-func (e *Editor) copy(c *ui.Context, cut bool) {
-	if c == nil {
+func (e *Editor) copy(services ui.Services, cut bool) {
+	if services == (ui.Services{}) {
 		return
 	}
 	cut = cut && !e.readOnly
@@ -1029,7 +1029,7 @@ func (e *Editor) copy(c *ui.Context, cut bool) {
 	if sel.Start == sel.End {
 		return
 	}
-	c.WriteClipboard(e.doc.SliceMarkdown(sel))
+	services.WriteClipboard(e.doc.SliceMarkdown(sel))
 	if cut {
 		out := e.doc.Delete(sel.Start, sel.End)
 		e.anchor, e.focus = out.Start, out.End
@@ -1038,11 +1038,11 @@ func (e *Editor) copy(c *ui.Context, cut bool) {
 	}
 }
 
-func (e *Editor) paste(c *ui.Context) {
-	if c == nil || e.readOnly {
+func (e *Editor) paste(services ui.Services) {
+	if services == (ui.Services{}) || e.readOnly {
 		return
 	}
-	text := c.ReadClipboard()
+	text := services.ReadClipboard()
 	if text == "" {
 		return
 	}
@@ -1165,23 +1165,38 @@ func (e *Editor) paintFrame(p *ui.Painter, r ui.Rect, f frame, theme *ui.Theme) 
 		}
 	case f.kind == richtext.Quote:
 		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Surface, 4)
-		p.Fill(ui.Rect{X: x, Y: y, W: quoteBar, H: f.h}, theme.Accent, 1)
+		p.Fill(ui.Rect{X: x, Y: y, W: quoteBar, H: f.h}, QuoteRule(theme), 1)
 	case f.kind == richtext.Callout && f.details:
 		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Surface, 5)
 		paintDisclosure(p, x+14, y+18, !f.folded, theme.TextMuted)
 		p.Glyphs(f.title, x+32, y+12+f.titleAscent, theme.Text)
 	case f.kind == richtext.Callout:
-		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Surface, 5)
-		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Accent.Alpha(.04), 5)
+		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, CalloutBackground(theme), 5)
 		p.Glyphs(f.title, x+37, y+12+f.titleAscent, theme.Text)
-		paintBulb(p, x+13, y+12, theme.Accent)
+		paintBulb(p, x+13, y+12, theme.TextMuted)
 	case f.marker && f.kind == richtext.Task:
 		paintCheck(p, ui.Rect{X: x + 2.5, Y: r.Y + f.lineY + (f.lineH-15)/2 + 1, W: 15, H: 15}, f.checked, theme)
 	case f.marker && f.bullet:
-		p.FillPath(new(ui.Path).Circle(x+4, r.Y+f.lineY+f.lineH/2+1, 1.7), theme.Accent.Alpha(.75))
+		p.FillPath(new(ui.Path).Circle(x+4, r.Y+f.lineY+f.lineH/2+1, 1.7), theme.TextMuted.Alpha(.75))
 	case f.marker:
 		p.Glyphs(f.label, x, r.Y+f.lineY+f.ascent, theme.Text)
 	}
+}
+
+// QuoteRule 是引用竖线的颜色：用弱墨色而不是强调色，强调色只留给链接、选中与勾选。
+func QuoteRule(theme *ui.Theme) ui.Color { return theme.TextMuted.Alpha(.35) }
+
+// CodeBackground 与导出共用代码块底色；深色下比纸面稍暗。
+func CodeBackground(theme *ui.Theme) ui.Color {
+	if theme.Dark {
+		return theme.Background.Mix(ui.RGB(0, 0, 0), .14)
+	}
+	return theme.Surface
+}
+
+// CalloutBackground 与导出共用提示块的轻微暖色填充。
+func CalloutBackground(theme *ui.Theme) ui.Color {
+	return theme.Accent.Alpha(.04).Over(theme.Surface)
 }
 
 // paintDisclosure 画折叠块标题前的三角。open 时朝下，收起时朝右。
@@ -1210,16 +1225,15 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 	x, y := r.X+b.x, r.Y+b.y
 	switch b.kind {
 	case richtext.Callout:
-		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Surface, 5)
-		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Accent.Alpha(.04), 5)
+		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, CalloutBackground(theme), 5)
 		p.Glyphs(b.title, x+37, y+12+b.titleAscent, theme.Text)
 		// 提示图标是灯泡轮廓，不进入正文坐标。
-		paintBulb(p, x+13, y+12, theme.Accent)
+		paintBulb(p, x+13, y+12, theme.TextMuted)
 	case richtext.List:
 		if b.bullet && len(b.lines) > 0 {
 			ln := e.lay.lines[b.lines[0]]
 			dot := new(ui.Path).Circle(x+b.indent+4, r.Y+ln.y+ln.height/2+1, 1.7)
-			p.FillPath(dot, theme.Accent.Alpha(.75))
+			p.FillPath(dot, theme.TextMuted.Alpha(.75))
 		}
 	case richtext.Task:
 		if len(b.lines) > 0 {
@@ -1228,18 +1242,13 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 		}
 	case richtext.Quote:
 		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Surface, 4)
-		p.Fill(ui.Rect{X: x, Y: y, W: quoteBar, H: b.h}, theme.Accent, 1)
+		p.Fill(ui.Rect{X: x, Y: y, W: quoteBar, H: b.h}, QuoteRule(theme), 1)
 	case richtext.Code:
 		if e.sourceMode {
 			break
 		}
-		bg := theme.Surface
-		if int(theme.Background.R)+int(theme.Background.G)+int(theme.Background.B) < 384 {
-			// 深色主题的代码块比纸面更沉，与引用、提示块的浅底区分。
-			bg = theme.Background.Mix(ui.RGB(0, 0, 0), .14)
-		}
+		bg := CodeBackground(theme)
 		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, bg, 10)
-		p.Stroke(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Border, 10, 1)
 	case richtext.Raw:
 		if b.math != nil {
 			b.math.Paint(p, x+max(0, (b.w-b.math.Width)/2), y+8+b.math.Ascent, theme.Text)
@@ -1250,7 +1259,6 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 			return
 		}
 		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Surface, 6)
-		p.Stroke(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Border, 6, 1)
 	case richtext.Horizontal:
 		p.Fill(ui.Rect{X: x, Y: y + b.h/2, W: b.w, H: 1}, theme.Border, 0)
 	case richtext.Image:
@@ -1294,17 +1302,16 @@ func paintBulb(p *ui.Painter, x, y float32, c ui.Color) {
 	}
 }
 
+// paintTableGrid 只画表头底色与行间横线：不描外框、不画列线，列靠对齐区分。
 func (e *Editor) paintTableGrid(p *ui.Painter, x, y float32, b blockBox, theme *ui.Theme) {
 	blocks := e.doc.Blocks()
+	first := 1
 	if b.index < len(blocks) && blocks[b.index].Table != nil && blocks[b.index].Table.Header && len(b.rows) > 1 {
 		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.rows[1]}, theme.Surface, 10)
+		first = 2 // 表头底色已经与正文分开，第一条横线省去
 	}
-	p.Stroke(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Border, 10, 1)
-	for i := 1; i+1 < len(b.rows); i++ {
+	for i := first; i+1 < len(b.rows); i++ {
 		p.Fill(ui.Rect{X: x, Y: y + b.rows[i], W: b.w, H: 1}, theme.Border, 0)
-	}
-	for i := 1; i+1 < len(b.cols); i++ {
-		p.Fill(ui.Rect{X: x + b.cols[i], Y: y, W: 1, H: b.h}, theme.Border, 0)
 	}
 }
 
@@ -1335,7 +1342,6 @@ func (e *Editor) paintLine(p *ui.Painter, r ui.Rect, ln line, theme *ui.Theme) {
 			if span.kbd {
 				cap := ui.Rect{X: baseX + start - 3, Y: r.Y + ln.y + 2, W: end - start + 6, H: ln.height - 4}
 				p.Fill(cap, theme.Surface, 4)
-				p.Stroke(cap, theme.Border, 4, 1)
 			} else if span.code {
 				p.Fill(ui.Rect{X: baseX + start - 2, Y: r.Y + ln.y + 2, W: end - start + 4, H: ln.height - 4}, theme.Surface, 3)
 			}
@@ -1359,7 +1365,7 @@ func (e *Editor) paintLine(p *ui.Painter, r ui.Rect, ln line, theme *ui.Theme) {
 					p.Image(bm, ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}, ui.Contain)
 				} else {
 					cap := ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}
-					p.Stroke(cap, theme.Border, 3, 1)
+					p.Fill(cap, theme.Surface, 3)
 					p.Glyphs(span.display, baseX, baseY, theme.TextMuted)
 				}
 			} else if span.math != nil {

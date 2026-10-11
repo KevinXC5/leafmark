@@ -434,7 +434,7 @@ func verifyExportGraphics(app *nativeApp, out map[string]any) error {
 		darkGraphics = exportDocument(name, body, true)
 		app.finishClose([]string{doc.ID})
 	})
-	if !strings.Contains(darkGraphics, `fill="#343b44"`) || !strings.Contains(darkGraphics, "currentColor") {
+	if !strings.Contains(darkGraphics, `fill="#3a322c"`) || !strings.Contains(darkGraphics, "currentColor") {
 		return fmt.Errorf("深色导出的图表或公式未使用主题配色")
 	}
 	pdf, err := renderPDF(darkGraphics)

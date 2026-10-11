@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -212,25 +213,28 @@ func TestSettingsPageSectionsAndControls(t *testing.T) {
 	app, _ := newTestApp(t)
 	useStyledEditors(t)
 	app.adopt(app.files.Current(), "正文")
-	app.settings.Theme = "light"
 	app.settingsOn = true
-	for _, size := range [][2]int{{1100, 760}, {660, 620}, {500, 620}} {
-		view := ui.NewTester(app.View, size[0], size[1])
-		for _, tab := range settingsTabs {
-			app.settingsSection = tab.id
-			view.Frame()
-			if !view.HasText(tab.intro) {
-				t.Fatalf("%v：“%s”页没有渲染", size, tab.label)
+	for _, theme := range []string{"light", "dark"} {
+		app.settings.Theme = theme
+		for _, size := range [][2]int{{1100, 760}, {660, 620}, {500, 620}} {
+			view := ui.NewTester(app.View, size[0], size[1])
+			for _, tab := range settingsTabs {
+				app.settingsSection = tab.id
+				view.Frame()
+				if !view.HasText(tab.intro) {
+					t.Fatalf("%s %v：“%s”页没有渲染", theme, size, tab.label)
+				}
 			}
 		}
 	}
+	app.settings.Theme = "light"
 	view := ui.NewTester(app.View, 1100, 760)
 	app.settingsSection = "editor"
 	view.Frame()
 	var tops []float32
 	for _, tab := range settingsTabs {
 		r, found := view.Find(tab.label)
-		if !found || r.H != 42 || r.W != 218 {
+		if !found || r.H != 42 || r.W != 220 {
 			t.Fatalf("分类标签“%s”尺寸不符：%+v", tab.label, r)
 		}
 		tops = append(tops, r.Y)
@@ -337,5 +341,86 @@ func TestSettingsPageSectionsAndControls(t *testing.T) {
 	view.Frame()
 	if app.settingsOn {
 		t.Fatal("Escape 应返回书写")
+	}
+}
+
+// 预览外圈是当前生效主题的状态标识；检查实际绘制，覆盖系统外观切换。
+func TestSettingsThemePreviewSelection(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "正文")
+	app.settingsOn, app.settingsSection = true, "appearance"
+	for _, theme := range []string{"light", "dark", "system"} {
+		for _, systemDark := range []bool{false, true} {
+			app.settings.Theme = theme
+			view := ui.NewTester(app.View, 1100, 760)
+			view.SetDark(systemDark)
+			view.Frame()
+			effectiveDark := theme == "dark" || theme == "system" && systemDark
+			image := view.Image()
+			for i, name := range []string{"Leafmark 浅色预览", "Leafmark 深色预览"} {
+				r, found := view.Find(name)
+				if !found || r.W <= 0 || r.H < 340 {
+					t.Fatalf("%s 系统深色=%v：预览尺寸不符：%s %+v", theme, systemDark, name, r)
+				}
+				// 取顶边中点，避开圆角和正文；未选中卡片应直接显示填充。
+				want := settingsColors(i == 1).fill
+				if (i == 1) == effectiveDark {
+					want = settingsColors(effectiveDark).accent
+				}
+				got := image.RGBAAt(int(r.X+r.W/2), int(r.Y+1))
+				if got.R != want.R || got.G != want.G || got.B != want.B || got.A != want.A {
+					t.Fatalf("%s 系统深色=%v：%s 顶边颜色=%v，预期=%v", theme, systemDark, name, got, want)
+				}
+			}
+		}
+	}
+}
+
+// 同时检查文字对比度与交互状态，防止只覆盖主色而漏掉控件库的蓝色默认值。
+func TestNativeThemeSharedColorsAndContrast(t *testing.T) {
+	luminance := func(c ui.Color) float64 {
+		value := func(v uint8) float64 {
+			x := float64(v) / 255
+			if x <= .04045 {
+				return x / 12.92
+			}
+			return math.Pow((x+.055)/1.055, 2.4)
+		}
+		return .2126*value(c.R) + .7152*value(c.G) + .0722*value(c.B)
+	}
+	contrast := func(a, b ui.Color) float64 {
+		x, y := luminance(a), luminance(b)
+		return (max(x, y) + .05) / (min(x, y) + .05)
+	}
+	for _, dark := range []bool{false, true} {
+		theme, settings, source := nativeTheme(dark), settingsColors(dark), sourcePalette(dark)
+		if settings.paper != theme.Background || settings.fill != theme.Surface || settings.ink != theme.Text || settings.muted != theme.TextMuted || settings.accent != theme.Accent {
+			t.Fatalf("深色=%v：设置页与书写界面的语义色不一致", dark)
+		}
+		if source.link != theme.Accent || source.mark != theme.TextMuted || source.math != theme.Text {
+			t.Fatalf("深色=%v：源码色未复用界面语义色", dark)
+		}
+		for _, color := range []ui.Color{theme.SurfaceHover, theme.SurfacePressed, theme.AccentHover, theme.AccentPressed, theme.Selection, theme.Focus} {
+			if color.R < color.G || color.G < color.B {
+				t.Fatalf("深色=%v：交互状态残留冷色 %v", dark, color)
+			}
+		}
+		for _, background := range []ui.Color{theme.Accent, theme.AccentHover, theme.AccentPressed} {
+			if ratio := contrast(theme.AccentText, background); ratio < 4.5 {
+				t.Fatalf("深色=%v：主要按钮文字对比度不足：%.2f", dark, ratio)
+			}
+		}
+		for _, background := range []ui.Color{theme.Background, settings.fill, settings.fillStrong, settings.selected} {
+			if ratio := contrast(theme.Text, background); ratio < 4.5 {
+				t.Fatalf("深色=%v：设置主文字对比度不足：%.2f", dark, ratio)
+			}
+		}
+		if ratio := contrast(theme.TextMuted, theme.Background); ratio < 4.5 {
+			t.Fatalf("深色=%v：纸面次文字对比度不足：%.2f", dark, ratio)
+		}
+		if dark && contrast(theme.TextMuted, settings.fill) < 4.5 {
+			t.Fatal("深色设置分组的说明文字对比度不足")
+		}
 	}
 }

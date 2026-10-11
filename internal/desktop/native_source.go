@@ -441,26 +441,12 @@ func sourceRune(text string, byteAt int) int {
 	return utf8.RuneCountInString(text[:byteAt])
 }
 
-// sourceColors 是源码语法色，沿用书写界面的暖纸与灰蓝，不另用一套高饱和色。
+// sourceColors 是源码语法色，沿用书写界面的暖纸与赭石，不另用一套高饱和色。
 type sourceColors struct {
 	heading, mark, link, code, math ui.Color
 }
 
 func sourcePalette(dark bool) sourceColors {
-	if dark {
-		return sourceColors{
-			heading: ui.Hex("#a6b7c8"),
-			mark:    ui.Hex("#a9adb5"),
-			link:    ui.Hex("#a6b7c8"),
-			code:    ui.Hex("#a9adb5"),
-			math:    ui.Hex("#a6b7c8"),
-		}
-	}
-	return sourceColors{
-		heading: ui.Hex("#bd7858"),
-		mark:    ui.Hex("#797168"),
-		link:    ui.Hex("#bd7858"),
-		code:    ui.Hex("#797168"),
-		math:    ui.Hex("#47423c"),
-	}
+	t := nativeTheme(dark)
+	return sourceColors{heading: t.Accent, mark: t.TextMuted, link: t.Accent, code: t.TextMuted, math: t.Text}
 }
