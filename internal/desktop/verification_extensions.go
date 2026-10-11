@@ -65,7 +65,7 @@ const extensionLeafSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="240" he
 	`<rect width="240" height="120" rx="12" fill="#efeadf"/>` +
 	`<path d="M40 60 C80 10 160 10 200 60 C160 110 80 110 40 60 Z" fill="#dfd8c8" stroke="#8a8272" stroke-width="2"/>` +
 	`<path d="M40 60 L200 60 M90 60 L110 34 M120 60 L140 34 M90 60 L110 86 M120 60 L140 86" fill="none" stroke="#8a8272" stroke-width="2" stroke-linecap="round"/>` +
-	`</svg>`
+	`<text x="120" y="108" text-anchor="middle" font-size="14" fill="#47423c">Leafmark 叶脉</text></svg>`
 
 // verifyNewSyntax 打开一份独立副本，确认新语法不再落成 Raw 占位，
 // 未编辑时 Markdown 与原文逐字节一致，并在列表项子段落里输入后撤销。
@@ -175,6 +175,11 @@ func verifyNewSyntax(win *mygo.Window, app *nativeApp, out map[string]any) error
 		}
 		out["tableShortColumnsUnwrapped"] = true
 		out["imageWithCaptionFillsWidth"] = true
+		if images[0].TextRuns < 1 {
+			check = fmt.Errorf("原生 SVG 未包含文字排版")
+			return
+		}
+		out["svgTextRendering"] = true
 		out["syntaxWikiImage"] = embedded
 		if !embedded {
 			check = fmt.Errorf("图片嵌入没有按文件名找到并显示附件目录里的 SVG")

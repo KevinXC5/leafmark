@@ -13,12 +13,13 @@ import (
 )
 
 // Picture 是编辑器里一张可绘制的图片。位图直接绘制；矢量图先画形状，
-// 再把 SVG 里内嵌的位图叠到原位置。
+// 再叠加原生排版的文字和 SVG 内嵌的位图。
 type Picture struct {
 	bitmap   *ui.Bitmap
 	vector   *ui.SVG
 	w, h     float32
 	overlays []pictureOverlay
+	texts    []svgText
 }
 
 // pictureOverlay 是矢量图里的一张内嵌位图，坐标以图片自身的宽高为单位。
@@ -42,8 +43,7 @@ func BitmapPicture(bm *ui.Bitmap) *Picture {
 	return &Picture{bitmap: bm, w: float32(w), h: float32(h)}
 }
 
-// DecodeSVG 解析一份 SVG。能画出路径与基本形状，文字只有在 SVG 自带位图替身时才显示，
-// draw.io 导出的 SVG 属于这种情况。
+// DecodeSVG 解析 SVG 的形状、常用文字及 draw.io 内嵌的位图替身。
 func DecodeSVG(raw []byte) *Picture {
 	if len(raw) == 0 || len(raw) > maxSVGBytes {
 		return nil
@@ -56,7 +56,7 @@ func DecodeSVG(raw []byte) *Picture {
 	if w <= 0 || h <= 0 || float64(w)*float64(h) > maxImagePixels {
 		return nil
 	}
-	return &Picture{vector: vector, w: w, h: h, overlays: svgOverlays(raw, w, h)}
+	return &Picture{vector: vector, w: w, h: h, overlays: svgOverlays(raw, w, h), texts: svgTexts(lightScheme(raw), w, h)}
 }
 
 // Size 返回图片的像素尺寸，矢量图取其声明的宽高。
@@ -82,6 +82,9 @@ func (pic *Picture) paint(p *ui.Painter, r ui.Rect, dark bool) {
 		p.Fill(fit, vectorPaper, min(6, fit.H/4))
 	}
 	p.Image(pic.vector, fit, ui.FillBox)
+	for i := range pic.texts {
+		pic.texts[i].paint(p, fit, k)
+	}
 	for _, o := range pic.overlays {
 		p.Image(o.bitmap, ui.Rect{X: fit.X + o.x*k, Y: fit.Y + o.y*k, W: o.w * k, H: o.h * k}, ui.FillBox)
 	}

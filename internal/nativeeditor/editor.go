@@ -1724,6 +1724,7 @@ type LayoutSnapshot struct {
 // ImageSnapshot 记录图片实际显示尺寸与所在正文块的可用宽度。
 type ImageSnapshot struct {
 	Width, Height, ContentWidth float32
+	TextRuns                    int
 }
 type LineSnapshot struct {
 	Text          string
@@ -1742,7 +1743,7 @@ func (e *Editor) LayoutSnapshot() LayoutSnapshot {
 			}
 			w, h := pic.Size()
 			scale := min(span.glyphs[0].Advance/float32(w), (ln.height-2)/float32(h))
-			out.Images = append(out.Images, ImageSnapshot{Width: float32(w) * scale, Height: float32(h) * scale, ContentWidth: e.blockBox(ln.block).w})
+			out.Images = append(out.Images, ImageSnapshot{Width: float32(w) * scale, Height: float32(h) * scale, ContentWidth: e.blockBox(ln.block).w, TextRuns: len(pic.texts)})
 		}
 	}
 	for _, b := range e.lay.blocks {
@@ -1755,7 +1756,7 @@ func (e *Editor) LayoutSnapshot() LayoutSnapshot {
 		}
 		w, ih := b.image.Size()
 		scale := min(b.w/float32(w), h/float32(ih))
-		out.Images = append(out.Images, ImageSnapshot{Width: float32(w) * scale, Height: float32(ih) * scale, ContentWidth: b.w})
+		out.Images = append(out.Images, ImageSnapshot{Width: float32(w) * scale, Height: float32(ih) * scale, ContentWidth: b.w, TextRuns: len(b.image.texts)})
 	}
 	return out
 }
