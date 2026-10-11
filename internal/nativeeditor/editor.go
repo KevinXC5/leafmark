@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"image"
 	"io"
+	"math"
 	"net/http"
 	"runtime"
 	"strings"
@@ -15,6 +16,10 @@ import (
 	"github.com/egoist/mygo/ui"
 	"leafmark/internal/richtext"
 )
+
+// containerRadius 是引用、提示块、代码块、表格表头、原始块与图片占位的统一圆角。
+// 行内元素（行内代码、键位、高亮）的圆角较小，不使用这个值。
+const containerRadius = 10
 
 const (
 	remoteLimit  = 2 << 20 // 单张远程图最多 2MB
@@ -1179,14 +1184,14 @@ func (e *Editor) paintFrame(p *ui.Painter, r ui.Rect, f frame, theme *ui.Theme) 
 			p.Glyphs(f.back, r.X+f.backX, r.Y+f.backBase, theme.Accent)
 		}
 	case f.kind == richtext.Quote:
-		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Surface, 4)
-		p.Fill(ui.Rect{X: x, Y: y, W: quoteBar, H: f.h}, QuoteRule(theme), 1)
+		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Surface, containerRadius)
+		paintQuoteBar(p, x, y, f.h, theme)
 	case f.kind == richtext.Callout && f.details:
-		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Surface, 5)
+		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, theme.Surface, containerRadius)
 		paintDisclosure(p, x+14, y+18, !f.folded, theme.TextMuted)
 		p.Glyphs(f.title, x+32, y+12+f.titleAscent, theme.Text)
 	case f.kind == richtext.Callout:
-		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, CalloutBackground(theme), 5)
+		p.Fill(ui.Rect{X: x, Y: y, W: f.w, H: f.h}, CalloutBackground(theme), containerRadius)
 		p.Glyphs(f.title, x+37, y+12+f.titleAscent, theme.Text)
 		paintBulb(p, x+13, y+12, theme.TextMuted)
 	case f.marker && f.kind == richtext.Task:
@@ -1200,6 +1205,35 @@ func (e *Editor) paintFrame(p *ui.Painter, r ui.Rect, f frame, theme *ui.Theme) 
 
 // QuoteRule 是引用竖线的颜色：用弱墨色而不是强调色，强调色只留给链接、选中与勾选。
 func QuoteRule(theme *ui.Theme) ui.Color { return theme.TextMuted.Alpha(.35) }
+
+// paintQuoteBar 画引用竖线，竖线的外侧沿容器的圆角弧线收拢，与引用块的底色轮廓保持一致，
+// 不会在四角露出直角。弧线按 containerRadius 取圆心，高度不足时圆角随之缩小。
+func paintQuoteBar(p *ui.Painter, x, y, h float32, theme *ui.Theme) {
+	r := min(containerRadius, h/2)
+	if r <= quoteBar {
+		// 容器太矮、圆角盖不住竖线时直接画直角竖线。
+		p.Fill(ui.Rect{X: x, Y: y, W: quoteBar, H: h}, QuoteRule(theme), 0)
+		return
+	}
+	// cut 是圆角弧与竖线右边缘相交处的角度（上半圆在 (π/2, π) 之间）。
+	cut := math.Acos(float64(quoteBar-r) / float64(r))
+	// arc 返回圆心为 (x+r, cy) 的圆角上某个角度的点，上角向上凸，下角向下凸。
+	arc := func(cy float32, a float64) (float32, float32) {
+		return x + r + r*float32(math.Cos(a)), cy - r*float32(math.Sin(a))
+	}
+	const steps = 6
+	top, bottom := y+r, y+h-r
+	path := new(ui.Path).MoveTo(x, top)
+	for i := 0; i <= steps; i++ {
+		px, py := arc(top, math.Pi-(math.Pi-cut)*float64(i)/steps)
+		path.LineTo(px, py)
+	}
+	for i := 0; i <= steps; i++ {
+		px, py := arc(bottom, (2*math.Pi-cut)-(math.Pi-cut)*float64(i)/steps)
+		path.LineTo(px, py)
+	}
+	p.FillPath(path.Close(), QuoteRule(theme))
+}
 
 // CodeBackground 与导出共用代码块底色；深色下比纸面稍暗。
 func CodeBackground(theme *ui.Theme) ui.Color {
@@ -1248,7 +1282,7 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 	x, y := r.X+b.x, r.Y+b.y
 	switch b.kind {
 	case richtext.Callout:
-		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, CalloutBackground(theme), 5)
+		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, CalloutBackground(theme), containerRadius)
 		p.Glyphs(b.title, x+37, y+12+b.titleAscent, theme.Text)
 		// 提示图标是灯泡轮廓，不进入正文坐标。
 		paintBulb(p, x+13, y+12, theme.TextMuted)
@@ -1264,14 +1298,14 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 			paintCheck(p, taskCheckRect(x+b.indent+2.5, r.Y+ln.y+ln.ascent, e.fontSize), b.checked, theme)
 		}
 	case richtext.Quote:
-		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Surface, 4)
-		p.Fill(ui.Rect{X: x, Y: y, W: quoteBar, H: b.h}, QuoteRule(theme), 1)
+		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Surface, containerRadius)
+		paintQuoteBar(p, x, y, b.h, theme)
 	case richtext.Code:
 		if e.sourceMode {
 			break
 		}
 		bg := CodeBackground(theme)
-		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, bg, 10)
+		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, bg, containerRadius)
 	case richtext.Raw:
 		if b.math != nil {
 			b.math.Paint(p, x+max(0, (b.w-b.math.Width)/2), y+8+b.math.Ascent, theme.Text)
@@ -1281,7 +1315,7 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 			b.diagram.Paint(p, x+max(0, (b.w-b.diagram.Width)/2), y+8)
 			return
 		}
-		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Surface, 6)
+		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.h}, theme.Surface, containerRadius)
 	case richtext.Horizontal:
 		p.Fill(ui.Rect{X: x, Y: y + b.h/2, W: b.w, H: 1}, theme.Border, 0)
 	case richtext.Image:
@@ -1292,7 +1326,7 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 			}
 			b.image.paint(p, ui.Rect{X: x, Y: y, W: b.w, H: ih}, theme.Dark)
 		} else {
-			p.Fill(ui.Rect{X: x, Y: y, W: min(b.w, 240), H: 64}, theme.Surface, 6)
+			p.Fill(ui.Rect{X: x, Y: y, W: min(b.w, 240), H: 64}, theme.Surface, containerRadius)
 		}
 	case richtext.TableBlock:
 		e.paintTableGrid(p, x, y, b, theme)
@@ -1330,7 +1364,7 @@ func (e *Editor) paintTableGrid(p *ui.Painter, x, y float32, b blockBox, theme *
 	blocks := e.doc.Blocks()
 	first := 1
 	if b.index < len(blocks) && blocks[b.index].Table != nil && blocks[b.index].Table.Header && len(b.rows) > 1 {
-		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.rows[1]}, theme.Surface, 10)
+		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.rows[1]}, theme.Surface, containerRadius)
 		first = 2 // 表头底色已经与正文分开，第一条横线省去
 	}
 	for i := first; i+1 < len(b.rows); i++ {

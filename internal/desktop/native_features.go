@@ -463,9 +463,9 @@ ul, ol { padding-left: 1.4em; } li > ul, li > ol { margin-bottom: 0; }
 ul > li::marker { color: var(--bullet); }
 li + li { margin-top: calc(4em / 15); }
 li.task { list-style: none; margin-left: -1.4em; }
-blockquote { margin-left: 0; padding: 10px 16px; border-left: 3px solid var(--rule); border-radius: 4px; background: var(--surface); color: var(--muted); }
+blockquote { margin-left: 0; padding: 10px 16px; border-left: 3px solid var(--rule); border-radius: 10px; background: var(--surface); color: var(--muted); }
 blockquote p { margin: 0; }
-.callout { padding: 12px 16px; border-radius: 5px; background: var(--callout); font: 13px/1.5 "Inter", system-ui, sans-serif; }
+.callout { padding: 12px 16px; border-radius: 10px; background: var(--callout); font: 13px/1.5 "Inter", system-ui, sans-serif; }
 .callout p { margin: 0; } .callout-title { font-weight: 600; }
 code, kbd { font: .82em "Geist Mono", "SFMono-Regular", Consolas, monospace; background: var(--surface); border-radius: 3px; padding: 1px 4px; }
 pre { padding: 14px 18px; border-radius: 10px; background: var(--code-surface); overflow-x: auto; }
