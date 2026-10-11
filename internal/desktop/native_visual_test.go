@@ -129,7 +129,7 @@ func TestNativeVisualRestoresCompactChrome(t *testing.T) {
 	app.adopt(app.files.Current(), "# 山中来信\n\n正文")
 	view := ui.NewTester(app.View, 1100, 760)
 	side, ok := view.Find("文档导航")
-	if !ok || side.X != 8 || side.Y != 8 || side.W != 248 || side.H != 744 {
+	if !ok || side.X != 8 || side.Y != 8 || side.W != sidebarDefaultWidth-16 || side.H != 744 {
 		t.Fatalf("浮动侧栏尺寸不符：%+v", side)
 	}
 	if !view.HasText("大纲：山中来信") || !view.HasText("叶笺") || !view.HasText("UTF-8") {

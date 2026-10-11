@@ -114,8 +114,8 @@ func (s nativeSettings) normalized() nativeSettings {
 
 // 侧栏宽度的默认值与拖动范围。
 const (
-	sidebarDefaultWidth = 264
-	sidebarMinWidth     = 220
+	sidebarDefaultWidth = 240
+	sidebarMinWidth     = 200
 	sidebarMaxWidth     = 520
 )
 
