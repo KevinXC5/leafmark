@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"leafmark/internal/richtext"
@@ -309,7 +310,7 @@ func TestNativeFontSizeScalesWholeInterface(t *testing.T) {
 	app.setFont(24)
 	large := measure()
 	for _, label := range []string{"叶笺", "UTF-8", "状态栏", "大纲：山中来信"} {
-		if got, want := large[label].H/base[label].H, float32(24)/15; got < want-.05 || got > want+.05 {
+		if got, want := large[label].H/base[label].H, float32(24)/uiBaseFontSize; got < want-.05 || got > want+.05 {
 			t.Fatalf("%s 应随字号放大到 %.2f 倍，得到 %.2f", label, want, got)
 		}
 	}
@@ -319,5 +320,51 @@ func TestNativeFontSizeScalesWholeInterface(t *testing.T) {
 	app.setFont(12)
 	if small := measure(); small["UTF-8"].H >= base["UTF-8"].H {
 		t.Fatalf("调小字号时界面文字应随之缩小：%+v", small["UTF-8"])
+	}
+}
+
+// 拖动侧栏右缘改变宽度，松手后写入设置；宽度受上下限约束，双击恢复默认。
+func TestSidebarResizeByDragging(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	view := ui.NewTester(app.View, 1100, 760)
+	view.Frame()
+	handle, ok := view.Find("调整侧栏宽度")
+	if !ok {
+		t.Fatal("侧栏缺少拖动手柄")
+	}
+	x, y := handle.X+handle.W/2, handle.Y+handle.H/2
+	view.Press(x, y)
+	view.Move(x+80, y)
+	view.Release(x+80, y)
+	view.Frame()
+	if app.settings.SidebarWidth != sidebarDefaultWidth+80 {
+		t.Fatalf("拖动后侧栏宽度应为 %d，得到 %v", sidebarDefaultWidth+80, app.settings.SidebarWidth)
+	}
+	// 设置在后台协程写盘，等它落地。
+	deadline := time.Now().Add(2 * time.Second)
+	for loadNativeSettings().SidebarWidth != sidebarDefaultWidth+80 {
+		if time.Now().After(deadline) {
+			t.Fatalf("松手后应保存侧栏宽度，得到 %v", loadNativeSettings().SidebarWidth)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if moved, _ := view.Find("调整侧栏宽度"); moved.X-handle.X != 80 {
+		t.Fatalf("手柄应随侧栏右移 80，实际 %v", moved.X-handle.X)
+	}
+	handle, _ = view.Find("调整侧栏宽度")
+	x = handle.X + handle.W/2
+	view.Press(x, y)
+	view.Move(x+1000, y)
+	view.Release(x+1000, y)
+	view.Frame()
+	if app.settings.SidebarWidth != sidebarMaxWidth {
+		t.Fatalf("侧栏宽度应限制在 %d，得到 %v", sidebarMaxWidth, app.settings.SidebarWidth)
+	}
+	if got := sidebarWidth(sidebarMaxWidth, 760); got != 340 {
+		t.Fatalf("窄窗口下正文区应至少保留 420，侧栏得到 %v", got)
+	}
+	if got := sidebarWidth(100, 1100); got != sidebarMinWidth {
+		t.Fatalf("侧栏宽度不应小于 %d，得到 %v", sidebarMinWidth, got)
 	}
 }

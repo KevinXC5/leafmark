@@ -31,7 +31,7 @@ func nativeGlass(c *ui.Context) ui.Element {
 }
 
 // uiBaseFontSize 是界面设计稿对应的正文字号：字号设置取这个值时界面按原尺寸绘制。
-const uiBaseFontSize = 15
+const uiBaseFontSize = 16
 
 // uiThemeFontSize 是默认字号下界面文字的基准字号。
 const uiThemeFontSize = 12
@@ -247,6 +247,38 @@ func (a *nativeApp) viewSidebar(c *ui.Context) {
 			}
 		})
 	})
+}
+
+// sidebarHandleWidth 是侧栏右侧拖动手柄的宽度，占用侧栏与正文之间的空隙。
+const sidebarHandleWidth = 6
+
+// sidebarWidth 把侧栏宽度限制在拖动范围内，并给正文区至少留出 420。
+func sidebarWidth(w, window float32) float32 {
+	limit := max(sidebarMinWidth, min(sidebarMaxWidth, window-420))
+	return min(limit, max(sidebarMinWidth, w))
+}
+
+// viewSidebarHandle 是侧栏右缘的拖动手柄：按住左右拖动改变宽度，双击恢复默认宽度。
+func (a *nativeApp) viewSidebarHandle(c *ui.Context, window float32) {
+	h := ui.Box(c.Key("sidebar-resize")).Width(sidebarHandleWidth).Shrink(0).FillHeight().Label("调整侧栏宽度").Cursor(ui.CursorResizeColumn).Center()
+	dx, _, pressed := h.Dragged()
+	if pressed {
+		a.sidebarDrag = true
+		a.settings.SidebarWidth = sidebarWidth(sidebarWidth(a.settings.SidebarWidth, window)+dx, window)
+	} else if a.sidebarDrag {
+		a.sidebarDrag = false
+		a.persistSettings()
+	}
+	if h.DoubleClicked() {
+		a.settings.SidebarWidth = sidebarDefaultWidth
+		a.persistSettings()
+	}
+	// 悬停或拖动时在空隙中间显出一道弱墨色短条，提示这里可以拖。
+	if pressed || h.Hovered() {
+		h.Children(func() {
+			ui.Box(c).Size(2, 36).Radius(1).Background(c.Theme().TextMuted.Alpha(.35))
+		})
+	}
 }
 
 type nativeHeading struct {

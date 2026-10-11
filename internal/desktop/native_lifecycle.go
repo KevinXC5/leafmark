@@ -100,8 +100,9 @@ func (a *nativeApp) View(c *ui.Context) {
 		width, _ := c.Size()
 		ui.Row(c).Fill().MinWidth(0).Children(func() {
 			if a.sidebar >= 80 && width >= 600 {
-				// 侧栏四周各留 8 的外边距，用内边距实现以免高度溢出窗口。
-				ui.Box(c).Width(264).Shrink(0).FillHeight().Padding(8).Children(func() { a.viewSidebar(c) })
+				// 侧栏四周各留 8 的外边距，用内边距实现以免高度溢出窗口；右侧外边距由拖动手柄占据。
+				ui.Box(c).Width(sidebarWidth(a.settings.SidebarWidth, width)-sidebarHandleWidth).Shrink(0).FillHeight().Padding(8, 8-sidebarHandleWidth, 8, 8).Children(func() { a.viewSidebar(c) })
+				a.viewSidebarHandle(c, width)
 			}
 			ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
 				a.viewTitleBar(c, bar)

@@ -67,11 +67,12 @@ type nativeSettings struct {
 	AutoSave     bool            `json:"autoSave"`
 	FocusMode    bool            `json:"focusMode"`
 	Typewriter   bool            `json:"typewriter"`
+	SidebarWidth float32         `json:"sidebarWidth"` // 侧栏宽度，含四周外边距
 	Shortcuts    nativeShortcuts `json:"shortcuts"`
 }
 
 func defaultNativeSettings() nativeSettings {
-	return nativeSettings{Font: "newsreader", FontSize: 15, LineHeight: 1.4, ReadingWidth: "comfort", Theme: "system", AutoSave: true, Shortcuts: defaultNativeShortcuts()}
+	return nativeSettings{Font: "newsreader", FontSize: 16, LineHeight: 1.4, ReadingWidth: "comfort", Theme: "system", AutoSave: true, SidebarWidth: sidebarDefaultWidth, Shortcuts: defaultNativeShortcuts()}
 }
 
 // editorFonts 是四种正文字体的回退列表；空串表示编辑器内置的默认列表。
@@ -104,9 +105,19 @@ func (s nativeSettings) normalized() nativeSettings {
 		out.Theme = s.Theme
 	}
 	out.AutoSave, out.FocusMode, out.Typewriter = s.AutoSave, s.FocusMode, s.Typewriter
+	if s.SidebarWidth >= sidebarMinWidth && s.SidebarWidth <= sidebarMaxWidth {
+		out.SidebarWidth = float32(int(s.SidebarWidth + .5))
+	}
 	out.Shortcuts = checkedShortcuts(s.Shortcuts)
 	return out
 }
+
+// 侧栏宽度的默认值与拖动范围。
+const (
+	sidebarDefaultWidth = 264
+	sidebarMinWidth     = 220
+	sidebarMaxWidth     = 520
+)
 
 // nativeApp 是主窗口的全部界面状态。View 只在主线程读取；后台 IO 经 Window.Update 写回。
 type nativeApp struct {
@@ -123,6 +134,7 @@ type nativeApp struct {
 	visibleTabID  string // 仅在切换标签时滚动定位，允许用户自由横向浏览。
 	tabScroll     ui.ScrollState
 	sidebar       float32
+	sidebarDrag   bool // 正在拖动侧栏边缘，松手时才保存宽度
 	effectiveDark bool // 当前原生界面的实际主题，包含跟随系统的结果。
 
 	// 空值与 outline 都显示原版默认的大纲页。

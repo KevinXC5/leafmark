@@ -263,10 +263,10 @@ func TestSettingsPageSectionsAndControls(t *testing.T) {
 	click("增大字号")
 	click("宽")
 	click("切换自动保存")
-	if app.settings.FontSize != 16 || app.settings.ReadingWidth != "wide" || app.settings.AutoSave {
+	if app.settings.FontSize != 17 || app.settings.ReadingWidth != "wide" || app.settings.AutoSave {
 		t.Fatalf("控件未改变设置：%+v", app.settings)
 	}
-	if e := app.active().editor.(*styledEditor); e.size != 16 || e.width != 1040 {
+	if e := app.active().editor.(*styledEditor); e.size != 17 || e.width != 1040 {
 		t.Fatalf("设置未即时作用到编辑器：%+v", e)
 	}
 	if err := view.Click("选择正文字体"); err != nil {
