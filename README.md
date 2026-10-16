@@ -119,7 +119,7 @@ HTML 与 PDF 的页面、正文和图表配色跟随导出时的应用主题，�
 | Go、`internal/mathlayout` | TeX 数学子集的解析与排版，使用内嵌的 STIX Two Math 字体 |
 | Go、`internal/diagram` | Mermaid 图表的解析、布局、原生绘制与 SVG 输出 |
 | Go、`internal/desktop` | 原生窗口、多标签、保存、恢复、工作区、设置、导出、图片授权与更新 |
-| MyGo 0.4.1 | 原生窗口、GPU 绘制、系统对话框、打包与签名更新 |
+| MyGo 0.5.5 | 原生窗口、GPU 绘制、系统对话框、界面中文化、打包与签名更新 |
 | goldmark 1.8.6 | CommonMark / GFM 结构识别 |
 
 整个项目只有 Go 代码。应用没有远程服务端，桌面窗口不使用 WebView、不加载网页；只有导出 PDF 时在不可见窗口里临时借用系统网页引擎分页。运行已打包的应用无需安装任何开发工具。

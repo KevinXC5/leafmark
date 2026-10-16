@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
@@ -329,18 +330,22 @@ func TestLinkOpensByModeAndModifier(t *testing.T) {
 	if a, b := ed.Selection(); len(opened) != 0 || a != b || a != offsetOf(t, ed, "链接") {
 		t.Fatalf("编辑模式普通单击应只放置光标：opened=%v sel=%d,%d", opened, a, b)
 	}
+	// 测试时钟静止，同一位置的连续点击会按双击计数；推进时钟让它们各算一次单击。
+	tt.Advance(time.Second)
 	tt.ClickAtWith(ui.Cmd, lx, ly)
 	if len(opened) != 1 || opened[0] != "https://example.com/a" {
 		t.Fatalf("Mod+单击应打开链接：%v", opened)
 	}
 	ed.SetReadOnly(true)
 	mx, my := at("邮件")
+	tt.Advance(time.Second)
 	tt.ClickAt(mx, my)
 	if len(opened) != 2 || opened[1] != "mailto:a@example.com" {
 		t.Fatalf("阅读模式单击应打开链接：%v", opened)
 	}
 	for _, needle := range []string{"本地", "电话", "正文"} {
 		x, y := at(needle)
+		tt.Advance(time.Second)
 		tt.ClickAt(x, y)
 	}
 	if len(opened) != 2 {
@@ -355,6 +360,7 @@ func TestLinkOpensByModeAndModifier(t *testing.T) {
 	}
 	// 没有设置回调时交给界面库打开。
 	ed.SetOpenLink(nil)
+	tt.Advance(time.Second)
 	tt.ClickAt(lx, ly)
 	if got := tt.OpenedURLs(); len(got) != 1 || got[0] != "https://example.com/a" {
 		t.Fatalf("默认应由界面库打开：%v", got)
@@ -391,6 +397,7 @@ func TestDiagramNodeLinkIsClickable(t *testing.T) {
 	if len(opened) != 0 {
 		t.Fatalf("编辑模式普通单击不应打开节点链接：%v", opened)
 	}
+	tt.Advance(time.Second)
 	tt.ClickAtWith(ui.Cmd, hx, hy)
 	// 指针不动，切到阅读模式后下一帧就换成小手。
 	ed.SetReadOnly(true)
@@ -398,6 +405,7 @@ func TestDiagramNodeLinkIsClickable(t *testing.T) {
 	if tt.Cursor() != ui.CursorPointer {
 		t.Fatalf("阅读模式下可点击节点的指针 = %v", tt.Cursor())
 	}
+	tt.Advance(time.Second)
 	tt.ClickAt(hx, hy)
 	if len(opened) != 2 || opened[0] != "https://example.com" || opened[1] != opened[0] {
 		t.Fatalf("节点链接打开记录 = %v", opened)
@@ -979,6 +987,7 @@ func TestDetailsFoldKeepsSource(t *testing.T) {
 			title = f
 		}
 	}
+	tt.Advance(time.Second)
 	tt.ClickAt(title.x+20, title.y+16)
 	tt.Frame()
 	folded := false

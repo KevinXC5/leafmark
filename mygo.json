@@ -3,6 +3,7 @@
   "identifier": "dev.leafmark.app",
   "version": "0.0.0-dev",
   "out": "build",
+  "i18n": { "dir": "internal/locales", "source": "zh-Hans" },
   "updates": {
     "github": "KevinXC5/leafmark",
     "publicKey": "arFeLNqUcZDj4bjo7f1FiZ3ndod0Ghgu6B15b/BKUH8=",
