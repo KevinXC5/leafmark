@@ -45,10 +45,6 @@ type Editor struct {
 	compose        string
 	comCaret       int
 	dragging       bool
-	dragUnit       int
-	pressAt        time.Time
-	clicks         int
-	lastOff        int
 	scroll         ui.ScrollState
 	reveal         bool
 	cache          *shapeCache

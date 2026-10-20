@@ -40,14 +40,6 @@ type documentEditor interface {
 	HandleInput(c *ui.Context, ev ui.InputEvent) bool
 }
 
-// concreteEditor 是标签上的具体编辑器。验证可用类型断言取得 *nativeeditor.Editor。
-func (t *nativeTab) concreteEditor() any {
-	if t == nil {
-		return nil
-	}
-	return t.editor
-}
-
 // newDocumentEditor 创建始终排版的原生编辑器。正式文件接 nativeeditor，测试文件换成桩。
 
 const autoSaveDelay = 2 * time.Second
@@ -914,11 +906,7 @@ func (a *nativeApp) closeSnapshotUnchanged(dirty []documents.Document) bool {
 	return true
 }
 
-// saveThen 逐个保存。未保存文档会弹出保存框；取消或失败时调用 failed，不再继续关闭。
-func (a *nativeApp) saveThen(dirty []documents.Document, done func()) {
-	a.saveThenNotify(dirty, done, nil)
-}
-
+// saveThenNotify 逐个保存。未保存文档会弹出保存框；取消或失败时调用 failed，不再继续关闭。
 func (a *nativeApp) saveThenNotify(dirty []documents.Document, done func(), failed func()) {
 	ids := make([]string, 0, len(dirty))
 	for _, doc := range dirty {

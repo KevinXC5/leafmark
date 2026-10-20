@@ -9,15 +9,14 @@ import (
 
 // mark 是图种专用的绘制元素；原生与 SVG 共用同一组坐标。
 type mark struct {
-	kind         string
-	x, y, w, h   float32
-	points       [][2]float32
-	text         string
-	anchor       int8 // -1 左对齐，0 居中
-	fill, stroke string
-	dashed       bool
-	open         bool // 时序图的开口箭头
-	value        float64
+	kind       string
+	x, y, w, h float32
+	points     [][2]float32
+	text       string
+	anchor     int8 // -1 左对齐，0 居中
+	dashed     bool
+	open       bool // 时序图的开口箭头
+	value      float64
 }
 
 func titleMark(g *Graph, m metrics, geo *geometry) float32 {

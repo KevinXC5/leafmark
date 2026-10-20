@@ -336,7 +336,7 @@ func nativeSourceOutline(markdown string) []nativeHeading {
 		for at > 0 && raw[at-1] != '\n' {
 			at--
 		}
-		out = append(out, nativeHeading{string(h.Text(raw)), h.Level, utf8.RuneCountInString(markdown[:at])})
+		out = append(out, nativeHeading{richtext.InlineText(h, raw), h.Level, utf8.RuneCountInString(markdown[:at])})
 		return ast.WalkContinue, nil
 	})
 	return out

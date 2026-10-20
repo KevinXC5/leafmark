@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"strings"
-	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -428,17 +427,6 @@ func sourceReplace(text, query, replacement string, all bool) (int, string) {
 		_ = rep
 	}
 	return count, b.String()
-}
-
-// sourceRune 把字节偏移换成 rune 偏移，供和文本域的选区对齐。
-func sourceRune(text string, byteAt int) int {
-	if byteAt < 0 {
-		return 0
-	}
-	if byteAt > len(text) {
-		byteAt = len(text)
-	}
-	return utf8.RuneCountInString(text[:byteAt])
 }
 
 // sourceColors 是源码语法色，沿用书写界面的暖纸与赭石，不另用一套高饱和色。

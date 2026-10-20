@@ -1451,12 +1451,7 @@ func (ln line) caretX(offset int) float32 {
 		if g.Runes <= 0 && g.Cluster == 0 && g.Advance == 0 {
 			continue
 		}
-		// 前缀字形的 cluster 也从 0 起，用 X 是否落在 prefix 之前区分。
-
-		if !seen {
-			prev = ln.prefix
-			seen = true
-		}
+		seen = true
 		if g.Cluster >= local {
 			return g.X
 		}

@@ -16,9 +16,6 @@ type Attributes struct {
 	Dashed              bool
 }
 
-// sequenceBox 是时序图里的分组框。定义由 diagram 的实现补全，这里只占位让包可编译。
-type sequenceBox struct{}
-
 type sequenceEvent struct {
 	kind, from, to, text string
 	dashed               bool

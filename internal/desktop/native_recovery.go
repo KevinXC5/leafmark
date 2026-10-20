@@ -61,8 +61,6 @@ func writeNativeRecoveryVersionIn(dir string, drafts []nativeDraft, ticket uint6
 	return writeNativeRecoveryIn(dir, drafts)
 }
 
-func readNativeRecovery() []nativeDraft { drafts, _ := readNativeRecoveryState(); return drafts }
-
 // 损坏或不可读的恢复记录保留原文件，禁止后续空快照覆盖。
 func readNativeRecoveryState() ([]nativeDraft, bool) {
 	dir, err := nativeDataDir()
@@ -107,14 +105,6 @@ func validDraft(draft nativeDraft) bool {
 	return true
 }
 
-func writeNativeRecovery(drafts []nativeDraft) error {
-	dir, err := nativeDataDir()
-	if err != nil {
-		return err
-	}
-	return writeNativeRecoveryIn(dir, drafts)
-}
-
 func writeNativeRecoveryIn(dir string, drafts []nativeDraft) error {
 	clean := make([]nativeDraft, 0, len(drafts))
 	seen := map[string]bool{}
@@ -151,14 +141,6 @@ func loadNativeSettings() nativeSettings {
 		return settings
 	}
 	return stored.normalized()
-}
-
-func saveNativeSettings(settings nativeSettings) error {
-	dir, err := nativeDataDir()
-	if err != nil {
-		return err
-	}
-	return saveNativeSettingsIn(dir, settings)
 }
 
 func saveNativeSettingsIn(dir string, settings nativeSettings) error {

@@ -502,7 +502,7 @@ func loneImage(p *ast.Paragraph, src []byte) (editBlock, bool) {
 	if count != 1 || img == nil {
 		return editBlock{}, false
 	}
-	alt := string(img.Text(src))
+	alt := InlineText(img, src)
 	return editBlock{Block: Block{
 		Kind:  Image,
 		Alt:   alt,
@@ -896,7 +896,7 @@ func walkInline(n ast.Node, src []byte, marks Mark, link *Link, out *[]Run) bool
 				return false
 			}
 		case *ast.Image:
-			img := &InlineImage{Alt: string(t.Text(src)), URL: string(t.Destination), Title: string(t.Title)}
+			img := &InlineImage{Alt: InlineText(t, src), URL: string(t.Destination), Title: string(t.Title)}
 			if t.Reference != nil {
 				img.Ref = string(t.Reference.Value)
 			}
@@ -906,7 +906,7 @@ func walkInline(n ast.Node, src []byte, marks Mark, link *Link, out *[]Run) bool
 			img := &InlineImage{Alt: t.alt, URL: address, Wiki: true, Size: t.size}
 			*out = append(*out, Run{Text: objectReplacement, Marks: marks, Link: cloneLink(link), Image: img})
 		case *ast.RawHTML:
-			if !applyInlineHTML(string(t.Text(src)), &marks) {
+			if !applyInlineHTML(string(t.Segments.Value(src)), &marks) {
 				return false
 			}
 		default:
@@ -991,13 +991,6 @@ func sameLink(a, b *Link) bool {
 		return a == nil && b == nil
 	}
 	return a.URL == b.URL && a.Title == b.Title && a.Footnote == b.Footnote && a.Ref == b.Ref
-}
-
-func sameInlineImage(a, b *InlineImage) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
 }
 
 func cloneInlineImage(img *InlineImage) *InlineImage {
@@ -1096,4 +1089,31 @@ func mathIn(n ast.Node, src []byte) (display bool, formulas int) {
 		return true, 0
 	}
 	return false, len(pairedMath.FindAll(data, -1))
+}
+
+// InlineText 拼出行内节点的纯文字，软换行记为 \n，与 goldmark 已弃用的 Node.Text 结果一致。
+func InlineText(n ast.Node, src []byte) string {
+	var b strings.Builder
+	writeInlineText(&b, n, src)
+	return b.String()
+}
+
+func writeInlineText(b *strings.Builder, n ast.Node, src []byte) {
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		switch t := c.(type) {
+		case *ast.Text:
+			b.Write(t.Value(src))
+			if t.SoftLineBreak() {
+				b.WriteByte('\n')
+			}
+		case *ast.String:
+			b.Write(t.Value)
+		case *ast.AutoLink:
+			b.Write(t.Label(src))
+		case *ast.RawHTML:
+			b.Write(t.Segments.Value(src))
+		default:
+			writeInlineText(b, c, src)
+		}
+	}
 }

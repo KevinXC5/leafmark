@@ -576,7 +576,7 @@ func deleteRunRange(runs []Run, from, to int) []Run {
 	off := 0
 	for _, r := range runs {
 		var keep []rune
-		for _, ch := range []rune(r.Text) {
+		for _, ch := range r.Text {
 			if off < from || off >= to {
 				keep = append(keep, ch)
 			}

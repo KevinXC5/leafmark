@@ -84,7 +84,6 @@ type Container struct {
 	Callout  *CalloutData // 提示块头部；Type 为 "details" 且来自 HTML 时按 <details> 写回
 	Footnote string       // 脚注定义的标签
 
-	pad  int  // 列表项正文相对标记起点的列偏移，重写时沿用原文的缩进宽度
 	html bool // 来自 <details> 的折叠块
 }
 
@@ -174,11 +173,9 @@ type Document struct {
 	redo  []snapshot
 	after Selection // 最近一次编辑完成后的选区，供重做恢复
 	// pending 记录折叠光标上待输入的格式，下一次在该点插入时生效。
-	pending    *pendingMark
-	clean      bool
-	coalesce   coalesceKind
-	lastChange int // 上一次改变文档的操作序号，用来合并连续输入
-	seq        int
+	pending  *pendingMark
+	clean    bool
+	coalesce coalesceKind
 }
 
 type coalesceKind int
@@ -215,11 +212,7 @@ type editBlock struct {
 	indent string // 列表项行首的原始缩进，回写嵌套项时沿用
 
 	// 以下字段只对展开的容器成员有意义。同一个 group 的连续成员共用首成员的 source。
-	group    int    // 容器组编号，0 表示独立的块
-	members  int    // 首成员记下解析时的成员数；数目对不上说明结构变了，必须重写
-	inner    string // 去掉容器前缀后的原文；成员未编辑而容器需要重写时照此写回
-	tight    bool   // 原文里与下一成员之间没有空行
-	crlf     bool   // 原文使用 \r\n 换行
-	indented bool   // 缩进代码块，重写时保持缩进写法
-	plain    bool   // 整文纯文本：Markdown() 直接返回 Code，不再包围栏
+	group    int  // 容器组编号，0 表示独立的块
+	indented bool // 缩进代码块，重写时保持缩进写法
+	plain    bool // 整文纯文本：Markdown() 直接返回 Code，不再包围栏
 }

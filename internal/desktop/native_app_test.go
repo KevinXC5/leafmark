@@ -461,3 +461,22 @@ func TestAutoSaveUsesDirtyBaselineAndPausesConflict(t *testing.T) {
 		t.Fatal("冲突不应丢失待保存状态")
 	}
 }
+
+// 以下是测试用的便捷读写，正式代码在发起时就确定数据目录。
+func readNativeRecovery() []nativeDraft { drafts, _ := readNativeRecoveryState(); return drafts }
+
+func writeNativeRecovery(drafts []nativeDraft) error {
+	dir, err := nativeDataDir()
+	if err != nil {
+		return err
+	}
+	return writeNativeRecoveryIn(dir, drafts)
+}
+
+func saveNativeSettings(settings nativeSettings) error {
+	dir, err := nativeDataDir()
+	if err != nil {
+		return err
+	}
+	return saveNativeSettingsIn(dir, settings)
+}

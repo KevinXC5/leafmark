@@ -89,10 +89,8 @@ type Graph struct {
 
 	classes  map[string]Attributes
 	sequence []sequenceEvent
-	boxes    []sequenceBox
 	tasks    []ganttTask
 	slices   []pieSlice
-	showData bool
 }
 
 // Node 是一个节点。Text 可含换行，未定义文字时等于 ID。
@@ -111,7 +109,6 @@ type Node struct {
 	attrs      []string   // 类图的属性栏
 	methods    []string   // 类图的方法栏
 	rows       [][]string // ER 图的属性行：类型、名称、键、说明
-	actor      bool       // 时序图里用 actor 声明的参与者
 }
 
 // Edge 是一条连线。Length 是它至少跨过的层数，--> 为 1，---> 为 2。
@@ -127,8 +124,7 @@ type Edge struct {
 	// CardinalityFrom 与 CardinalityTo 是类图关系两端的数量标注。
 	CardinalityFrom, CardinalityTo string
 
-	from, to       int // 端点在 Graph.Nodes 中的下标
-	fromSub, toSub int // 端点写的是子图 ID 时，是该子图的下标加一；否则为 0
+	from, to int // 端点在 Graph.Nodes 中的下标
 }
 
 // Subgraph 是一个子图（状态图里是复合状态，类图里是命名空间）。
@@ -151,13 +147,4 @@ func (g *Graph) Node(id string) *Node {
 		}
 	}
 	return nil
-}
-
-// flowLike 报告图表是否由通用的分层引擎布局。
-func (g *Graph) flowLike() bool {
-	switch g.Kind {
-	case KindSequence, KindGantt, KindPie:
-		return false
-	}
-	return true
 }

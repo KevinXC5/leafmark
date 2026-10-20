@@ -10,7 +10,10 @@ import (
 
 // convertHTML 把受支持的 HTML 块收成可编辑块。不认识的标签整块保留。
 func convertHTML(n *ast.HTMLBlock, src []byte, nextID *int) ([]editBlock, bool) {
-	raw := n.Text(src)
+	raw := n.Lines().Value(src)
+	if n.HasClosure() {
+		raw = append(raw, n.ClosureLine.Value(src)...)
+	}
 	blocks, ok := parseNativeHTML(string(raw), nextID)
 	if !ok {
 		return nil, false
