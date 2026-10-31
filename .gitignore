@@ -16,3 +16,6 @@ verification/*
 docs/local/
 
 .DS_Store
+
+# IDE 配置
+.idea/
