@@ -1,11 +1,13 @@
 package desktop
 
 import (
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"leafmark/internal/documents"
 )
 
 // installNativeCloseHandler 在关闭前于主线程同步编辑器，再询问未保存文档。
@@ -239,3 +241,157 @@ func (a *nativeApp) viewPrompt(c *ui.Context) {
 		})
 	})
 }
+
+func (a *nativeApp) closeActive() {
+	tab := a.active()
+	if tab == nil || a.closePrompt || a.saving[tab.id] {
+		return
+	}
+	a.syncEditor(tab)
+	doc, ok := a.document(tab.id)
+	// 同步后再看存储里的未保存状态，不再次调用 Changed。
+	if ok && doc.Dirty {
+		a.confirmClose([]documents.Document{doc}, func() { a.finishClose([]string{doc.ID}) })
+		return
+	}
+	a.finishClose([]string{tab.id})
+}
+
+func (a *nativeApp) finishClose(ids []string) {
+	for _, id := range ids {
+		_ = a.files.Close(id)
+		a.dropTab(id)
+		delete(a.saveGen, id)
+		delete(a.saving, id)
+		delete(a.editedAt, id)
+		delete(a.seenText, id)
+	}
+	if len(a.tabs) == 0 {
+		a.adopt(a.files.New(), "")
+	}
+	if tab := a.active(); tab != nil {
+		_, _ = a.files.store.Select(tab.id)
+	}
+	a.persistRecovery()
+	a.refreshTitle()
+}
+
+func (a *nativeApp) confirmClose(dirty []documents.Document, discard func()) {
+	a.confirmCloseNotify(dirty, discard, nil)
+}
+
+// 一个确认流程持有门闩直到保存或取消结束；不保存只授权丢弃提示时的正文。
+func (a *nativeApp) confirmCloseNotify(dirty []documents.Document, done, failed func()) {
+	if a.closePrompt {
+		if failed != nil {
+			failed()
+		}
+		return
+	}
+	a.closePrompt = true
+	release := func() {
+		a.closePrompt = false
+		if failed != nil {
+			failed()
+		}
+	}
+	finish := func() { a.closePrompt = false; done() }
+	win := a.window()
+	names := make([]string, 0, len(dirty))
+	for _, doc := range dirty {
+		names = append(names, doc.Name)
+	}
+	go func() {
+		res, err := mygo.Dialog.Message(mygo.MessageOptions{Parent: win, Type: mygo.MessageQuestion, Message: "要保存文档后再关闭吗？", Detail: "未保存：" + strings.Join(names, "、"), Buttons: []string{"保存", "不保存", "取消"}, DefaultButton: 0, CancelButton: 2})
+		a.update(func() {
+			if err != nil || res.Button == 2 {
+				release()
+				return
+			}
+			if res.Button == 1 {
+				a.syncAll()
+				if !a.closeSnapshotUnchanged(dirty) {
+					release()
+					a.notice = "确认期间文档发生变化，请再次关闭以确认新修改"
+					return
+				}
+				finish()
+				return
+			}
+			a.saveThenNotify(dirty, finish, release)
+		})
+	}()
+}
+
+func (a *nativeApp) closeSnapshotUnchanged(dirty []documents.Document) bool {
+	for _, before := range dirty {
+		if a.saving[before.ID] {
+			return false
+		}
+		if after, ok := a.document(before.ID); ok && after.Content != before.Content {
+			return false
+		}
+	}
+	return true
+}
+
+// saveThenNotify 逐个保存。未保存文档会弹出保存框；取消或失败时调用 failed，不再继续关闭。
+func (a *nativeApp) saveThenNotify(dirty []documents.Document, done func(), failed func()) {
+	ids := make([]string, 0, len(dirty))
+	for _, doc := range dirty {
+		ids = append(ids, doc.ID)
+	}
+	a.saveThenScoped(dirty, ids, done, failed)
+}
+
+func (a *nativeApp) saveThenScoped(dirty []documents.Document, ids []string, done func(), failed func()) {
+	if len(dirty) == 0 {
+		a.syncAll()
+		// 保存完成后仍有新输入时中止关闭，保留输入和恢复记录。
+		changed := false
+		for _, id := range ids {
+			if doc, ok := a.document(id); ok && (doc.Dirty || a.saving[id]) {
+				changed = true
+			}
+		}
+		if changed {
+			a.notice = "保存期间文档发生变化，请再次关闭以保存新修改"
+			if failed != nil {
+				failed()
+			}
+			return
+		}
+		done()
+		return
+	}
+	doc := dirty[0]
+	content := doc.Content
+	if tab := a.tabByID(doc.ID); tab != nil && tab.editor != nil {
+		a.syncEditor(tab)
+		content = tab.editor.Markdown()
+	}
+	a.saveDocument(doc.ID, content, false, func(ok bool) {
+		if !ok {
+			if failed != nil {
+				failed()
+			}
+			return
+		}
+		a.saveThenScoped(dirty[1:], ids, done, failed)
+	})
+}
+
+// dirtyDocuments 供关闭前读取。调用方须已在主线程同步过编辑器。
+func (a *nativeApp) dirtyDocuments() []documents.Document {
+	a.syncAll()
+	dirty := []documents.Document{}
+	for _, doc := range a.files.store.List() {
+		if doc.Dirty {
+			dirty = append(dirty, doc)
+		}
+	}
+	return dirty
+}
+
+// markClosed 拒绝随后的界面回写。关闭确认仍可用已经取出的窗口句柄。
+func (a *nativeApp) markClosed() { a.closed.Store(true) }

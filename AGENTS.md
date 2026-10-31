@@ -32,7 +32,7 @@
 ## 代码与文档
 
 - 桌面代码放在 `internal/desktop/`、`internal/nativeeditor/`、`internal/richtext/`、`internal/mathlayout/`、`internal/diagram/`。文档、工作区和图片规则放在 `internal/documents/`、`internal/workspace/`、`internal/assets/`，这些包不依赖 MyGo。`mathlayout` 与 `diagram` 只把源码排成可绘制的结果，不持有文档状态。
-- `internal/desktop` 按职责分文件：`native_app.go` 是状态与命令，`native_visual.go` 是书写界面，`native_settings.go` 与 `native_shortcuts.go` 是设置页与快捷键，`native_features.go` 是源码模式、工作区操作与导出，`native_lifecycle.go` 是视图入口与关闭流程，`native_recovery.go` 是设置与草稿的持久化。新功能放进对应文件，不在根目录平铺。
+- `internal/desktop` 按职责分文件：`native_app.go` 是状态与命令，`native_visual.go` 是书写界面，`native_settings.go` 与 `native_shortcuts.go` 是设置页与快捷键，`native_features.go` 是源码模式、工作区操作与导出，`native_lifecycle.go` 是视图入口与关闭流程，`native_recovery.go` 是设置与草稿的持久化，`native_save.go` 是保存、自动保存与从磁盘重新加载，`native_update.go` 是软件更新的检查与安装。新功能放进对应文件，不在根目录平铺。
 - 界面遵循统一的设计规则，修改或新增界面时保持一致，不用控件库的默认外观替代：
   - 浅色是暖纸色，深色是同一色相的暖中性灰，两套主题都不混入蓝灰。原生绘制、源码配色、图表和导出样式使用同一套色值。
   - 层次靠填充色的明暗区分，不用 1px 描边包裹面板、卡片、代码块和控件；细线只用于表格行、水平线和脚注分隔。

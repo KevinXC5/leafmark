@@ -3,12 +3,15 @@ package desktop
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"unicode/utf8"
+
+	"leafmark/internal/documents"
 )
 
 const (
@@ -177,4 +180,115 @@ func writeNativeFile(dir, name string, raw []byte) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+func (a *nativeApp) restoreDrafts(drafts []nativeDraft) {
+	if len(drafts) == 0 {
+		return
+	}
+	current := a.files.Current()
+	restored := 0
+	for _, draft := range drafts {
+		doc, err := a.openRecovered(draft)
+		if err != nil {
+			a.unrestored = append(a.unrestored, draft)
+			log.Printf("恢复草稿失败：%v", err)
+			continue
+		}
+		if err := a.files.store.Draft(doc.ID, draft.Content); err != nil {
+			a.unrestored = append(a.unrestored, draft)
+			log.Printf("写回恢复草稿失败：%v", err)
+			continue
+		}
+		doc.Content = draft.Content
+		doc.Dirty = draft.Content != a.savedBaseline(doc.ID)
+		if a.tabByID(doc.ID) != nil {
+			a.replaceEditor(doc.ID, draft.Content)
+		}
+		a.adopt(doc, draft.Content)
+		restored++
+	}
+	if restored == 0 {
+		return
+	}
+	// 欢迎文档没有改动时让位给恢复出来的草稿。
+	if current.Path == "" && current.Content == welcome && !current.Dirty {
+		if a.tabByID(current.ID) != nil && len(a.tabs) > 1 {
+			_ = a.files.Close(current.ID)
+			a.dropTab(current.ID)
+		}
+	}
+	a.notice = "已恢复上次未保存的草稿"
+}
+
+func (a *nativeApp) savedBaseline(id string) string {
+	content, err := a.files.store.SavedContent(id)
+	if err != nil {
+		return ""
+	}
+	return content
+}
+
+func (a *nativeApp) openRecovered(draft nativeDraft) (documents.Document, error) {
+	if draft.Path != "" {
+		if _, err := os.Stat(draft.Path); err == nil {
+			return a.files.store.Load(draft.Path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return documents.Document{}, err
+		}
+	}
+	name := draft.Name
+	if name == "" {
+		name = "未命名.md"
+	}
+	return a.files.store.NewNamed(name)
+}
+
+func (a *nativeApp) persistSettings() {
+	settings := a.settings
+	dir, err := nativeDataDir()
+	if err != nil {
+		log.Printf("保存设置失败：%v", err)
+		return
+	}
+	a.writes.Go(func() {
+		if err := saveNativeSettingsIn(dir, settings); err != nil {
+			log.Printf("保存设置失败：%v", err)
+		}
+	})
+}
+
+func (a *nativeApp) persistRecovery() {
+	a.syncAll()
+	if a.recoveryBlocked {
+		return
+	}
+	drafts := append([]nativeDraft{}, a.unrestored...)
+	for _, doc := range a.files.store.List() {
+		if !doc.Dirty {
+			continue
+		}
+		drafts = append(drafts, nativeDraft{ID: doc.ID, Name: doc.Name, Path: doc.Path, Content: doc.Content})
+	}
+	dir, err := nativeDataDir()
+	if err != nil {
+		log.Printf("保存恢复草稿失败：%v", err)
+		return
+	}
+	ticket := nativeRecoveryGeneration.Add(1)
+	a.writes.Go(func() {
+		if err := writeNativeRecoveryVersionIn(dir, drafts, ticket); err != nil {
+			log.Printf("保存恢复草稿失败：%v", err)
+		}
+	})
+}
+
+func (a *nativeApp) clearRecovery() {
+	if a.recoveryBlocked || len(a.unrestored) > 0 {
+		return
+	}
+	ticket := nativeRecoveryGeneration.Add(1)
+	if err := writeNativeRecoveryVersion(nil, ticket); err != nil {
+		log.Printf("清理恢复记录失败：%v", err)
+	}
 }

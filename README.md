@@ -170,7 +170,7 @@ leafmark/
 
 职责边界：
 
-- 桌面入口是 `desktop.Run`。窗口内容由 `nativeApp.View` 绘制：`native_visual.go` 是书写界面，`native_settings.go` 是设置页，`native_features.go` 是源码模式、工作区操作与导出，`native_source.go` 扫描源码着色区间，`native_reading.go` 处理阅读模式的命令约束与替换入口，`native_lifecycle.go` 负责关闭确认与快捷键分发，`native_recovery.go` 把设置与未保存草稿写入本机配置目录。
+- 桌面入口是 `desktop.Run`。窗口内容由 `nativeApp.View` 绘制：`native_visual.go` 是书写界面，`native_settings.go` 是设置页，`native_features.go` 是源码模式、工作区操作与导出，`native_source.go` 扫描源码着色区间，`native_reading.go` 处理阅读模式的命令约束与替换入口，`native_lifecycle.go` 负责关闭确认与快捷键分发，`native_recovery.go` 把设置与未保存草稿写入本机配置目录，`native_save.go` 负责保存、自动保存与从磁盘重新加载，`native_update.go` 负责检查与安装软件更新。
 - 编辑状态在 `nativeeditor`，文档结构在 `richtext`。容器上下文描述列表项、嵌套引用、提示块与脚注定义，行内图片和公式保持原子坐标；源码模式使用单块纯文本模型和同一套字形、输入法、选区与撤销逻辑。保存基线、BOM、换行和磁盘摘要以 `documents` 为准。
 - `mathlayout` 与 `diagram` 只负责把源码排成可绘制的结果，不持有文档状态；公式和流程图在文档模型里仍是原文。
 - `documents`、`workspace`、`assets` 不依赖 MyGo。文件访问必须经过授权：相对图片以已打开文档的 ID 为入口，按文件名查找只在文档目录和已授权的工作区内进行，工作区路径由工作区包校验，不接受任意绝对路径。访达打开和拖入窗口的文档由后端从系统事件取得路径并排队。
