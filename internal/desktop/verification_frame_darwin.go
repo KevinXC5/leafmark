@@ -11,20 +11,27 @@ import (
 // 避免 CADisplayLink 暂停时只捕获启动帧。窗口可见时只请求下一帧：同步绘制会抢在
 // 屏幕刷新之前占用 Metal 图层的画布，随后的帧要等满一秒的取画布超时。此入口不进入正式构建。
 func refreshVerificationWindow(win *mygo.Window) {
+	hasWindow := false
 	visible := false
 	mygo.RunOnMain(func() {
 		window := objc.ID(win.NativeHandle())
 		if window == 0 {
 			return
 		}
+		hasWindow = true
 		// NSWindowOcclusionStateVisible
 		if visible = uintptr(window.Send(objc.RegisterName("occlusionState")))&(1<<1) != 0; visible {
 			return
 		}
 		refreshVerificationView(window.Send(objc.RegisterName("contentView")))
 	})
-	if visible {
-		win.Invalidate()
+	if !hasWindow {
+		return
+	}
+	win.Invalidate()
+	if !visible {
+		// 窗口被遮挡时挂起表面绘制，借 CapturePage 触发内存帧提交布局，使后续断言读到最新状态。
+		_, _ = win.CapturePage()
 	}
 }
 
