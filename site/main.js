@@ -126,13 +126,13 @@
     recommend("");
   }
 
-  // 兼容 MyGo 自带架构的新名称与历史版本的平台后缀；GitHub 上传时把文件名里的空格换成点，两种分隔都要识别。
+  // 兼容 MyGo 0.9.0+ 的小写连字符命名与历史版本的空格/点分隔、平台后缀命名。
   // 请求失败或没有匹配时保留发布页链接。
   const patterns = {
-    "darwin-arm64": /(?:[ .]|-darwin-)arm64\.dmg$/,
-    "darwin-amd64": /(?:[ .]|-darwin-)amd64\.dmg$/,
-    "windows-amd64": /Setup[ .].*(?:[ .]|-windows-)amd64\.exe$/,
-    "windows-arm64": /Setup[ .].*(?:[ .]|-windows-)arm64\.exe$/,
+    "darwin-arm64": /(?:[ .-]|-darwin-)arm64\.dmg$/,
+    "darwin-amd64": /(?:[ .-]|-darwin-)amd64\.dmg$/,
+    "windows-amd64": /setup[ .-].*(?:[ .-]|-windows-)amd64\.exe$/i,
+    "windows-arm64": /setup[ .-].*(?:[ .-]|-windows-)arm64\.exe$/i,
   };
   fetch("https://api.github.com/repos/KevinXC5/leafmark/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
     .then(response => response.ok ? response.json() : Promise.reject(response.status))

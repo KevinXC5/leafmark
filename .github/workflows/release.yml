@@ -195,7 +195,7 @@ jobs:
           # MyGo 的 DMG 与 Setup 文件名已包含架构，按原名上传。
           # 更新清单与更新包也保留原名，供已安装的旧版本继续读取。
           files = [p for p in pathlib.Path('build').rglob('*') if p.is_file()]
-          packages = sorted(str(p) for p in files if p.suffix == '.dmg' or ('Setup' in p.name and p.suffix == '.exe') or p.name.endswith(('.tar.gz', '.delta')))
+          packages = sorted(str(p) for p in files if p.suffix == '.dmg' or ('setup' in p.name.lower() and p.suffix == '.exe') or p.name.endswith(('.tar.gz', '.delta')))
           manifests = sorted(str(p) for p in files if p.name.startswith('update-') and p.suffix == '.json')
           assert packages and manifests
           for batch in [packages, manifests]:
@@ -218,6 +218,10 @@ jobs:
           test -f artifacts/update-darwin-amd64.json
           test -f artifacts/update-windows-amd64.json
           test -f artifacts/update-windows-arm64.json
+          test -n "$(find artifacts -maxdepth 1 -iname '*arm64.dmg' -print -quit)"
+          test -n "$(find artifacts -maxdepth 1 -iname '*amd64.dmg' -print -quit)"
+          test -n "$(find artifacts -maxdepth 1 -iname '*setup*amd64.exe' -print -quit)"
+          test -n "$(find artifacts -maxdepth 1 -iname '*setup*arm64.exe' -print -quit)"
           python3 - <<'PY'
           import json, pathlib
           root = pathlib.Path('artifacts')
