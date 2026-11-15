@@ -4,7 +4,15 @@
 
 **界面不使用 WebView**（No WebView）：没有 Electron、Tauri 或任何内嵌浏览器，整个窗口由 Go 代码经 GPU 原生绘制，编辑器、公式和图表都是自绘的。
 
-官网：<https://kevinxc5.github.io/leafmark/>
+> A lightweight local WYSIWYG Markdown editor for macOS and Windows built with Go and [MyGo](https://github.com/egoist/mygo). **No WebView** (no Electron or Tauri): the entire window, rich-text editor, leaf-vein outline, TeX math subset, and Mermaid diagrams (flowchart, sequence, Gantt, pie, class, state, ER) are drawn natively on the GPU, with multi-tab editing, workspace folder navigation, source mode, and HTML/PDF/Markdown export.
+
+官网 / Website：<https://kevinxc5.github.io/leafmark/> · 下载 / Releases：[GitHub Releases](https://github.com/KevinXC5/leafmark/releases)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/assets/img/app-edit-dark.webp">
+  <source media="(prefers-color-scheme: light)" srcset="site/assets/img/app-edit-light.webp">
+  <img alt="Leafmark editor preview" src="site/assets/img/app-edit-light.webp">
+</picture>
 
 ## 下载
 
