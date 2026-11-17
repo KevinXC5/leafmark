@@ -185,6 +185,8 @@ type nativeApp struct {
 	closePrompt           bool
 	unrestored            []nativeDraft
 	recoveryBlocked       bool
+	sessionBlocked        bool
+	sessionReady          bool
 	updateBusy            bool
 	recoveryAt            time.Time
 	// externalAt 与 externalBusy 控制对当前文档磁盘变化的轮询。
@@ -301,9 +303,13 @@ func (a *nativeApp) adopt(doc documents.Document, markdown string) {
 	for i, old := range a.tabs {
 		if old.id == doc.ID {
 			a.syncEditor(a.active())
+			changed := a.current != i
 			a.current = i
 			_, _ = a.files.store.Select(doc.ID)
 			a.refreshTitle()
+			if changed {
+				a.persistSession()
+			}
 			return
 		}
 	}
@@ -321,6 +327,9 @@ func (a *nativeApp) adopt(doc documents.Document, markdown string) {
 	a.current = len(a.tabs) - 1
 	_, _ = a.files.store.Select(doc.ID)
 	a.refreshTitle()
+	if doc.Path != "" {
+		a.persistSession()
+	}
 }
 
 // replaceEditor 只用于外部重新加载，刻意丢掉旧撤销历史。
@@ -398,8 +407,11 @@ func (a *nativeApp) boot() {
 	go func() {
 		settings := loadNativeSettings()
 		drafts, recoveryOK := readNativeRecoveryState()
+		session, sessionOK := readNativeSessionState()
+		sessionFiles := loadSessionFiles(session)
 		a.update(func() {
 			a.recoveryBlocked = !recoveryOK
+			a.sessionBlocked = !sessionOK
 			a.settings = settings
 			a.applySettings()
 			// 启动时已打开的文档全部做成标签，不只保留当前一份。
@@ -408,11 +420,14 @@ func (a *nativeApp) boot() {
 					a.adopt(doc, doc.Content)
 				}
 			}
+			a.restoreSession(sessionFiles, session.Active)
 			a.restoreDrafts(drafts)
+			a.sessionReady = true
 			if len(a.tabs) == 0 {
 				a.adopt(a.files.Current(), "")
 			}
 			a.openQueued()
+			a.persistSession()
 			a.reloadNavigation()
 		})
 	}()
@@ -491,6 +506,7 @@ func (a *nativeApp) selectTab(index int) {
 		_, _ = a.files.store.Select(tab.id)
 	}
 	a.refreshTitle()
+	a.persistSession()
 }
 
 func (a *nativeApp) enqueueOpen(paths []string) {

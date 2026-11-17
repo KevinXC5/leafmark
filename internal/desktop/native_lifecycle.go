@@ -15,6 +15,7 @@ import (
 func installNativeCloseHandler(win *mygo.Window, app *nativeApp) func() {
 	var prompting, restarting, approved atomic.Bool
 	finish := func() {
+		app.persistSessionSync()
 		app.markClosed()
 		app.clearRecovery()
 		if restarting.Swap(false) {
@@ -52,6 +53,7 @@ func installNativeCloseHandler(win *mygo.Window, app *nativeApp) func() {
 			}
 			// 没有需要确认的文档时放行本次关闭。退出应用时 MyGo 逐个关闭窗口，
 			// 拦下后再自行销毁会被当成取消退出，窗口消失而进程留在 Dock 里。
+			app.persistSessionSync()
 			app.markClosed()
 			app.clearRecovery()
 			return
@@ -273,6 +275,7 @@ func (a *nativeApp) finishClose(ids []string) {
 		_, _ = a.files.store.Select(tab.id)
 	}
 	a.persistRecovery()
+	a.persistSession()
 	a.refreshTitle()
 }
 

@@ -80,6 +80,7 @@ func (a *nativeApp) saveDocument(id, content string, saveAs bool, done func(ok b
 			}
 			a.refreshTitle()
 			a.persistRecovery()
+			a.persistSession()
 			a.reloadNavigation()
 			if done != nil {
 				done(true)

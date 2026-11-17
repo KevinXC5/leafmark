@@ -547,7 +547,9 @@ func (a *nativeApp) clearData(label string) {
 		a.settingsStatus = label + "完成"
 		return
 	}
+	a.clearSession()
 	if a.workspace == nil {
+		a.settingsStatus = label + "完成"
 		return
 	}
 	go func() {

@@ -33,6 +33,7 @@ func prepareVerification(files *Files) {
 		panic(err)
 	}
 	_ = os.Remove(filepath.Join(data, "native-recovery.json"))
+	_ = os.Remove(filepath.Join(data, "native-session.json"))
 	_ = os.Remove(filepath.Join(data, "native-settings.json"))
 	backend, err := workspace.NewAt(data)
 	if err != nil {

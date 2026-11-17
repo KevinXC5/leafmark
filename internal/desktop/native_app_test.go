@@ -473,6 +473,162 @@ func writeNativeRecovery(drafts []nativeDraft) error {
 	return writeNativeRecoveryIn(dir, drafts)
 }
 
+func TestNativeSessionRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LEAFMARK_NATIVE_DATA_DIR", filepath.Join(dir, "native"))
+	aPath := filepath.Join(dir, "a.md")
+	bPath := filepath.Join(dir, "b.md")
+	if err := writeNativeSession(nativeSession{Paths: []string{aPath, bPath}, Active: bPath}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := readNativeSessionState()
+	if !ok || len(got.Paths) != 2 || got.Paths[0] != aPath || got.Paths[1] != bPath || got.Active != bPath {
+		t.Fatalf("会话恢复读写不符：ok=%v %+v", ok, got)
+	}
+	if err := writeNativeSession(nativeSession{Paths: []string{"relative.md"}}); err == nil {
+		t.Fatal("相对路径应被拒绝")
+	}
+	if err := writeNativeSession(nativeSession{}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok = readNativeSessionState()
+	if !ok || len(got.Paths) != 0 || got.Active != "" {
+		t.Fatalf("清空会话后仍有数据：ok=%v %+v", ok, got)
+	}
+}
+
+func TestSessionSaveAndRestoreOrderAndActiveTab(t *testing.T) {
+	app, dir := newTestApp(t)
+	useStubEditors(t)
+	names := []string{"甲.md", "乙.md", "丙.md"}
+	var paths []string
+	for _, name := range names {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("内容 "+name), 0600); err != nil {
+			t.Fatal(err)
+		}
+		doc, err := app.files.store.Load(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		app.adopt(doc, doc.Content)
+		paths = append(paths, doc.Path)
+	}
+	// 选中第二个标签“乙.md”后同步保存会话，模拟正常退出。
+	app.selectTab(1)
+	app.persistSessionSync()
+
+	// 模拟新实例启动，初始只有一个默认欢迎文档。
+	backend, err := workspace.NewAt(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := &Files{store: documents.NewStore("欢迎.md", welcome), workspace: &Workspace{}}
+	files.workspace.once.Do(func() { files.workspace.store = backend })
+	restarted := newNativeApp(files, files.workspace, NewAssets(files), &Updates{})
+	t.Cleanup(restarted.writes.Wait)
+	restarted.adopt(restarted.files.Current(), welcome)
+
+	session, ok := readNativeSessionState()
+	if !ok {
+		t.Fatal("读取已保存会话失败")
+	}
+	restarted.restoreSession(loadSessionFiles(session), session.Active)
+	if len(restarted.tabs) != 3 {
+		t.Fatalf("应恢复 3 个标签并移除默认欢迎页，得到 %d 个", len(restarted.tabs))
+	}
+	for i, want := range paths {
+		doc, exists := restarted.document(restarted.tabs[i].id)
+		if !exists || doc.Path != want {
+			t.Fatalf("第 %d 个标签路径不符：得到 %q，预期 %q", i, doc.Path, want)
+		}
+	}
+	if restarted.current != 1 || restarted.files.Current().Path != paths[1] {
+		t.Fatalf("未恢复到上次活动标签：current=%d path=%q want=%q", restarted.current, restarted.files.Current().Path, paths[1])
+	}
+}
+
+func TestSessionRestoreSkipsMissingAndMergesDraft(t *testing.T) {
+	app, dir := newTestApp(t)
+	useStubEditors(t)
+	keepPath := filepath.Join(dir, "保留.md")
+	missingPath := filepath.Join(dir, "已删.md")
+	if err := os.WriteFile(keepPath, []byte("磁盘内容"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	resolvedKeep, err := filepath.EvalSymlinks(keepPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.adopt(app.files.Current(), welcome)
+	session := nativeSession{Paths: []string{missingPath, keepPath}, Active: missingPath}
+	app.restoreSession(loadSessionFiles(session), session.Active)
+	if len(app.tabs) != 1 {
+		t.Fatalf("缺失文件应跳过，有效文件应替换欢迎页，得到 %d 个标签", len(app.tabs))
+	}
+	// 若同一文件同时有未保存草稿，恢复草稿应合并到已有标签上，不产生重复标签。
+	app.restoreDrafts([]nativeDraft{{ID: "old", Name: "保留.md", Path: resolvedKeep, Content: "未保存草稿"}})
+	if len(app.tabs) != 1 || app.tabs[0].editor.Markdown() != "未保存草稿" {
+		t.Fatalf("草稿合并到会话标签失败：tabs=%d content=%q", len(app.tabs), app.tabs[0].editor.Markdown())
+	}
+}
+
+func TestFailedSessionAndOutdatedWritePreserveSession(t *testing.T) {
+	app, dir := newTestApp(t)
+	useStubEditors(t)
+	dataDir, err := nativeDataDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	keepPath := filepath.Join(dir, "笔记.md")
+	if err := os.WriteFile(keepPath, []byte("正文"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ticket := nativeSessionGeneration.Add(1)
+	if err := writeNativeSessionVersionIn(dataDir, nativeSession{Paths: []string{keepPath}, Active: keepPath}, ticket); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeNativeSessionVersionIn(dataDir, nativeSession{}, ticket-1); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := readNativeSessionState(); !ok || len(got.Paths) != 1 {
+		t.Fatalf("过期写入覆盖了会话记录：ok=%v %+v", ok, got)
+	}
+	// 损坏的会话文件在未打开有效文件前不能被空会话覆盖。
+	if err := os.WriteFile(filepath.Join(dataDir, nativeSessionName), []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, ok := readNativeSessionState()
+	if ok {
+		t.Fatal("损坏会话不应标记为有效")
+	}
+	app.sessionBlocked = true
+	app.sessionReady = true
+	app.adopt(app.files.Current(), welcome)
+	app.persistSessionSync()
+	raw, _ := os.ReadFile(filepath.Join(dataDir, nativeSessionName))
+	if string(raw) != "{" {
+		t.Fatalf("损坏会话被空快照覆盖：%q", raw)
+	}
+	// 清理历史记录会同步清空会话记录。
+	app.clearData("清理历史记录")
+	app.writes.Wait()
+	if got, ok := readNativeSessionState(); !ok || len(got.Paths) != 0 {
+		t.Fatalf("清理历史记录后会话未清空：ok=%v %+v", ok, got)
+	}
+}
+
+func writeNativeSession(session nativeSession) error {
+	dir, err := nativeDataDir()
+	if err != nil {
+		return err
+	}
+	return writeNativeSessionIn(dir, session)
+}
+
 func saveNativeSettings(settings nativeSettings) error {
 	dir, err := nativeDataDir()
 	if err != nil {
