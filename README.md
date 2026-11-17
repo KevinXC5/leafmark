@@ -8,6 +8,8 @@
 
 官网 / Website：<https://kevinxc5.github.io/leafmark/> · 下载 / Releases：[GitHub Releases](https://github.com/KevinXC5/leafmark/releases)
 
+[![Listed on Awesome MyGo](https://awesomemygo.dev/badge.svg)](https://awesomemygo.dev/apps/leafmark)
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/assets/img/app-edit-dark.webp">
   <source media="(prefers-color-scheme: light)" srcset="site/assets/img/app-edit-light.webp">
@@ -78,6 +80,7 @@ HTML 与 PDF 的页面、正文和图表配色跟随导出时的应用主题，�
 ### 自动保存与恢复
 
 - 开启自动保存后，已有路径的文档在停止修改两秒后写入磁盘。未命名文档需先另存为。
+- 正常退出或安装更新重启后，再次启动会恢复上次打开的已保存标签页与当前活动标签。
 - 意外退出后，未保存内容从本机配置目录恢复为标签。单份草稿不超过 1 MiB，总量不超过 5 MiB。
 
 ### 设置
