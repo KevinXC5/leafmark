@@ -202,6 +202,7 @@ type nativeApp struct {
 	updateDownloaded  int64
 	updateTotal       int64
 	updateError       string
+	updateNotesScroll ui.ScrollState
 	confirmClear      string
 	settingsStatus    string
 	shortcutOpen      bool

@@ -566,7 +566,7 @@ func (a *nativeApp) clearData(label string) {
 }
 
 // viewReleaseNotes 把 Markdown 写成的更新日志排成小标题、段落与列表，不露出标记符号。
-func viewReleaseNotes(c *ui.Context, markdown string) {
+func viewReleaseNotes(c *ui.Context, markdown string, muted ui.Color) {
 	plain := func(runs []richtext.Run) string {
 		var b strings.Builder
 		for _, r := range runs {
@@ -597,8 +597,8 @@ func viewReleaseNotes(c *ui.Context, markdown string) {
 				if b.Ordered {
 					marker = strconv.Itoa(max(1, b.Start)) + "."
 				}
-				ui.Row(c.Key("note:"+strconv.Itoa(i))).FillWidth().Gap(8).Padding(0, 0, 0, float32(6+max(b.Level-1, 0)*16)).Children(func() {
-					ui.Text(c, marker).FontSize(scaled(c, 13)).LineHeight(1.8).Shrink(0)
+				ui.Row(c.Key("note:"+strconv.Itoa(i))).FillWidth().AlignItems(ui.Start).Gap(8).Padding(0, 0, 0, float32(6+max(b.Level-1, 0)*16)).Children(func() {
+					ui.Text(c, marker).FontSize(scaled(c, 13)).LineHeight(1.8).TextColor(muted).Shrink(0)
 					ui.Text(c, text).FontSize(scaled(c, 13)).LineHeight(1.8).Grow(1).MinWidth(0)
 				})
 			case richtext.Code:
@@ -611,6 +611,45 @@ func viewReleaseNotes(c *ui.Context, markdown string) {
 					ui.Text(c, text).FontSize(scaled(c, 13)).LineHeight(1.8)
 				}
 			}
+		}
+	})
+}
+
+// drawScrollFade 在可滚动卡片的上下边缘叠加同底色渐变遮罩，避免文字半行硬切并提示可继续滚动；
+// 右侧留出滚动条区域，避免遮暗滚动条滑块。
+func drawScrollFade(painter *ui.Painter, r ui.Rect, radius float32, bg ui.Color, scroll *ui.ScrollState, rightInset float32) {
+	w := r.W - rightInset
+	if scroll == nil || w <= 0 || r.H <= 0 {
+		return
+	}
+	showTop := scroll.Y > 1
+	showBottom := scroll.MaxY > 1 && scroll.Y < scroll.MaxY-1
+	if !showTop && !showBottom {
+		return
+	}
+	clear := bg.Alpha(0)
+	painter.Clip(r, radius, func() {
+		if showTop {
+			h := min(float32(24), r.H/3)
+			painter.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: w, H: h}, ui.LinearGradient{
+				Angle: 180,
+				Stops: []ui.GradientStop{
+					{Color: bg, At: 0},
+					{Color: bg, At: 0.2},
+					{Color: clear, At: 1},
+				},
+			}, 0)
+		}
+		if showBottom {
+			h := min(float32(36), r.H/3)
+			painter.FillGradient(ui.Rect{X: r.X, Y: r.Y + r.H - h, W: w, H: h}, ui.LinearGradient{
+				Angle: 180,
+				Stops: []ui.GradientStop{
+					{Color: clear, At: 0},
+					{Color: bg, At: 0.8},
+					{Color: bg, At: 1},
+				},
+			}, 0)
 		}
 	})
 }
@@ -659,9 +698,15 @@ func (a *nativeApp) viewUpdateDialog(c *ui.Context) {
 		ui.Text(c, "发现新版本 "+status.Available).Bold().FontSize(scaled(c, 18))
 		ui.Text(c, "当前版本："+version).FontSize(scaled(c, 12)).TextColor(p.muted)
 		ui.Text(c, "更新日志").FontSize(scaled(c, 13)).FontWeight(600)
-		ui.Scroll(c).Width(500).MinHeight(0).MaxHeight(320).Padding(16).Radius(8).Background(p.fillStrong).Children(func() {
-			viewReleaseNotes(c, notes)
-		})
+		notesBg := p.fillStrong
+		ui.Scroll(c).Width(500).MinHeight(0).MaxHeight(320).Padding(16, 20, 22, 16).Radius(8).Background(notesBg).
+			TrackScroll(&a.updateNotesScroll).KeepScrollbars(true).
+			DrawOver(func(painter *ui.Painter, r ui.Rect) {
+				drawScrollFade(painter, r, 8, notesBg, &a.updateNotesScroll, 14)
+			}).
+			Children(func() {
+				viewReleaseNotes(c, notes, p.muted)
+			})
 		hint, fraction, shown := a.updateProgress(status.Installed)
 		ui.Text(c, hint).FontSize(scaled(c, 12)).LineHeight(1.6).TextColor(p.muted).Width(500)
 		if shown {

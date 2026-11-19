@@ -2,6 +2,8 @@ package desktop
 
 import (
 	"context"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func (a *nativeApp) checkUpdate() {
@@ -75,4 +77,5 @@ func (a *nativeApp) dismissUpdate() {
 		a.updateCancel()
 	}
 	a.updateOpen = false
+	a.updateNotesScroll = ui.ScrollState{}
 }

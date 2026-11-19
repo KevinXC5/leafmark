@@ -197,3 +197,53 @@ func TestUpdateDialogListsEveryVersionSinceCurrent(t *testing.T) {
 		t.Fatal("更新日志不应包含当前及更早版本的说明")
 	}
 }
+
+func TestUpdateNotesBulletTopAlignedAndScrollReset(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "正文")
+	longItem := "在长文档中静止浏览或滚动时，编辑器会减少重复渲染与排版计算，降低 CPU 占用，滚动更顺畅，并且确保这条列表说明能够折行显示。"
+	notes := "### 0.9.7\n\n本次更新提升了长文档浏览与稳定性。\n\n#### 使用体验\n\n- " + longItem + "\n" +
+		strings.Repeat("- 另一条用于撑高更新日志滚动区域的说明内容，让内容明显超出弹窗卡片高度。\n", 14)
+	app.updates = &Updates{
+		pending:   &mygo.Update{Version: "0.9.7", Notes: notes},
+		versionFn: func() string { return "0.9.2" },
+		enabledFn: func() bool { return true },
+	}
+	app.updateOpen = true
+	view := ui.NewTester(app.View, 1100, 760)
+	view.Frame()
+
+	bullet, ok := view.Find("•")
+	if !ok {
+		t.Fatal("未找到列表圆点")
+	}
+	item, ok := view.Find(longItem)
+	if !ok {
+		t.Fatal("未找到多行列表正文")
+	}
+	if item.H <= bullet.H*1.5 {
+		t.Fatalf("测试列表项未折行：bullet=%+v item=%+v", bullet, item)
+	}
+	diff := bullet.Y - item.Y
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > 1 {
+		t.Fatalf("列表圆点应与首行顶部对齐，而非垂直居中：bullet=%+v item=%+v", bullet, item)
+	}
+	if app.updateNotesScroll.MaxY <= 0 {
+		t.Fatalf("长更新日志应触发可滚动区域：MaxY=%v", app.updateNotesScroll.MaxY)
+	}
+
+	app.updateNotesScroll.Y = app.updateNotesScroll.MaxY / 2
+	view.Frame()
+	if app.updateNotesScroll.Y <= 0 {
+		t.Fatalf("滚动更新日志后应记录偏移：Y=%v", app.updateNotesScroll.Y)
+	}
+
+	app.dismissUpdate()
+	if app.updateNotesScroll.Y != 0 || app.updateNotesScroll.MaxY != 0 {
+		t.Fatalf("关闭更新弹窗后应重置滚动状态：%+v", app.updateNotesScroll)
+	}
+}
