@@ -361,3 +361,65 @@ func TestReleaseNotesSinceKeepsVersionsNewerThanCurrent(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdatesStatusCachesReleaseNotes(t *testing.T) {
+	calls := 0
+	prev := parseReleaseNotes
+	parseReleaseNotes = func(notes, current string) string {
+		calls++
+		return releaseNotesSince(notes, current)
+	}
+	t.Cleanup(func() { parseReleaseNotes = prev })
+
+	u := newTestUpdates()
+	u.versionFn = func() string { return "0.5.1" }
+	up1 := &mygo.Update{Version: "0.6.1", Notes: "### 0.6.1\n\n修复问题。\n\n### 0.5.1\n\n旧版本。\n"}
+	u.checkFn = func(context.Context) (*mygo.Update, error) { return up1, nil }
+
+	status, err := u.Check(context.Background())
+	if err != nil {
+		t.Fatalf("检查失败：%v", err)
+	}
+	if status.Notes != "修复问题。" || calls != 1 {
+		t.Fatalf("首次 Check 应计算并缓存日志：notes=%q calls=%d", status.Notes, calls)
+	}
+	for range 10 {
+		got := u.Status()
+		if got.Notes != "修复问题。" {
+			t.Fatalf("重复 Status 返回日志不符：%q", got.Notes)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("重复调用 Status 不应重复执行 releaseNotesSince，实际调用 %d 次", calls)
+	}
+
+	// pending 更新后应刷新缓存。
+	up2 := &mygo.Update{Version: "0.6.2", Notes: "### 0.6.2\n\n新增优化。\n\n### 0.5.1\n\n旧版本。\n"}
+	u.checkFn = func(context.Context) (*mygo.Update, error) { return up2, nil }
+	status, err = u.Check(context.Background())
+	if err != nil {
+		t.Fatalf("再次检查失败：%v", err)
+	}
+	if status.Notes != "新增优化。" || calls != 2 {
+		t.Fatalf("pending 变更后应重新计算日志：notes=%q calls=%d", status.Notes, calls)
+	}
+	if u.Status().Notes != "新增优化。" || calls != 2 {
+		t.Fatalf("新 pending 应继续命中缓存：calls=%d", calls)
+	}
+}
+
+func TestUpdatesCancelErrorUnwrapsContextCanceled(t *testing.T) {
+	u := newTestUpdates()
+	u.pending = &mygo.Update{Version: "1.1.0"}
+	u.installFn = func(ctx context.Context, _ *mygo.Update, _ func(int64, int64)) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := u.Install(ctx)
+	requireUpdateError(t, err, "更新已取消，可稍后重试")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("取消错误应保留 context.Canceled 语义：%v", err)
+	}
+}

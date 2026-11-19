@@ -403,30 +403,17 @@ func sourceReplace(text, query, replacement string, all bool) (int, string) {
 	if query == "" {
 		return 0, text
 	}
-	runes := []rune(text)
-	q := []rune(query)
-	rep := []rune(replacement)
-	var b strings.Builder
-	b.Grow(len(text))
-	count := 0
-	at := 0
-	for {
-		next := sourceIndex(runes, q, at)
-		if next < 0 {
-			b.WriteString(string(runes[at:]))
-			break
+	if !all {
+		if strings.Index(text, query) < 0 {
+			return 0, text
 		}
-		b.WriteString(string(runes[at:next]))
-		b.WriteString(replacement)
-		count++
-		at = next + len(q)
-		if !all {
-			b.WriteString(string(runes[at:]))
-			break
-		}
-		_ = rep
+		return 1, strings.Replace(text, query, replacement, 1)
 	}
-	return count, b.String()
+	count := strings.Count(text, query)
+	if count == 0 {
+		return 0, text
+	}
+	return count, strings.ReplaceAll(text, query, replacement)
 }
 
 // sourceColors 是源码语法色，沿用书写界面的暖纸与赭石，不另用一套高饱和色。

@@ -1,6 +1,7 @@
 package documents
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -101,6 +102,18 @@ func (s *Store) Select(id string) (Document, error) {
 	}
 	return s.doc, nil
 }
+func (s *Store) Get(id string) (Document, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id != "" && s.doc.ID == id {
+		return s.doc, true
+	}
+	entry, ok := s.sessions[id]
+	if !ok {
+		return Document{}, false
+	}
+	return entry.doc, true
+}
 func (s *Store) List() []Document {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -136,6 +149,34 @@ func (s *Store) Close(id string) error {
 	}
 	return nil
 }
+func validateBytes(raw []byte) error {
+	if len(raw) > maxBytes {
+		return errors.New("验证版本支持最大 16 MB 的文档")
+	}
+	if !utf8.Valid(raw) || bytes.IndexByte(raw, 0) >= 0 {
+		return errors.New("请打开 UTF-8 编码的 Markdown 文本文件")
+	}
+	return nil
+}
+
+// decodeText 校验原始字节并只执行一次 string 转换，同时识别 BOM 与 CRLF。
+func decodeText(raw []byte) (text string, bom, crlf bool, err error) {
+	if err = validateBytes(raw); err != nil {
+		return "", false, false, err
+	}
+	utf8BOM := []byte{0xef, 0xbb, 0xbf}
+	if bytes.HasPrefix(raw, utf8BOM) {
+		bom = true
+		raw = raw[len(utf8BOM):]
+	}
+	text = string(raw)
+	crlf = strings.Contains(text, "\r\n")
+	if crlf {
+		text = strings.ReplaceAll(text, "\r\n", "\n")
+	}
+	return text, bom, crlf, nil
+}
+
 func validate(content string) error {
 	if len(content) > maxBytes {
 		return errors.New("验证版本支持最大 16 MB 的文档")
@@ -155,7 +196,7 @@ func readFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := validate(string(raw)); err != nil {
+	if err := validateBytes(raw); err != nil {
 		return nil, err
 	}
 	return raw, nil
@@ -183,11 +224,12 @@ func (s *Store) LoadSnapshot(path string, raw []byte) (Document, error) {
 	if !filepath.IsAbs(path) {
 		return Document{}, errors.New("文档快照必须使用已授权的绝对路径")
 	}
-	if err := validate(string(raw)); err != nil {
+	text, bom, crlf, err := decodeText(raw)
+	if err != nil {
 		return Document{}, err
 	}
 	path = filepath.Clean(path)
-	text := strings.TrimPrefix(string(raw), string(rune(0xfeff)))
+	digest := sha256.Sum256(raw)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.remember()
@@ -199,11 +241,10 @@ func (s *Store) LoadSnapshot(path string, raw []byte) (Document, error) {
 			return s.doc, nil
 		}
 	}
-	s.bom = strings.HasPrefix(string(raw), "\ufeff")
-	s.crlf = strings.Contains(text, "\r\n")
-	text = strings.ReplaceAll(text, "\r\n", "\n")
+	s.bom = bom
+	s.crlf = crlf
 	s.doc = Document{ID: rand.Text(), Name: filepath.Base(path), Path: path, Content: text}
-	s.saved, s.digest = text, sha256.Sum256(raw)
+	s.saved, s.digest = text, digest
 	return s.doc, nil
 }
 
@@ -221,9 +262,11 @@ func (s *Store) ReadSnapshot(id string) (string, []byte, error) {
 
 // ReloadSnapshot 在主线程确认后提交已读取字节，保留标签 ID 和当前选择。
 func (s *Store) ReloadSnapshot(id, path string, raw []byte, discardDirty bool) (Document, error) {
-	if err := validate(string(raw)); err != nil {
+	text, bom, crlf, err := decodeText(raw)
+	if err != nil {
 		return Document{}, err
 	}
+	digest := sha256.Sum256(raw)
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
@@ -239,12 +282,10 @@ func (s *Store) ReloadSnapshot(id, path string, raw []byte, discardDirty bool) (
 	if entry.doc.Dirty && !discardDirty {
 		return Document{}, ErrDirty
 	}
-	entry.bom = strings.HasPrefix(string(raw), "\ufeff")
-	text := strings.TrimPrefix(string(raw), "\ufeff")
-	entry.crlf = strings.Contains(text, "\r\n")
-	text = strings.ReplaceAll(text, "\r\n", "\n")
+	entry.bom = bom
+	entry.crlf = crlf
 	entry.doc.Content, entry.doc.Dirty = text, false
-	entry.saved, entry.digest = text, sha256.Sum256(raw)
+	entry.saved, entry.digest = text, digest
 	s.sessions[id] = entry
 	if s.doc.ID == id {
 		s.doc, s.saved, s.digest, s.crlf, s.bom = entry.doc, entry.saved, entry.digest, entry.crlf, entry.bom

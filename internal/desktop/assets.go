@@ -20,12 +20,11 @@ func (a *Assets) document(id string) (documents.Document, error) {
 	if a == nil || a.files == nil || a.files.store == nil || id == "" {
 		return documents.Document{}, documents.ErrStale
 	}
-	for _, doc := range a.files.store.List() {
-		if doc.ID == id {
-			return doc, nil
-		}
+	doc, ok := a.files.store.Get(id)
+	if !ok {
+		return documents.Document{}, documents.ErrStale
 	}
-	return documents.Document{}, documents.ErrStale
+	return doc, nil
 }
 
 func (a *Assets) ReadImage(id, resource string) (string, error) {
@@ -37,6 +36,18 @@ func (a *Assets) ReadImage(id, resource string) (string, error) {
 		return "", errors.New("请先保存文档后再读取相对图片")
 	}
 	return assets.FindImage(doc.Path, a.workspaceRoot(), resource)
+}
+
+// ReadImageRaw 读取已授权文档相对路径的图片原始字节与格式，免去 Base64 往返与二次解码。
+func (a *Assets) ReadImageRaw(id, markdownPath string) ([]byte, string, error) {
+	doc, err := a.document(id)
+	if err != nil {
+		return nil, "", err
+	}
+	if doc.Path == "" {
+		return nil, "", errors.New("请先保存文档后再读取相对图片")
+	}
+	return assets.FindImageRaw(doc.Path, a.workspaceRoot(), markdownPath)
 }
 
 // workspaceRoot 返回当前工作区的授权根目录，供按文件名查找图片；没有工作区时为空。

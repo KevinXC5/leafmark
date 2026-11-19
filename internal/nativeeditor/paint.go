@@ -2,6 +2,7 @@ package nativeeditor
 
 import (
 	"math"
+	"sort"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -14,36 +15,66 @@ const containerRadius = 10
 
 func (e *Editor) paint(p *ui.Painter, r ui.Rect, theme *ui.Theme, now time.Time) {
 	sel := e.selection()
-	// 画笔只做横向裁剪：视口外的元素在这里跳过，长文档滚动时不必每帧提交全文绘制指令。
-	// 上下各留一屏余量，容纳滚动偏移与本帧绘制位置之间的差。
-	top, bottom := e.scroll.Y-e.viewH, e.scroll.Y+e.viewH*2
+	// 视口外的元素跳过绘制，上下各留半屏余量容纳本帧与滚动偏移的差；viewH <= 0 时不做裁剪。
+	clip := e.viewH > 0
+	margin := e.viewH * 0.5
+	top, bottom := e.scroll.Y-margin, e.scroll.Y+e.viewH+margin
 	for _, f := range e.lay.frames {
-		if e.viewH > 0 && (f.y+f.h < top || f.y > bottom) {
+		if clip && (f.y+f.h < top || f.y > bottom) {
 			continue
 		}
 		e.paintFrame(p, r, f, theme)
 	}
-	for _, b := range e.lay.blocks {
-		if e.viewH > 0 && (b.y+b.h < top || b.y > bottom) {
-			continue
+	blocks := e.lay.blocks
+	firstB, endB := 0, len(blocks)
+	if clip && len(blocks) > 0 {
+		firstB = sort.Search(len(blocks), func(i int) bool {
+			return blocks[i].y+blocks[i].h >= top
+		})
+		endB = firstB
+		for endB < len(blocks) && blocks[endB].y <= bottom {
+			endB++
 		}
-		e.paintBlock(p, r, b, theme)
 	}
-	for _, ln := range e.lay.lines {
-		if e.viewH > 0 && (ln.y+ln.height < top || ln.y > bottom) {
+	for i := firstB; i < endB; i++ {
+		e.paintBlock(p, r, blocks[i], top, bottom, clip, theme)
+	}
+	for i := firstB; i < endB; i++ {
+		b := blocks[i]
+		if len(b.lines) == 0 {
 			continue
 		}
-		e.paintSelection(p, r, ln, sel, theme)
-		e.paintLine(p, r, ln, theme)
+		if clip && b.kind != richtext.TableBlock {
+			// 非表格块内的行按 y 单调递增，二分定位起始可见行并在超出底边时提前结束。
+			start := sort.Search(len(b.lines), func(k int) bool {
+				ln := e.lay.lines[b.lines[k]]
+				return ln.y+ln.height >= top
+			})
+			for k := start; k < len(b.lines); k++ {
+				ln := e.lay.lines[b.lines[k]]
+				if ln.y > bottom {
+					break
+				}
+				e.paintSelection(p, r, b, ln, sel, theme)
+				e.paintLine(p, r, b, ln, theme)
+			}
+			continue
+		}
+		for _, idx := range b.lines {
+			ln := e.lay.lines[idx]
+			if clip && (ln.y+ln.height < top || ln.y > bottom) {
+				continue
+			}
+			e.paintSelection(p, r, b, ln, sel, theme)
+			e.paintLine(p, r, b, ln, theme)
+		}
 	}
 	if e.focusMode {
 		// 用纸色盖住光标所在块之外的内容，装饰与文字一并淡化。
 		active := e.doc.BlockIndexAt(e.focus)
 		veil := theme.Background.Alpha(.58)
-		for _, b := range e.lay.blocks {
-			if e.viewH > 0 && (b.y+b.h < top || b.y > bottom) {
-				continue
-			}
+		for i := firstB; i < endB; i++ {
+			b := blocks[i]
 			if b.index != active {
 				p.Fill(ui.Rect{X: r.X + b.x - 6, Y: r.Y + b.y - 2, W: b.w + 12, H: b.h + 4}, veil, 0)
 			}
@@ -166,7 +197,7 @@ func paintCheck(p *ui.Painter, check ui.Rect, checked bool, theme *ui.Theme) {
 	p.StrokePath(tick, 1.7, theme.Background)
 }
 
-func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Theme) {
+func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, top, bottom float32, clip bool, theme *ui.Theme) {
 	x, y := r.X+b.x, r.Y+b.y
 	switch b.kind {
 	case richtext.Callout:
@@ -217,7 +248,7 @@ func (e *Editor) paintBlock(p *ui.Painter, r ui.Rect, b blockBox, theme *ui.Them
 			p.Fill(ui.Rect{X: x, Y: y, W: min(b.w, 240), H: 64}, theme.Surface, containerRadius)
 		}
 	case richtext.TableBlock:
-		e.paintTableGrid(p, x, y, b, theme)
+		e.paintTableGrid(p, x, y, b, top, bottom, clip, theme)
 	}
 }
 
@@ -247,21 +278,30 @@ func paintBulb(p *ui.Painter, x, y float32, c ui.Color) {
 	}
 }
 
-// paintTableGrid 只画表头底色与行间横线：不描外框、不画列线，列靠对齐区分。
-func (e *Editor) paintTableGrid(p *ui.Painter, x, y float32, b blockBox, theme *ui.Theme) {
-	blocks := e.doc.Blocks()
+// paintTableGrid 只画表头底色与可见行间横线：不描外框、不画列线，列靠对齐区分。
+func (e *Editor) paintTableGrid(p *ui.Painter, x, y float32, b blockBox, top, bottom float32, clip bool, theme *ui.Theme) {
 	first := 1
-	if b.index < len(blocks) && blocks[b.index].Table != nil && blocks[b.index].Table.Header && len(b.rows) > 1 {
-		p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.rows[1]}, theme.Surface, containerRadius)
+	if b.tableHeader && len(b.rows) > 1 {
+		if !clip || (b.y+b.rows[1] >= top && b.y <= bottom) {
+			p.Fill(ui.Rect{X: x, Y: y, W: b.w, H: b.rows[1]}, theme.Surface, containerRadius)
+		}
 		first = 2 // 表头底色已经与正文分开，第一条横线省去
 	}
 	for i := first; i+1 < len(b.rows); i++ {
+		rowY := b.y + b.rows[i]
+		if clip {
+			if rowY+1 < top {
+				continue
+			}
+			if rowY > bottom {
+				break
+			}
+		}
 		p.Fill(ui.Rect{X: x, Y: y + b.rows[i], W: b.w, H: 1}, theme.Border, 0)
 	}
 }
 
-func (e *Editor) paintLine(p *ui.Painter, r ui.Rect, ln line, theme *ui.Theme) {
-	b := e.blockBox(ln.block)
+func (e *Editor) paintLine(p *ui.Painter, r ui.Rect, b blockBox, ln line, theme *ui.Theme) {
 	baseX := r.X + b.x
 	baseY := r.Y + ln.y + ln.ascent
 	if len(ln.glyphs) == 0 {
@@ -274,153 +314,67 @@ func (e *Editor) paintLine(p *ui.Painter, r ui.Rect, ln line, theme *ui.Theme) {
 	p.Glyphs(ln.markers, baseX, baseY, color)
 	if len(ln.spans) == 0 {
 		p.Glyphs(ln.glyphs, baseX, baseY, color)
-	} else {
-		for _, span := range ln.spans {
-			if len(span.glyphs) == 0 {
-				continue
-			}
-			start := span.glyphs[0].X
-			end := advanceOf(span.glyphs)
-			if span.highlight {
-				p.Fill(ui.Rect{X: baseX + start, Y: r.Y + ln.y + 2, W: end - start, H: ln.height - 4}, ui.RGBA(233, 185, 73, .35), 2)
-			}
-			if span.kbd {
-				cap := ui.Rect{X: baseX + start - 3, Y: r.Y + ln.y + 2, W: end - start + 6, H: ln.height - 4}
-				p.Fill(cap, theme.Surface, 4)
-			} else if span.code {
-				p.Fill(ui.Rect{X: baseX + start - 2, Y: r.Y + ln.y + 2, W: end - start + 4, H: ln.height - 4}, theme.Surface, 3)
-			}
-			ink := color
-			switch span.ink {
-			case inkAccent:
-				ink = theme.Accent
-			case inkMuted:
-				ink = theme.TextMuted
-			}
-			if e.sourceMode && span.source > 0 && int(span.source) < len(e.sourcePalette) {
-				ink = e.sourcePalette[span.source]
-			}
-			if span.link != "" && safeURL(span.link, false) {
-				ink = theme.Accent
-			}
-			if span.footnote != "" {
-				p.Glyphs(span.display, baseX+start, baseY+span.dy, theme.Accent)
-			} else if span.image != "" {
-				if bm := e.images[span.image]; bm != nil {
-					bm.paint(p, ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}, theme.Dark)
-				} else {
-					cap := ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}
-					p.Fill(cap, theme.Surface, 3)
-					p.Glyphs(span.display, baseX, baseY, theme.TextMuted)
-				}
-			} else if span.math != nil {
-				span.math.Paint(p, baseX+start, baseY, ink)
-			} else {
-				p.Glyphs(span.glyphs, baseX, baseY+span.dy, ink)
-			}
-			if span.strike {
-				p.Fill(ui.Rect{X: baseX + start, Y: baseY - ln.ascent*.35, W: end - start, H: 1}, theme.Text, 0)
-			}
-			if span.link != "" && safeURL(span.link, false) {
-				p.Fill(ui.Rect{X: baseX + start, Y: baseY + 2, W: end - start, H: 1}, theme.Accent, 0)
-			} else if span.underline {
-				p.Fill(ui.Rect{X: baseX + start, Y: baseY + 2, W: end - start, H: 1}, ink, 0)
-			}
-		}
-	}
-	// 删除线和链接下划线按字形跨度画，不拆 emoji。
-	if len(ln.spans) == 0 {
-		e.paintDecorations(p, baseX, baseY, ln, theme)
-	}
-}
-
-func (e *Editor) paintDecorations(p *ui.Painter, baseX, baseY float32, ln line, theme *ui.Theme) {
-	// 装饰按该行对应的 run 样式。这里用字形跨度画一条连续线，链接用强调色。
-	blocks := e.doc.Blocks()
-	if ln.block < 0 || ln.block >= len(blocks) {
 		return
 	}
-	bl := blocks[ln.block]
-	if bl.Kind == richtext.Code || bl.Kind == richtext.Raw || bl.Kind == richtext.Image {
-		return
-	}
-	local := 0
-	prefixSkip := ln.prefix
-	_ = prefixSkip
-	off := ln.origin - e.blockOrigin(ln.block)
-	for _, run := range textRuns(bl, ln) {
-		rs := []rune(run.text)
-		if local >= ln.count {
-			break
-		}
-		// 这一段可能从上一行延续。
-		if off > 0 {
-			if off >= len(rs) {
-				off -= len(rs)
-				continue
-			}
-			rs = rs[off:]
-			off = 0
-		}
-		n := len(rs)
-		if local+n > ln.count {
-			n = ln.count - local
-		}
-		if n <= 0 {
+	for _, span := range ln.spans {
+		if len(span.glyphs) == 0 {
 			continue
 		}
-		x0 := ln.caretX(ln.origin + local)
-		x1 := ln.caretX(ln.origin + local + n)
-		if run.strike {
-			p.Fill(ui.Rect{X: baseX + x0, Y: baseY - ln.ascent*0.35, W: x1 - x0, H: 1}, theme.Text, 0)
+		start := span.glyphs[0].X
+		end := span.endX
+		if span.highlight {
+			p.Fill(ui.Rect{X: baseX + start, Y: r.Y + ln.y + 2, W: end - start, H: ln.height - 4}, ui.RGBA(233, 185, 73, .35), 2)
 		}
-		if run.link != "" && safeURL(run.link, false) {
-			p.Fill(ui.Rect{X: baseX + x0, Y: baseY + 2, W: x1 - x0, H: 1}, theme.Accent, 0)
+		if span.kbd {
+			cap := ui.Rect{X: baseX + start - 3, Y: r.Y + ln.y + 2, W: end - start + 6, H: ln.height - 4}
+			p.Fill(cap, theme.Surface, 4)
+		} else if span.code {
+			p.Fill(ui.Rect{X: baseX + start - 2, Y: r.Y + ln.y + 2, W: end - start + 4, H: ln.height - 4}, theme.Surface, 3)
 		}
-		local += n
-		if local >= ln.count {
-			break
+		ink := color
+		switch span.ink {
+		case inkAccent:
+			ink = theme.Accent
+		case inkMuted:
+			ink = theme.TextMuted
 		}
-	}
-}
-
-type deco struct {
-	text   string
-	strike bool
-	link   string
-}
-
-func textRuns(bl richtext.Block, ln line) []deco {
-	var runs []richtext.Run
-	switch bl.Kind {
-	case richtext.TableBlock:
-		if bl.Table != nil {
-			for _, row := range bl.Table.Rows {
-				for _, cell := range row {
-					runs = append(runs, cell.Runs...)
-				}
+		if e.sourceMode && span.source > 0 && int(span.source) < len(e.sourcePalette) {
+			ink = e.sourcePalette[span.source]
+		}
+		if span.linkSafe {
+			ink = theme.Accent
+		}
+		if span.footnote != "" {
+			p.Glyphs(span.display, baseX+start, baseY+span.dy, theme.Accent)
+		} else if span.image != "" {
+			if bm := e.images[span.image]; bm != nil {
+				bm.paint(p, ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}, theme.Dark)
+			} else {
+				cap := ui.Rect{X: baseX + start, Y: r.Y + ln.y + 1, W: end - start, H: ln.height - 2}
+				p.Fill(cap, theme.Surface, 3)
+				p.Glyphs(span.display, baseX, baseY, theme.TextMuted)
 			}
+		} else if span.math != nil {
+			span.math.Paint(p, baseX+start, baseY, ink)
+		} else {
+			p.Glyphs(span.glyphs, baseX, baseY+span.dy, ink)
 		}
-	default:
-		runs = bl.Runs
-	}
-	out := make([]deco, 0, len(runs))
-	for _, r := range runs {
-		d := deco{text: r.Text, strike: r.Marks&richtext.MarkStrike != 0}
-		if r.Link != nil {
-			d.link = r.Link.URL
+		if span.strike {
+			p.Fill(ui.Rect{X: baseX + start, Y: baseY - ln.ascent*.35, W: end - start, H: 1}, theme.Text, 0)
 		}
-		out = append(out, d)
+		if span.linkSafe {
+			p.Fill(ui.Rect{X: baseX + start, Y: baseY + 2, W: end - start, H: 1}, theme.Accent, 0)
+		} else if span.underline {
+			p.Fill(ui.Rect{X: baseX + start, Y: baseY + 2, W: end - start, H: 1}, ink, 0)
+		}
 	}
-	_ = ln
-	return out
 }
 
 func (e *Editor) blockOrigin(index int) int {
 	return e.blockBox(index).origin
 }
 
-func (e *Editor) paintSelection(p *ui.Painter, r ui.Rect, ln line, sel richtext.Selection, theme *ui.Theme) {
+func (e *Editor) paintSelection(p *ui.Painter, r ui.Rect, b blockBox, ln line, sel richtext.Selection, theme *ui.Theme) {
 	if sel.Start == sel.End || ln.count == 0 && !ln.newline {
 		return
 	}
@@ -434,7 +388,6 @@ func (e *Editor) paintSelection(p *ui.Painter, r ui.Rect, ln line, sel richtext.
 	if from >= to && !ln.newline {
 		return
 	}
-	b := e.blockBox(ln.block)
 	x0 := b.x + ln.caretX(from)
 	x1 := b.x + ln.caretX(to)
 	if to == z && ln.newline && sel.End > z {
@@ -448,13 +401,15 @@ func (e *Editor) paintSelection(p *ui.Painter, r ui.Rect, ln line, sel richtext.
 
 func (e *Editor) paintCompose(p *ui.Painter, r ui.Rect, theme *ui.Theme) {
 	c := e.caretRect()
-	// caretRect 已含组合光标偏移，绘制时回到组合起点。
+	// caretRect 已含组合光标偏移，绘制时回到组合起点，基线对齐当前行。
 	width := e.composeWidth()
 	x := r.X + c[0] - e.composeAdvance
 	y := r.Y + c[1]
 	p.Fill(ui.Rect{X: x, Y: y, W: width + 2, H: c[3]}, theme.Surface, 2)
-	g := e.composeGlyphs
-	m := e.composeMetrics
-	p.Glyphs(g, x, y+m.Ascent, theme.Text)
+	ascent := e.composeAscent
+	if ascent <= 0 {
+		ascent = e.composeMetrics.Ascent
+	}
+	p.Glyphs(e.composeGlyphs, x, y+ascent, theme.Text)
 	p.Fill(ui.Rect{X: x, Y: y + c[3] - 1, W: width, H: 1}, theme.Accent, 0)
 }

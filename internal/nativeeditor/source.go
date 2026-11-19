@@ -38,6 +38,18 @@ func (e *Editor) SetSourceMode(on bool) {
 	e.sourceMode = on
 	e.anchor, e.focus = 0, 0
 	e.pending = 0
+	e.hasGoalX = false
+	// 切换模式时释放另一模式的大排版缓存，并强制新文档重新排版。
+	if on {
+		e.wysiwygLay = layout{}
+		e.wysiwygLaid = false
+		e.sourceLaid = false
+	} else {
+		e.sourceLay = layout{}
+		e.sourceLaid = false
+		e.wysiwygLaid = false
+		e.cache.sourceSpans, e.cache.sourceKinds = nil, nil
+	}
 }
 
 // SetSourceSyntax 设置源码着色。回调只读全文，不得改文档；返回的区间按出现顺序覆盖字形。
@@ -49,7 +61,6 @@ func (e *Editor) SetSourceSyntax(fn func(text string) []SourceSpan) {
 // SetSourcePalette 设置源码着色。下标与 SourceSpan.Kind 对齐，0 不使用，正文仍用主题文字色。
 func (e *Editor) SetSourcePalette(colors [6]ui.Color) {
 	e.sourcePalette = colors
-	e.sourceSet = true
 }
 
 // Scroll 返回内容滚动偏移。源码模式用它确认大纲跳转已经滚离文首。

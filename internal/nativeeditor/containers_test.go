@@ -26,7 +26,12 @@ func offsetOf(t *testing.T, ed *Editor, needle string) int {
 // blockOf 返回 needle 所在块的排版盒。
 func blockOf(t *testing.T, ed *Editor, needle string) blockBox {
 	t.Helper()
-	return ed.lay.blocks[ed.doc.BlockIndexAt(offsetOf(t, ed, needle))]
+	bi := ed.doc.BlockIndexAt(offsetOf(t, ed, needle))
+	b, ok := findBlockBox(ed.lay, bi)
+	if !ok {
+		t.Fatalf("排版盒中找不到块 %d（%q）", bi, needle)
+	}
+	return b
 }
 
 func framesOf(ed *Editor, kind richtext.Kind) []frame {
@@ -940,10 +945,11 @@ func TestDetailsFoldKeepsSource(t *testing.T) {
 	if !found || !box.folded {
 		t.Fatalf("未打开的 details 应默认收起：folded=%v map=%v", box.folded, ed.collapsed)
 	}
-	hidden := blockOf(t, ed, "隐藏正文")
-	if hidden.x < 1000 {
-		t.Fatalf("收起时正文应移出视口：%+v", hidden)
+	hiddenIdx := ed.doc.BlockIndexAt(offsetOf(t, ed, "隐藏正文"))
+	if b, ok := findBlockBox(ed.lay, hiddenIdx); ok {
+		t.Fatalf("收起时隐藏子块不应进入排版盒：%+v", b)
 	}
+	foldedHeight := ed.lay.height
 	note := blockOf(t, ed, "提示正文")
 	if note.kind != richtext.Callout || note.x > 1000 {
 		t.Fatalf("普通提示块应保持展开：%+v", note)
@@ -963,6 +969,9 @@ func TestDetailsFoldKeepsSource(t *testing.T) {
 	}
 	if open.folded {
 		t.Fatalf("点击标题应展开：hot=%+v map=%v", ed.hotAt(box.x+20, box.y+16), ed.collapsed)
+	}
+	if !(foldedHeight < ed.lay.height && box.h < open.h) {
+		t.Fatalf("折叠高度应严格小于展开高度：doc %v vs %v，frame %v vs %v", foldedHeight, ed.lay.height, box.h, open.h)
 	}
 	shown := blockOf(t, ed, "隐藏正文")
 	if shown.x > 1000 || shown.y < open.y {

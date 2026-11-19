@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -180,27 +181,31 @@ func validRelative(path string) (string, error) {
 	}
 	return filepath.FromSlash(path), nil
 }
-func (s *Store) root() (*os.Root, error) {
-	if s.state.Workspace == nil {
-		return nil, ErrNoWorkspace
-	}
+func openWorkspaceRoot(workspacePath string) (*os.Root, error) {
 	// 根目录被替换成符号链接时也拒绝打开，不自动扩展用户授权范围。
-	actual, err := filepath.EvalSymlinks(s.state.Workspace.Path)
+	actual, err := filepath.EvalSymlinks(workspacePath)
 	if err != nil {
 		return nil, err
 	}
-	if actual != s.state.Workspace.Path {
+	if actual != workspacePath {
 		return nil, ErrInvalidPath
 	}
-	root, err := os.OpenRoot(s.state.Workspace.Path)
+	root, err := os.OpenRoot(workspacePath)
 	if err != nil {
 		return nil, err
 	}
-	if err := verifyRoot(root, s.state.Workspace.Path); err != nil {
+	if err := verifyRoot(root, workspacePath); err != nil {
 		root.Close()
 		return nil, err
 	}
 	return root, nil
+}
+
+func (s *Store) root() (*os.Root, error) {
+	if s.state.Workspace == nil {
+		return nil, ErrNoWorkspace
+	}
+	return openWorkspaceRoot(s.state.Workspace.Path)
 }
 
 type parentMissingError struct{}
@@ -237,8 +242,15 @@ func checked(root *os.Root, relative string, allowMissing bool) (string, error) 
 
 func (s *Store) Tree() ([]Node, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	root, err := s.root()
+	var workspacePath string
+	if s.state.Workspace != nil {
+		workspacePath = s.state.Workspace.Path
+	}
+	s.mu.Unlock()
+	if workspacePath == "" {
+		return nil, ErrNoWorkspace
+	}
+	root, err := openWorkspaceRoot(workspacePath)
 	if err != nil {
 		return nil, err
 	}
@@ -278,9 +290,6 @@ func scan(root *os.Root, path string, depth int, count *int) ([]Node, error) {
 			}
 			node := Node{Name: name, Path: filepath.ToSlash(relative), Directory: info.IsDir()}
 			if info.IsDir() {
-				if _, err := checked(root, node.Path, false); err != nil {
-					return nil, err
-				}
 				node.Children, err = scan(root, relative, depth+1, count)
 				if err != nil {
 					return nil, err
@@ -304,6 +313,18 @@ func scan(root *os.Root, path string, depth int, count *int) ([]Node, error) {
 		return nodes[i].Name < nodes[j].Name
 	})
 	return nodes, nil
+}
+
+func decodeDocumentBytes(raw []byte) (string, error) {
+	if !utf8.Valid(raw) || bytes.IndexByte(raw, 0) >= 0 {
+		return "", errors.New("请打开 UTF-8 编码的 Markdown 文档")
+	}
+	body := bytes.TrimPrefix(raw, []byte{0xef, 0xbb, 0xbf})
+	content := string(body)
+	if strings.Contains(content, "\r\n") {
+		content = strings.ReplaceAll(content, "\r\n", "\n")
+	}
+	return content, nil
 }
 
 func (s *Store) OpenDocument(relative string) (*Document, error) {
@@ -343,14 +364,14 @@ func (s *Store) OpenDocument(relative string) (*Document, error) {
 	if len(raw) > MaxDocumentBytes {
 		return nil, errors.New("文档不能超过 16 MB")
 	}
-	if !utf8.Valid(raw) || strings.ContainsRune(string(raw), '\x00') {
-		return nil, errors.New("请打开 UTF-8 编码的 Markdown 文档")
+	content, err := decodeDocumentBytes(raw)
+	if err != nil {
+		return nil, err
 	}
 	absolute := filepath.Join(s.state.Workspace.Path, path)
 	if err := s.remember(absolute); err != nil {
 		return nil, err
 	}
-	content := strings.ReplaceAll(strings.TrimPrefix(string(raw), "\ufeff"), "\r\n", "\n")
 	return &Document{Name: filepath.Base(path), Path: absolute, Relative: filepath.ToSlash(path), Content: content, Raw: raw}, nil
 }
 func (s *Store) CreateFile(relative string) error {

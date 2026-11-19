@@ -33,15 +33,22 @@ func (s *Store) ExportCopy(id, content, path string) error {
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.doc.ID != id {
+		s.mu.Unlock()
 		return ErrStale
 	}
-	if s.doc.Path != "" && sameFilePath(path, s.doc.Path) {
-		return errors.New("不能将副本导出到已打开的文档")
+	opened := make([]string, 0, len(s.sessions)+1)
+	if s.doc.Path != "" {
+		opened = append(opened, s.doc.Path)
 	}
 	for _, entry := range s.sessions {
-		if entry.doc.Path != "" && sameFilePath(path, entry.doc.Path) {
+		if entry.doc.Path != "" {
+			opened = append(opened, entry.doc.Path)
+		}
+	}
+	s.mu.Unlock()
+	for _, p := range opened {
+		if sameFilePath(path, p) {
 			return errors.New("不能将副本导出到已打开的文档")
 		}
 	}

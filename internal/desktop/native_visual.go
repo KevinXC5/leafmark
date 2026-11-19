@@ -313,18 +313,48 @@ func nativeOutline(markdown string) []nativeHeading {
 	return out
 }
 
+// sourceOutlineMD 复用默认 goldmark 单例，避免源码大纲每次重建解析器。
+var sourceOutlineMD = goldmark.New()
+
+// sourceFrontMatterLen 返回文首 YAML 属性块的字节数，没有时为 0。
+// 规则与 richtext.Parse 对齐：首行单独的 --- 起，后续行单独的 --- 或 ... 止，中间至少一行。
+func sourceFrontMatterLen(markdown string) int {
+	rest, ok := strings.CutPrefix(markdown, "---")
+	if !ok {
+		return 0
+	}
+	at := 3
+	firstLineEnd := 0
+	for line := range strings.SplitAfterSeq(rest, "\n") {
+		trimmed := strings.TrimRight(line, " \t\r\n")
+		if at == 3 {
+			if trimmed != "" {
+				return 0
+			}
+			firstLineEnd = at + len(line)
+		} else if trimmed == "---" || trimmed == "..." {
+			if at == firstLineEnd {
+				return 0
+			}
+			return at + len(line)
+		}
+		at += len(line)
+	}
+	return 0
+}
+
 // nativeSourceOutline 使用解析器的源码位置，避免代码围栏里的 # 被误认为标题。
 func nativeSourceOutline(markdown string) []nativeHeading {
 	raw := []byte(markdown)
-	// 复用文档模型识别的 YAML 属性块，保留字节位置但不参与标题解析。
-	if blocks := richtext.Parse(markdown).Blocks(); strings.HasPrefix(markdown, "---") && len(blocks) > 0 && blocks[0].Kind == richtext.Raw && strings.HasPrefix(markdown, blocks[0].Raw) {
-		for i := range len(blocks[0].Raw) {
+	// 用轻量行扫描跳过 YAML 属性块，保留字节位置但不参与标题解析。
+	if front := sourceFrontMatterLen(markdown); front > 0 {
+		for i := range front {
 			if raw[i] != '\n' && raw[i] != '\r' {
 				raw[i] = ' '
 			}
 		}
 	}
-	root := goldmark.New().Parser().Parse(text.NewReader(raw))
+	root := sourceOutlineMD.Parser().Parse(text.NewReader(raw))
 	out := []nativeHeading{}
 	_ = ast.Walk(root, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		h, ok := node.(*ast.Heading)
@@ -543,22 +573,48 @@ func (a *nativeApp) viewDocuments(c *ui.Context) {
 			}
 		})
 	})
-	a.viewTree(c, a.tree, 0)
-}
-func nativeMatches(name, query string) bool {
-	return strings.Contains(strings.ToLower(name), strings.ToLower(strings.TrimSpace(query)))
-}
-func nativeTreeMatches(n workspace.Node, query string) bool {
-	if nativeMatches(n.Name, query) {
-		return true
+	var matched map[string]bool
+	if q := strings.TrimSpace(a.navQuery); q != "" {
+		matched = a.matchedTreePaths(strings.ToLower(q))
 	}
-	for _, child := range n.Children {
-		if nativeTreeMatches(child, query) {
-			return true
+	a.viewTree(c, a.tree, 0, matched)
+}
+
+// matchedTreePaths 缓存 (treeGen, 树切片, lowerQuery) 对应的过滤结果，避免每帧重复递归与转小写。
+func (a *nativeApp) matchedTreePaths(lowerQuery string) map[string]bool {
+	gen := a.treeGen.Load()
+	var ptr *workspace.Node
+	if len(a.tree) > 0 {
+		ptr = &a.tree[0]
+	}
+	if a.navFilterMap != nil && a.navTreeGen == gen && a.navTreePtr == ptr && a.navTreeLen == len(a.tree) && a.navFilterKey == lowerQuery {
+		return a.navFilterMap
+	}
+	matched := make(map[string]bool)
+	collectTreeMatches(a.tree, lowerQuery, matched)
+	a.navTreeGen = gen
+	a.navTreePtr = ptr
+	a.navTreeLen = len(a.tree)
+	a.navFilterKey = lowerQuery
+	a.navFilterMap = matched
+	return matched
+}
+
+func collectTreeMatches(nodes []workspace.Node, lowerQuery string, out map[string]bool) bool {
+	any := false
+	for _, n := range nodes {
+		childHit := false
+		if len(n.Children) > 0 {
+			childHit = collectTreeMatches(n.Children, lowerQuery, out)
+		}
+		if strings.Contains(strings.ToLower(n.Name), lowerQuery) || childHit {
+			out[n.Path] = true
+			any = true
 		}
 	}
-	return false
+	return any
 }
+
 func nativeNavigationItem(c *ui.Context, name string, inset float32) ui.Element {
 	b := ui.ButtonBase(c).FillWidth().Height(scaled(c, 32)).Radius(10).Padding(4, 8, 4, inset).Justify(ui.Start).Gap(6).Label(name).TextColor(c.Theme().TextMuted).Cursor(ui.CursorPointer)
 	if b.Hovered() {
@@ -570,10 +626,11 @@ func nativeNavigationItem(c *ui.Context, name string, inset float32) ui.Element 
 	})
 	return b
 }
-func (a *nativeApp) viewTree(c *ui.Context, nodes []workspace.Node, depth int) {
+func (a *nativeApp) viewTree(c *ui.Context, nodes []workspace.Node, depth int, matched map[string]bool) {
+	filtering := matched != nil
 	for _, node := range nodes {
 		current := node
-		if !nativeTreeMatches(current, a.navQuery) {
+		if filtering && !matched[current.Path] {
 			continue
 		}
 		ui.Box(c.Key("tree:" + current.Path)).FillWidth().Children(func() {
@@ -583,7 +640,7 @@ func (a *nativeApp) viewTree(c *ui.Context, nodes []workspace.Node, depth int) {
 				}
 				return
 			}
-			open := a.openDirs[current.Path] || strings.TrimSpace(a.navQuery) != ""
+			open := filtering || a.openDirs[current.Path]
 			icon := "chevron-right"
 			if open {
 				icon = "chevron-down"
@@ -602,7 +659,7 @@ func (a *nativeApp) viewTree(c *ui.Context, nodes []workspace.Node, depth int) {
 				a.openDirs[current.Path] = !a.openDirs[current.Path]
 			}
 			if open {
-				a.viewTree(c, current.Children, depth+1)
+				a.viewTree(c, current.Children, depth+1, matched)
 			}
 		})
 	}

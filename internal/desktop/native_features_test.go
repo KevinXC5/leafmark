@@ -516,3 +516,97 @@ func TestToggleSourcePreservesApproximatePosition(t *testing.T) {
 		t.Fatalf("末尾偏移应为 10，实际 %d", got)
 	}
 }
+
+func TestWriteExportPDFAtomicAndRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "out.pdf")
+	want := []byte("%PDF-1.4\nbody")
+	if err := writeExportPDF(target, want); err != nil {
+		t.Fatalf("写入 PDF 失败：%v", err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("写入内容不符：%q %v", got, err)
+	}
+	// 覆盖普通文件应成功。
+	want2 := []byte("%PDF-1.4\nupdated")
+	if err := writeExportPDF(target, want2); err != nil {
+		t.Fatalf("覆盖已有普通 PDF 失败：%v", err)
+	}
+	// 符号链接与目录必须拒绝。
+	link := filepath.Join(dir, "link.pdf")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeExportPDF(link, want); err == nil {
+		t.Fatal("不应允许覆盖符号链接")
+	}
+	if err := writeExportPDF(dir, want); err == nil {
+		t.Fatal("不应允许覆盖目录")
+	}
+}
+
+func TestRenderExportBodyCachesLocalImages(t *testing.T) {
+	app, dir := newTestApp(t)
+	useStubEditors(t)
+	docPath := filepath.Join(dir, "note.md")
+	if err := os.WriteFile(docPath, []byte("初始"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="#000"/></svg>`)
+	if err := os.WriteFile(filepath.Join(dir, "leaf.svg"), svg, 0644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := app.files.store.Load(docPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := "![一](leaf.svg)\n\n![二](leaf.svg)\n\n![缺](missing.png)\n"
+	body := renderExportBody(app.assets, doc.ID, md, false)
+	if strings.Count(body, "data:image/svg+xml;base64,") != 2 {
+		t.Fatalf("重复引用的本地图片应均正确内嵌：%s", body)
+	}
+}
+
+func TestSourceFindHandlesUnicodeAndWrapAround(t *testing.T) {
+	s := newSourceEditor("🌿叶笺：αβ，🌿叶笺！\n", 14)
+	if !s.Find("🌿叶笺") {
+		t.Fatal("第一次查找应命中")
+	}
+	s1, e1 := s.Selection()
+	if s1 != 0 || e1 != 3 {
+		t.Fatalf("第一次选中区间错误：(%d, %d)", s1, e1)
+	}
+	if !s.Find("🌿叶笺") {
+		t.Fatal("第二次查找应命中下一处")
+	}
+	s2, e2 := s.Selection()
+	if s2 != 7 || e2 != 10 {
+		t.Fatalf("第二次选中区间错误：(%d, %d)", s2, e2)
+	}
+	// 第三次回绕到文首。
+	if !s.Find("🌿叶笺") {
+		t.Fatal("第三次查找应回绕到文首")
+	}
+	s3, e3 := s.Selection()
+	if s3 != 0 || e3 != 3 {
+		t.Fatalf("回绕选中区间错误：(%d, %d)", s3, e3)
+	}
+}
+
+func TestSourceOutlineFrontMatterEdgeCases(t *testing.T) {
+	// 正常 YAML 属性块（含 # 注释）与 ... 结束符应被跳过。
+	md := "---\r\n# 注释不是标题\r\ntitle: 测试\r\n...\r\n\r\n# 真标题\r\n"
+	headings := nativeSourceOutline(md)
+	if len(headings) != 1 || headings[0].text != "真标题" {
+		t.Fatalf("frontmatter 跳过异常：%+v", headings)
+	}
+	// 空的 ---\n---\n 不算 frontmatter。
+	if got := sourceFrontMatterLen("---\n---\n# 标题\n"); got != 0 {
+		t.Fatalf("空属性块不应被视为 frontmatter，得到 %d", got)
+	}
+	// 未闭合的不算 frontmatter。
+	if got := sourceFrontMatterLen("---\ntitle: a\n# 标题\n"); got != 0 {
+		t.Fatalf("未闭合属性块不应被视为 frontmatter，得到 %d", got)
+	}
+}

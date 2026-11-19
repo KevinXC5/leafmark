@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"leafmark/internal/mathlayout"
@@ -133,12 +132,20 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 		}
 	}
 	runesBefore := 0
+	lineFamily := ""
+	if cache.family == calloutFont {
+		lineFamily = calloutFont
+	}
+	lineWeight := 0
+	if cache.weight != 400 {
+		lineWeight = cache.weight
+	}
 	// 按 run 软换行。前缀只出现在第一行。
 	first := true
 	var pending []styled
 	pending = append(pending, styledRuns...)
 	for len(pending) > 0 || first {
-		ln := line{block: box.index, origin: box.origin + runesBefore, prefix: inset}
+		ln := line{block: box.index, origin: box.origin + runesBefore, prefix: inset, fontSize: size, fontFamily: lineFamily, fontWeight: lineWeight}
 		x := inset
 		if first && prefix != "" {
 			g := cache.shape(prefix, fontSize, false, false, false)
@@ -146,6 +153,7 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 			ln.markers = g
 		}
 		var built strings.Builder
+		builtRunes := 0
 		var mathUp, mathDown, imageHeight float32
 		for len(pending) > 0 {
 			seg := pending[0]
@@ -156,18 +164,19 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 			}
 			if seg.math && !seg.partial {
 				// 光标不在公式内部时，把整条公式排成一个不可拆分的盒子。
-				start := ln.origin + utf8.RuneCountInString(built.String())
+				start := ln.origin + builtRunes
 				inside := cache.caret > start && cache.caret < start+len(rs)
 				if mb := mathBox(cache, seg, size, inside); mb != nil {
-					if x-inset+mb.Width > width && built.Len() > 0 {
+					if x-inset+mb.Width > width && builtRunes > 0 {
 						break
 					}
-					g := []ui.Glyph{{Cluster: utf8.RuneCountInString(built.String()), Runes: len(rs), X: x, Advance: mb.Width}}
-					ln.spans = append(ln.spans, paintSpan{glyphs: g, math: mb, highlight: seg.highlight, strike: seg.strike, link: seg.link})
+					g := []ui.Glyph{{Cluster: builtRunes, Runes: len(rs), X: x, Advance: mb.Width}}
+					ln.spans = append(ln.spans, paintSpan{glyphs: g, endX: x + mb.Width, math: mb, highlight: seg.highlight, strike: seg.strike, link: seg.link, linkSafe: seg.link != "" && safeURL(seg.link, false)})
 					ln.glyphs = append(ln.glyphs, g...)
 					mathUp, mathDown = max(mathUp, mb.Ascent), max(mathDown, mb.Descent)
 					x += mb.Width
 					built.WriteString(seg.text)
+					builtRunes += len(rs)
 					pending = pending[1:]
 					continue
 				}
@@ -200,15 +209,16 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 					}
 					g = nil
 				}
-				if x-inset+w > width && built.Len() > 0 {
+				if x-inset+w > width && builtRunes > 0 {
 					break
 				}
 				shiftGlyphs(g, x+4)
-				hold := []ui.Glyph{{Cluster: utf8.RuneCountInString(built.String()), Runes: len(rs), X: x, Advance: w}}
-				ln.spans = append(ln.spans, paintSpan{glyphs: hold, image: seg.image, display: g})
+				hold := []ui.Glyph{{Cluster: builtRunes, Runes: len(rs), X: x, Advance: w}}
+				ln.spans = append(ln.spans, paintSpan{glyphs: hold, endX: x + w, image: seg.image, display: g})
 				ln.glyphs = append(ln.glyphs, hold...)
 				x += w
 				built.WriteString(seg.text)
+				builtRunes += len(rs)
 				pending = pending[1:]
 				continue
 			}
@@ -216,15 +226,16 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 				// 脚注引用显示成上标编号，整个标签是一个不可拆分的盒子。
 				number := cache.shape(strconv.Itoa(max(1, cache.footnotes[seg.footnote])), size*.75, false, false, false)
 				w := advanceOf(number) + 2
-				if x-inset+w > width && built.Len() > 0 {
+				if x-inset+w > width && builtRunes > 0 {
 					break
 				}
 				shiftGlyphs(number, 1)
-				g := []ui.Glyph{{Cluster: utf8.RuneCountInString(built.String()), Runes: len(rs), X: x, Advance: w}}
-				ln.spans = append(ln.spans, paintSpan{glyphs: g, dy: -size * .35, footnote: seg.footnote, display: number})
+				g := []ui.Glyph{{Cluster: builtRunes, Runes: len(rs), X: x, Advance: w}}
+				ln.spans = append(ln.spans, paintSpan{glyphs: g, endX: x + w, dy: -size * .35, footnote: seg.footnote, display: number})
 				ln.glyphs = append(ln.glyphs, g...)
 				x += w
 				built.WriteString(seg.text)
+				builtRunes += len(rs)
 				pending = pending[1:]
 				continue
 			}
@@ -246,8 +257,8 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 				break
 			}
 			if fit == 0 {
-				if built.Len() == 0 {
-					fit = clusterBounds(rs)[1] // 再窄也至少放一个完整簇
+				if builtRunes == 0 {
+					fit = clusterBounds(rs[:min(len(rs), 32)])[1] // 再窄也至少放一个完整簇
 					if len(rs) == 0 {
 						fit = 0
 					}
@@ -260,7 +271,7 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 			g := cache.shape(piece, segSize, bold || seg.bold, seg.italic, seg.code)
 			shiftGlyphs(g, x)
 			// cluster 是 piece 内的 rune 下标，改成相对整行文本。
-			base := utf8.RuneCountInString(built.String())
+			base := builtRunes
 			// Shape 的 Cluster 已是 piece 内 rune 下标。加上本行已有 rune，供命中使用。
 			for i := range g {
 				g[i].Cluster += base
@@ -272,10 +283,12 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 			if seg.sup {
 				dy = -size * .35
 			}
-			ln.spans = append(ln.spans, paintSpan{glyphs: g, dy: dy, highlight: seg.highlight, code: seg.code, strike: seg.strike, underline: seg.underline, kbd: seg.kbd, link: seg.link})
+			endX := advanceOf(g)
+			ln.spans = append(ln.spans, paintSpan{glyphs: g, endX: endX, dy: dy, highlight: seg.highlight, code: seg.code, strike: seg.strike, underline: seg.underline, kbd: seg.kbd, link: seg.link, linkSafe: seg.link != "" && safeURL(seg.link, false)})
 			ln.glyphs = append(ln.glyphs, g...)
-			x = advanceOf(g)
+			x = endX
 			built.WriteString(piece)
+			builtRunes += fit
 			if hard >= 0 && fit == hard {
 				pending[0].text = string(rs[fit+1:])
 				pending[0].partial = true
@@ -290,7 +303,7 @@ func placeText(box *blockBox, b richtext.Block, inner, fontSize, ratio float32, 
 			pending = pending[1:]
 		}
 		ln.text = built.String()
-		ln.count = len([]rune(ln.text))
+		ln.count = builtRunes
 		m := cache.metrics(size, bold, false)
 		lineRatio := cache.lineHeight
 		if ratio > 0 {
@@ -359,31 +372,42 @@ func styledSize(seg styled, size float32) float32 {
 }
 
 func fitRunes(cache *shapeCache, seg styled, rs []rune, width, size float32, headingBold bool) int {
-	if width <= 0 {
+	if width <= 0 || len(rs) == 0 {
 		return 0
 	}
-	// 整段放得下时不必二分：多数行都走这里，也不会往字形缓存里塞一串前缀。
-	if measure(cache, string(rs), styledSize(seg, size), headingBold || seg.bold, seg.italic, seg.code) <= width {
-		return len(rs)
-	}
-	// 二分找到放得下的最长前缀，并尽量在空白处断开。
-	lo, hi := 0, len(rs)-1
-	best := 0
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		if mid == 0 {
-			lo = 1
+	segSize := styledSize(seg, size)
+	bold := headingBold || seg.bold
+	// 先做指数倍增探针找到第一个超宽的位置 hi，避免对超长段落的递减后缀重复全量塑形与污染缓存。
+	probe := max(1, int(width/max(segSize*0.5, 1)))
+	lo := 0
+	hi := min(len(rs), probe)
+	for {
+		w := measureProbe(cache, string(rs[:hi]), segSize, bold, seg.italic, seg.code)
+		if w <= width {
+			if hi == len(rs) {
+				return len(rs)
+			}
+			lo = hi
+			hi = min(len(rs), hi*2)
 			continue
 		}
-		w := measure(cache, string(rs[:mid]), styledSize(seg, size), headingBold || seg.bold, seg.italic, seg.code)
+		break
+	}
+	// 在 [lo, hi-1] 之间二分找到放得下的最长前缀。
+	best := lo
+	low, high := lo+1, hi-1
+	for low <= high {
+		mid := (low + high) / 2
+		w := measureProbe(cache, string(rs[:mid]), segSize, bold, seg.italic, seg.code)
 		if w <= width {
 			best = mid
-			lo = mid + 1
+			low = mid + 1
 		} else {
-			hi = mid - 1
+			high = mid - 1
 		}
 	}
-	bounds := clusterBounds(rs)
+	// 只在 rs[:hi] 上计算簇边界，避免对整段长文重复扫描。
+	bounds := clusterBounds(rs[:hi])
 	for i := len(bounds) - 1; i >= 0; i-- {
 		if bounds[i] <= best {
 			best = bounds[i]

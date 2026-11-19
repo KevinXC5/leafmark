@@ -48,7 +48,8 @@ func DecodeSVG(raw []byte) *Picture {
 	if len(raw) == 0 || len(raw) > maxSVGBytes {
 		return nil
 	}
-	vector, err := ui.ParseSVG(lightScheme(raw))
+	normalized := lightScheme(raw)
+	vector, err := ui.ParseSVG(normalized)
 	if err != nil {
 		return nil
 	}
@@ -56,7 +57,7 @@ func DecodeSVG(raw []byte) *Picture {
 	if w <= 0 || h <= 0 || float64(w)*float64(h) > maxImagePixels {
 		return nil
 	}
-	return &Picture{vector: vector, w: w, h: h, overlays: svgOverlays(raw, w, h), texts: svgTexts(lightScheme(raw), w, h)}
+	return &Picture{vector: vector, w: w, h: h, overlays: svgOverlays(raw, w, h), texts: svgTexts(normalized, w, h)}
 }
 
 // Size 返回图片的像素尺寸，矢量图取其声明的宽高。
@@ -69,14 +70,20 @@ func (pic *Picture) Size() (w, h int) {
 
 // paint 把图片等比放进 r 并居中。
 func (pic *Picture) paint(p *ui.Painter, r ui.Rect, dark bool) {
-	if pic == nil || pic.w <= 0 || pic.h <= 0 || r.W <= 0 || r.H <= 0 {
+	if pic == nil || p == nil || pic.w <= 0 || pic.h <= 0 || r.W <= 0 || r.H <= 0 {
 		return
 	}
 	if pic.bitmap != nil {
 		p.Image(pic.bitmap, r, ui.Contain)
 		return
 	}
+	if pic.vector == nil {
+		return
+	}
 	k := min(r.W/pic.w, r.H/pic.h)
+	if !(k > 0) || math.IsInf(float64(k), 0) {
+		return
+	}
 	fit := ui.Rect{X: r.X + (r.W-pic.w*k)/2, Y: r.Y + (r.H-pic.h*k)/2, W: pic.w * k, H: pic.h * k}
 	if dark {
 		p.Fill(fit, vectorPaper, min(6, fit.H/4))
@@ -85,7 +92,11 @@ func (pic *Picture) paint(p *ui.Painter, r ui.Rect, dark bool) {
 	for i := range pic.texts {
 		pic.texts[i].paint(p, fit, k)
 	}
-	for _, o := range pic.overlays {
+	for i := range pic.overlays {
+		o := pic.overlays[i]
+		if o.bitmap == nil {
+			continue
+		}
 		p.Image(o.bitmap, ui.Rect{X: fit.X + o.x*k, Y: fit.Y + o.y*k, W: o.w * k, H: o.h * k}, ui.FillBox)
 	}
 }
@@ -99,14 +110,14 @@ func pictureAllowed(pic *Picture) bool {
 
 // lightScheme 把 CSS 的 light-dark(浅, 深) 换成浅色值，形状与内嵌的文字位图保持同一套配色。
 func lightScheme(raw []byte) []byte {
-	const name = "light-dark("
-	if !bytes.Contains(raw, []byte(name)) {
+	name := []byte("light-dark(")
+	if !bytes.Contains(raw, name) {
 		return raw
 	}
 	var out bytes.Buffer
 	out.Grow(len(raw))
 	for {
-		i := bytes.Index(raw, []byte(name))
+		i := bytes.Index(raw, name)
 		if i < 0 {
 			break
 		}

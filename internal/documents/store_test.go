@@ -1,9 +1,11 @@
 package documents
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -205,5 +207,121 @@ func TestReloadSnapshotRejectsNewDraftAndKeepsSelection(t *testing.T) {
 	}
 	if s.Current().ID != other.ID {
 		t.Fatal("后台读取改变选择")
+	}
+}
+
+func TestStoreGetCurrentBackgroundAndMissing(t *testing.T) {
+	s := NewStore("甲.md", "初始甲")
+	first := s.Current()
+	if err := s.Draft(first.ID, "草稿甲"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 命中当前文档且反映最新草稿。
+	got, ok := s.Get(first.ID)
+	if !ok || got.ID != first.ID || got.Content != "草稿甲" || !got.Dirty {
+		t.Fatalf("Get 当前文档结果错误：ok=%v doc=%+v", ok, got)
+	}
+
+	// 切换到新标签后，Get 仍能命中非当前会话文档且不改变当前选中标签。
+	second := s.New("乙.md", "初始乙")
+	bg, ok := s.Get(first.ID)
+	if !ok || bg.ID != first.ID || bg.Content != "草稿甲" || !bg.Dirty {
+		t.Fatalf("Get 非当前会话文档结果错误：ok=%v doc=%+v", ok, bg)
+	}
+	cur, ok := s.Get(second.ID)
+	if !ok || cur.ID != second.ID || cur.Content != "初始乙" || cur.Dirty {
+		t.Fatalf("Get 新当前文档结果错误：ok=%v doc=%+v", ok, cur)
+	}
+	if s.Current().ID != second.ID {
+		t.Fatal("Get 不应改变当前选中标签")
+	}
+
+	// 不存在的 ID 与已关闭的 ID 均应返回 false。
+	for _, id := range []string{"", "不存在的-id"} {
+		if doc, ok := s.Get(id); ok || doc != (Document{}) {
+			t.Fatalf("不存在 ID %q 应返回 false：ok=%v doc=%+v", id, ok, doc)
+		}
+	}
+	if err := s.Close(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if doc, ok := s.Get(first.ID); ok || doc != (Document{}) {
+		t.Fatalf("已关闭标签 ID 应返回 false：ok=%v doc=%+v", ok, doc)
+	}
+}
+
+func TestDecodeTextBOMAndCRLF(t *testing.T) {
+	cases := []struct {
+		name     string
+		raw      []byte
+		wantText string
+		wantBOM  bool
+		wantCRLF bool
+		wantErr  bool
+	}{
+		{
+			name:     "普通LF文本",
+			raw:      []byte("# 标题\n正文\n"),
+			wantText: "# 标题\n正文\n",
+		},
+		{
+			name:     "仅BOM无CRLF",
+			raw:      append([]byte{0xef, 0xbb, 0xbf}, []byte("# 中文\n行二\n")...),
+			wantText: "# 中文\n行二\n",
+			wantBOM:  true,
+		},
+		{
+			name:     "仅CRLF无BOM",
+			raw:      []byte("第一行\r\n第二行\r\n"),
+			wantText: "第一行\n第二行\n",
+			wantCRLF: true,
+		},
+		{
+			name:     "同时含BOM和CRLF",
+			raw:      append([]byte{0xef, 0xbb, 0xbf}, []byte("甲\r\n乙\r\n")...),
+			wantText: "甲\n乙\n",
+			wantBOM:  true,
+			wantCRLF: true,
+		},
+		{
+			name:    "非法UTF8拒绝",
+			raw:     []byte{0xff, 0xfe},
+			wantErr: true,
+		},
+		{
+			name:    "含NUL字节拒绝",
+			raw:     []byte("abc\x00def"),
+			wantErr: true,
+		},
+		{
+			name:    "超过大小上限拒绝",
+			raw:     bytes.Repeat([]byte{'a'}, maxBytes+1),
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, bom, crlf, err := decodeText(tc.raw)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("预期返回错误，实际为 nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("意外错误：%v", err)
+			}
+			if text != tc.wantText || bom != tc.wantBOM || crlf != tc.wantCRLF {
+				t.Fatalf("decodeText 结果不匹配：got=(%q, bom=%v, crlf=%v), want=(%q, bom=%v, crlf=%v)",
+					text, bom, crlf, tc.wantText, tc.wantBOM, tc.wantCRLF)
+			}
+		})
+	}
+
+	// 验证正文中不含 CRLF 时 decodeText 与字符串转换保持一致。
+	if got, bom, crlf, err := decodeText([]byte(strings.Repeat("叶脉\n", 16))); err != nil || bom || crlf || len(got) == 0 {
+		t.Fatalf("重复行解码异常：bom=%v crlf=%v err=%v", bom, crlf, err)
 	}
 }

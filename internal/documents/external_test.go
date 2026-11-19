@@ -2,9 +2,11 @@ package documents
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -302,5 +304,153 @@ func TestExternalOriginalSymlinkUsesResolvedPath(t *testing.T) {
 	}
 	if loaded, err := s.Reload(doc.ID, false); err != nil || loaded.Content != "外部修改" || loaded.ID != doc.ID {
 		t.Fatalf("应加载实际路径：%+v %v", loaded, err)
+	}
+}
+
+func TestConcurrentCheckExternalWithGetDraftList(t *testing.T) {
+	s := NewStore("未命名.md", "草稿初值")
+	untitled := s.Current()
+	unchanged := loadExternalTestDocument(t, s, "稳定内容\n")
+	modified := loadExternalTestDocument(t, s, "原始磁盘内容\n")
+	writeExternalTestDocument(t, modified.Path, "外部已修改内容\n")
+
+	const workers = 6
+	const iters = 40
+	var wg sync.WaitGroup
+	errs := make(chan error, workers*iters)
+
+	// 并发检查外部变化：分别校验未变更、已变更和未命名文档的状态。
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iters; i++ {
+				st, err := s.CheckExternal(unchanged.ID)
+				if err != nil || st.Changed || st.Missing {
+					errs <- fmt.Errorf("未修改文档检查异常：%+v %v", st, err)
+					return
+				}
+				st, err = s.CheckExternal(modified.ID)
+				if err != nil || !st.Changed || st.Missing {
+					errs <- fmt.Errorf("已修改文档检查异常：%+v %v", st, err)
+					return
+				}
+				st, err = s.CheckExternal(untitled.ID)
+				if err != nil || st.Changed || st.Missing {
+					errs <- fmt.Errorf("未命名文档检查异常：%+v %v", st, err)
+					return
+				}
+			}
+		}()
+	}
+
+	// 并发调用 Get、Draft、List，验证锁外磁盘 I/O 下无数据竞态且状态一致。
+	for w := 0; w < 3; w++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < iters; i++ {
+				if err := s.Draft(unchanged.ID, fmt.Sprintf("并发草稿-%d-%d", id, i)); err != nil {
+					errs <- fmt.Errorf("Draft 失败：%v", err)
+					return
+				}
+				if got, ok := s.Get(unchanged.ID); !ok || got.ID != unchanged.ID || !got.Dirty {
+					errs <- fmt.Errorf("Get 未命中或状态异常：ok=%v doc=%+v", ok, got)
+					return
+				}
+				if got, ok := s.Get(modified.ID); !ok || got.ID != modified.ID {
+					errs <- fmt.Errorf("Get 当前文档失败：ok=%v doc=%+v", ok, got)
+					return
+				}
+				list := s.List()
+				if len(list) != 3 {
+					errs <- fmt.Errorf("List 文档数量异常：got %d, want 3", len(list))
+					return
+				}
+			}
+		}(w)
+	}
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+}
+
+func TestReloadBOMCRLFAndErrorPaths(t *testing.T) {
+	s := NewStore("未命名.md", "未保存")
+	untitled := s.Current()
+	doc := loadExternalTestDocument(t, s, "第一行\n第二行\n")
+
+	// 未保存文档与不存在 ID 的错误路径。
+	if _, err := s.Reload(untitled.ID, false); err == nil {
+		t.Fatal("未保存文档不应允许 Reload")
+	}
+	if _, err := s.Reload("missing-id", true); !errors.Is(err, ErrStale) {
+		t.Fatalf("不存在 ID 应返回 ErrStale，实际 %v", err)
+	}
+
+	// 脏文档在 discardDirty=false 时必须拒绝且保留草稿。
+	if err := s.Draft(doc.ID, "本地未保存编辑"); err != nil {
+		t.Fatal(err)
+	}
+	writeExternalTestDocument(t, doc.Path, "\ufeff外部第一行\r\n外部第二行\r\n")
+	if _, err := s.Reload(doc.ID, false); !errors.Is(err, ErrDirty) {
+		t.Fatalf("脏文档未确认丢弃应返回 ErrDirty，实际 %v", err)
+	}
+	if cur, ok := s.Get(doc.ID); !ok || cur.Content != "本地未保存编辑" || !cur.Dirty {
+		t.Fatalf("拒绝重载后草稿状态异常：ok=%v doc=%+v", ok, cur)
+	}
+
+	// 确认丢弃后重载应规范化内存内容并记录 BOM+CRLF，再保存时完整保留。
+	reloaded, err := s.Reload(doc.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Content != "外部第一行\n外部第二行\n" || reloaded.Dirty {
+		t.Fatalf("重载后正文或脏标记异常：%+v", reloaded)
+	}
+	if err := s.Draft(doc.ID, "保存第一行\n保存第二行\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Save(doc.ID, "保存第一行\n保存第二行\n", doc.Path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "\ufeff保存第一行\r\n保存第二行\r\n" {
+		t.Fatalf("重载后保存未保留 BOM+CRLF：%q", raw)
+	}
+
+	// 并发执行 Reload 与 Get/List/CheckExternal 无竞态。
+	var wg sync.WaitGroup
+	errs := make(chan error, 64)
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				if _, err := s.Reload(doc.ID, false); err != nil {
+					errs <- err
+					return
+				}
+				if got, ok := s.Get(doc.ID); !ok || got.Dirty {
+					errs <- fmt.Errorf("并发 Reload 后 Get 异常：ok=%v doc=%+v", ok, got)
+					return
+				}
+				if st, err := s.CheckExternal(doc.ID); err != nil || st.Changed || st.Missing {
+					errs <- fmt.Errorf("并发 Reload 后 CheckExternal 异常：%+v %v", st, err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
 	}
 }

@@ -62,6 +62,9 @@ func nativeDataDir() (string, error) {
 var nativeRecoveryGeneration atomic.Uint64
 var nativeRecoveryMu sync.Mutex
 
+var nativeSettingsGeneration atomic.Uint64
+var nativeSettingsMu sync.Mutex
+
 func writeNativeRecoveryVersion(drafts []nativeDraft, ticket uint64) error {
 	dir, err := nativeDataDir()
 	if err != nil {
@@ -79,6 +82,15 @@ func writeNativeRecoveryVersionIn(dir string, drafts []nativeDraft, ticket uint6
 		return nil
 	}
 	return writeNativeRecoveryIn(dir, drafts)
+}
+
+func writeNativeRecoveryRawVersionIn(dir string, raw []byte, ticket uint64) error {
+	nativeRecoveryMu.Lock()
+	defer nativeRecoveryMu.Unlock()
+	if ticket != nativeRecoveryGeneration.Load() {
+		return nil
+	}
+	return writeNativeFile(dir, nativeRecoveryName, raw)
 }
 
 // 损坏或不可读的恢复记录保留原文件，禁止后续空快照覆盖。
@@ -125,22 +137,30 @@ func validDraft(draft nativeDraft) bool {
 	return true
 }
 
-func writeNativeRecoveryIn(dir string, drafts []nativeDraft) error {
+func marshalNativeRecovery(drafts []nativeDraft) ([]byte, error) {
 	clean := make([]nativeDraft, 0, len(drafts))
 	seen := map[string]bool{}
 	for _, draft := range drafts {
 		if !validDraft(draft) || seen[draft.ID] {
-			return errors.New("恢复草稿无效，未更新恢复文件")
+			return nil, errors.New("恢复草稿无效，未更新恢复文件")
 		}
 		seen[draft.ID] = true
 		clean = append(clean, draft)
 	}
 	raw, err := json.MarshalIndent(clean, "", "  ")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(raw) > maxRecoveryBytes {
-		return errors.New("恢复草稿总量超过 5 MB，未更新恢复文件")
+		return nil, errors.New("恢复草稿总量超过 5 MB，未更新恢复文件")
+	}
+	return raw, nil
+}
+
+func writeNativeRecoveryIn(dir string, drafts []nativeDraft) error {
+	raw, err := marshalNativeRecovery(drafts)
+	if err != nil {
+		return err
 	}
 	return writeNativeFile(dir, nativeRecoveryName, raw)
 }
@@ -174,6 +194,16 @@ func saveNativeSettingsIn(dir string, settings nativeSettings) error {
 	return writeNativeFile(dir, nativeSettingsName, raw)
 }
 
+// writeNativeSettingsVersionIn 按版本号串行写盘，避免并发保存时旧设置覆盖新设置。
+func writeNativeSettingsVersionIn(dir string, settings nativeSettings, ticket uint64) error {
+	nativeSettingsMu.Lock()
+	defer nativeSettingsMu.Unlock()
+	if ticket != nativeSettingsGeneration.Load() {
+		return nil
+	}
+	return saveNativeSettingsIn(dir, settings)
+}
+
 func writeNativeFile(dir, name string, raw []byte) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -190,6 +220,10 @@ func writeNativeFile(dir, name string, raw []byte) error {
 		return err
 	}
 	if _, err := f.Write(raw); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
 		f.Close()
 		return err
 	}
@@ -268,17 +302,28 @@ func (a *nativeApp) persistSettings() {
 		log.Printf("保存设置失败：%v", err)
 		return
 	}
+	ticket := nativeSettingsGeneration.Add(1)
 	a.writes.Go(func() {
-		if err := saveNativeSettingsIn(dir, settings); err != nil {
+		if err := writeNativeSettingsVersionIn(dir, settings, ticket); err != nil {
 			log.Printf("保存设置失败：%v", err)
 		}
 	})
 }
 
 func (a *nativeApp) persistRecovery() {
-	a.syncAll()
+	a.recoveryPending = false
 	if a.recoveryBlocked {
 		return
+	}
+	// 仅同步正文与文档存储不一致的标签，空闲周期不重复触发全量草稿同步。
+	for _, tab := range a.tabs {
+		if tab == nil || tab.editor == nil {
+			continue
+		}
+		md := tab.editor.Markdown()
+		if doc, ok := a.document(tab.id); ok && doc.Content != md {
+			a.syncEditor(tab)
+		}
 	}
 	drafts := append([]nativeDraft{}, a.unrestored...)
 	for _, doc := range a.files.store.List() {
@@ -292,10 +337,40 @@ func (a *nativeApp) persistRecovery() {
 		log.Printf("保存恢复草稿失败：%v", err)
 		return
 	}
+	// 未保存草稿为空且上次已落盘同样为空时直接跳过。
+	if len(drafts) == 0 {
+		a.recoveryCacheMu.Lock()
+		skip := a.lastRecoveryValid && a.lastRecoveryDir == dir && a.lastRecoveryJSON == "[]"
+		a.recoveryCacheMu.Unlock()
+		if skip {
+			return
+		}
+	}
+	raw, err := marshalNativeRecovery(drafts)
+	if err != nil {
+		log.Printf("保存恢复草稿失败：%v", err)
+		return
+	}
+	payload := string(raw)
+	a.recoveryCacheMu.Lock()
+	if a.lastRecoveryValid && a.lastRecoveryDir == dir && a.lastRecoveryJSON == payload {
+		a.recoveryCacheMu.Unlock()
+		return
+	}
 	ticket := nativeRecoveryGeneration.Add(1)
+	a.lastRecoveryValid = true
+	a.lastRecoveryDir = dir
+	a.lastRecoveryJSON = payload
+	a.lastRecoveryTicket = ticket
+	a.recoveryCacheMu.Unlock()
 	a.writes.Go(func() {
-		if err := writeNativeRecoveryVersionIn(dir, drafts, ticket); err != nil {
+		if err := writeNativeRecoveryRawVersionIn(dir, raw, ticket); err != nil {
 			log.Printf("保存恢复草稿失败：%v", err)
+			a.recoveryCacheMu.Lock()
+			if a.lastRecoveryTicket == ticket {
+				a.lastRecoveryValid = false
+			}
+			a.recoveryCacheMu.Unlock()
 		}
 	})
 }
@@ -304,6 +379,12 @@ func (a *nativeApp) clearRecovery() {
 	if a.recoveryBlocked || len(a.unrestored) > 0 {
 		return
 	}
+	a.recoveryPending = false
+	a.recoveryCacheMu.Lock()
+	a.lastRecoveryValid = false
+	a.lastRecoveryDir = ""
+	a.lastRecoveryJSON = ""
+	a.recoveryCacheMu.Unlock()
 	ticket := nativeRecoveryGeneration.Add(1)
 	if err := writeNativeRecoveryVersion(nil, ticket); err != nil {
 		log.Printf("清理恢复记录失败：%v", err)

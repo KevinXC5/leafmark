@@ -3,6 +3,7 @@ package assets
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"image"
 	"image/color"
 	"image/gif"
@@ -274,5 +275,210 @@ func TestFindImageByNameAndSVG(t *testing.T) {
 	put(t, filepath.Join(dir, "fake.svg"), []byte("<svg></svg>"))
 	if _, err := FindImage(doc, workspace, "fake.svg"); err == nil {
 		t.Fatal("应拒绝非 SVG 命名空间的文件")
+	}
+}
+
+// solidPNG 生成带有唯一颜色的合法 PNG，便于区分不同目录下的同名图片。
+func solidPNG(t *testing.T, r, g, b uint8) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.RGBA{R: r, G: g, B: b, A: 255})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestReadImageRawAndFindImageRaw(t *testing.T) {
+	writeFile := func(t *testing.T, path string, data []byte) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		put(t, path, data)
+	}
+
+	workspace := t.TempDir()
+	docDir := filepath.Join(workspace, "笔记", "专题")
+	doc := filepath.Join(docDir, "说明.md")
+	outside := t.TempDir()
+
+	pngLocal := solidPNG(t, 10, 20, 30)
+	pngWorkspace := solidPNG(t, 200, 100, 50)
+	svgRaw := []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><circle cx="4" cy="4" r="3"/></svg>`)
+
+	writeFile(t, filepath.Join(docDir, "assets", "图 1.png"), pngLocal)
+	writeFile(t, filepath.Join(docDir, "diagrams", "结构.svg"), svgRaw)
+	writeFile(t, filepath.Join(workspace, "共享资源", "cross.PNG"), pngWorkspace)
+	writeFile(t, filepath.Join(outside, "secret.png"), pngLocal)
+
+	// 1. ReadImageRaw：正常读取 PNG 与 SVG，返回原始字节与准确格式。
+	gotPNG, format, err := ReadImageRaw(doc, "./assets/%E5%9B%BE%201.png")
+	if err != nil || format != "png" || !bytes.Equal(gotPNG, pngLocal) {
+		t.Fatalf("ReadImageRaw 读取 PNG 失败：format=%q err=%v", format, err)
+	}
+	gotSVG, format, err := ReadImageRaw(doc, "diagrams/%E7%BB%93%E6%9E%84.svg")
+	if err != nil || format != "svg" || !bytes.Equal(gotSVG, svgRaw) {
+		t.Fatalf("ReadImageRaw 读取 SVG 失败：format=%q err=%v", format, err)
+	}
+
+	// 2. FindImageRaw：文档目录内按文件名查找 PNG 与 SVG，以及跨工作区按名称不区分大小写查找。
+	foundSVG, format, err := FindImageRaw(doc, workspace, "%E7%BB%93%E6%9E%84.svg")
+	if err != nil || format != "svg" || !bytes.Equal(foundSVG, svgRaw) {
+		t.Fatalf("FindImageRaw 查找 SVG 失败：format=%q err=%v", format, err)
+	}
+	foundCross, format, err := FindImageRaw(doc, workspace, "cross.png")
+	if err != nil || format != "png" || !bytes.Equal(foundCross, pngWorkspace) {
+		t.Fatalf("FindImageRaw 跨工作区查找失败：format=%q err=%v", format, err)
+	}
+	// 无工作区授权或文档不在工作区内时，不应跨目录找到工作区资源。
+	if _, _, err := FindImageRaw(doc, "", "cross.png"); err == nil {
+		t.Fatal("无工作区授权时 FindImageRaw 不应找到文档目录外的图片")
+	}
+	if _, _, err := FindImageRaw(filepath.Join(outside, "other.md"), workspace, "cross.png"); err == nil {
+		t.Fatal("文档不在工作区内时 FindImageRaw 不应搜索工作区")
+	}
+
+	// 3. 路径逃逸与非法文档路径拒绝。
+	for _, bad := range []string{"", ".", "../secret.png", "assets/../../secret.png", "%2e%2e/secret.png", "/tmp/a.png", "https://example.com/a.png", "a.png?v=1", "a.png#top", `assets\a.png`} {
+		if _, _, err := ReadImageRaw(doc, bad); !errors.Is(err, ErrInvalidPath) {
+			t.Fatalf("ReadImageRaw 应拒绝路径 %q，实际 %v", bad, err)
+		}
+		if _, _, err := FindImageRaw(doc, workspace, bad); !errors.Is(err, ErrInvalidPath) {
+			t.Fatalf("FindImageRaw 应拒绝路径 %q，实际 %v", bad, err)
+		}
+	}
+	if _, _, err := ReadImageRaw("", "图 1.png"); !errors.Is(err, ErrInvalidPath) {
+		t.Fatalf("空文档路径应返回 ErrInvalidPath，实际 %v", err)
+	}
+	if _, _, err := ReadImageRaw("relative/doc.md", "图 1.png"); !errors.Is(err, ErrInvalidPath) {
+		t.Fatalf("相对文档路径应返回 ErrInvalidPath，实际 %v", err)
+	}
+
+	// 4. 符号链接拒绝（包括文件符号链接、目录符号链接以及被 .. 消除的符号链接片段）。
+	if err := os.Symlink(filepath.Join(outside, "secret.png"), filepath.Join(docDir, "sym.png")); err != nil {
+		t.Skipf("当前环境不支持创建符号链接：%v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(docDir, "symdir")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "ws-symdir")); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"sym.png", "symdir/secret.png", "symdir/../assets/图 1.png"} {
+		if _, _, err := ReadImageRaw(doc, bad); err == nil {
+			t.Fatalf("ReadImageRaw 应拒绝符号链接路径 %q", bad)
+		}
+		if _, _, err := FindImageRaw(doc, workspace, bad); err == nil {
+			t.Fatalf("FindImageRaw 应拒绝符号链接路径 %q", bad)
+		}
+	}
+	if _, _, err := FindImageRaw(doc, workspace, "secret.png"); err == nil {
+		t.Fatal("FindImageRaw 不应通过工作区符号链接目录找到外部图片")
+	}
+
+	// 5. 超大文件与超大像素拒绝，恰好 8 MB 的合法图片应接受。
+	writeFile(t, filepath.Join(docDir, "too-big.png"), bytes.Repeat([]byte{'x'}, MaxImageBytes+1))
+	if _, _, err := ReadImageRaw(doc, "too-big.png"); err == nil {
+		t.Fatal("ReadImageRaw 应拒绝超过 8 MB 的文件")
+	}
+	if _, _, err := FindImageRaw(doc, workspace, "too-big.png"); err == nil {
+		t.Fatal("FindImageRaw 应拒绝超过 8 MB 的文件")
+	}
+	exactLimit := append(append([]byte(nil), pngLocal...), make([]byte, MaxImageBytes-len(pngLocal))...)
+	writeFile(t, filepath.Join(docDir, "exact-8mb.png"), exactLimit)
+	if got, fmtName, err := ReadImageRaw(doc, "exact-8mb.png"); err != nil || fmtName != "png" || len(got) != MaxImageBytes {
+		t.Fatalf("恰好 8 MB 的有效 PNG 应被接受：fmt=%q len=%d err=%v", fmtName, len(got), err)
+	}
+	var hugePixel bytes.Buffer
+	if err := png.Encode(&hugePixel, image.NewGray(image.Rect(0, 0, 4097, 4096))); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(docDir, "huge-pixel.png"), hugePixel.Bytes())
+	if _, _, err := ReadImageRaw(doc, "huge-pixel.png"); err == nil {
+		t.Fatal("ReadImageRaw 应拒绝像素数超限的图片")
+	}
+	if _, _, err := FindImageRaw(doc, workspace, "huge-pixel.png"); err == nil {
+		t.Fatal("FindImageRaw 应拒绝像素数超限的图片")
+	}
+
+	// 6. 损坏图片与伪装 SVG 拒绝。
+	corruptCases := map[string][]byte{
+		"garbage.png":    []byte("not a valid image payload"),
+		"truncated.png":  pngLocal[:12], // 截断在 IHDR 之前，无法解析图片配置
+		"bad-ns.svg":     []byte(`<svg width="4" height="4"></svg>`),
+		"broken-xml.svg": []byte(`<svg xmlns="http://www.w3.org/2000/svg"`),
+	}
+	for name, payload := range corruptCases {
+		writeFile(t, filepath.Join(docDir, "bad", name), payload)
+		if _, _, err := ReadImageRaw(doc, "bad/"+name); err == nil {
+			t.Fatalf("ReadImageRaw 应拒绝损坏图片 %s", name)
+		}
+		if _, _, err := FindImageRaw(doc, workspace, name); err == nil {
+			t.Fatalf("FindImageRaw 应拒绝损坏图片 %s", name)
+		}
+	}
+}
+
+func TestFindImageDocumentDirPriorityAndSkipDir(t *testing.T) {
+	writeFile := func(t *testing.T, path string, data []byte) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		put(t, path, data)
+	}
+
+	workspace := t.TempDir()
+	docDir := filepath.Join(workspace, "合集", "子目录")
+	doc := filepath.Join(docDir, "文章.md")
+
+	docLocalPNG := solidPNG(t, 11, 22, 33)
+	wsRootPNG := solidPNG(t, 44, 55, 66)
+	wsOtherShallowPNG := solidPNG(t, 77, 88, 99)
+	wsOtherDeepPNG := solidPNG(t, 111, 122, 133)
+
+	// 文档目录内的同名图片层级较深，而工作区根目录也有同名图片；
+	// 文档目录必须优先于工作区其他目录。
+	writeFile(t, filepath.Join(docDir, "assets", "deep", "same.png"), docLocalPNG)
+	writeFile(t, filepath.Join(workspace, "same.png"), wsRootPNG)
+
+	// 文档目录内没有 only-in-ws.png，工作区其他目录有两个层级不同的同名文件，应取最浅的。
+	writeFile(t, filepath.Join(workspace, "shared", "only-in-ws.png"), wsOtherShallowPNG)
+	writeFile(t, filepath.Join(workspace, "shared", "sub", "only-in-ws.png"), wsOtherDeepPNG)
+
+	raw, format, err := FindImageRaw(doc, workspace, "same.png")
+	if err != nil || format != "png" || !bytes.Equal(raw, docLocalPNG) {
+		t.Fatalf("FindImageRaw 应优先返回文档目录内的图片：format=%q err=%v", format, err)
+	}
+	uri, err := FindImage(doc, workspace, "same.png")
+	wantURI := encodeDataURI(docLocalPNG, "png")
+	if err != nil || uri != wantURI {
+		t.Fatalf("FindImage 应优先返回文档目录内的图片：err=%v", err)
+	}
+
+	// 指定工作区子目录路径后缀时，文档目录查不到，回退到工作区其他目录仍能命中。
+	rawOther, format, err := FindImageRaw(doc, workspace, "only-in-ws.png")
+	if err != nil || format != "png" || !bytes.Equal(rawOther, wsOtherShallowPNG) {
+		t.Fatalf("FindImageRaw 回退工作区应返回最浅层匹配：format=%q err=%v", format, err)
+	}
+	uriOther, err := FindImage(doc, workspace, "only-in-ws.png")
+	if err != nil || uriOther != encodeDataURI(wsOtherShallowPNG, "png") {
+		t.Fatalf("FindImage 回退工作区结果不匹配：err=%v", err)
+	}
+
+	// 直接验证 locate 的 skipDir 跳过已搜索的文档子目录，避免重复遍历。
+	root, err := os.OpenRoot(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	writeFile(t, filepath.Join(docDir, "only-in-doc.png"), docLocalPNG)
+	if found, ok := locate(root, "only-in-doc.png", "合集/子目录"); ok {
+		t.Fatalf("skipDir 应跳过文档子目录，但仍命中了 %q", found)
+	}
+	if found, ok := locate(root, "only-in-doc.png", ""); !ok || filepath.ToSlash(found) != "合集/子目录/only-in-doc.png" {
+		t.Fatalf("未设置 skipDir 时应能命中文档子目录图片：ok=%v found=%q", ok, found)
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 var ErrDirty = errors.New("文档包含未保存修改，请明确确认丢弃后重新加载")
@@ -30,8 +29,8 @@ func (s *Store) openedLocked(id string) (snapshot, error) {
 
 func (s *Store) CheckExternal(id string) (ExternalState, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	entry, err := s.openedLocked(id)
+	s.mu.Unlock()
 	if err != nil {
 		return ExternalState{}, err
 	}
@@ -50,9 +49,11 @@ func (s *Store) CheckExternal(id string) (ExternalState, error) {
 
 // Reload 只读取已打开文档的授权路径；非当前标签的快照更新不改变选中标签。
 func (s *Store) Reload(id string, discardDirty bool) (Document, error) {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	entry, err := s.openedLocked(id)
+	s.mu.Unlock()
 	if err != nil {
 		return Document{}, err
 	}
@@ -66,17 +67,28 @@ func (s *Store) Reload(id string, discardDirty bool) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
-	if err := validate(string(raw)); err != nil {
+	text, bom, crlf, err := decodeText(raw)
+	if err != nil {
 		return Document{}, err
 	}
-	entry.bom = strings.HasPrefix(string(raw), string(rune(0xfeff)))
-	text := strings.TrimPrefix(string(raw), string(rune(0xfeff)))
-	entry.crlf = strings.Contains(text, "\r\n")
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	entry.doc.Content, entry.doc.Dirty = text, false
-	entry.saved, entry.digest = text, sha256.Sum256(raw)
+	digest := sha256.Sum256(raw)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, err := s.openedLocked(id)
+	if err != nil {
+		return Document{}, err
+	}
+	if current.doc.Path != entry.doc.Path {
+		return Document{}, ErrStale
+	}
+	if current.doc.Dirty && !discardDirty {
+		return Document{}, ErrDirty
+	}
+	current.bom, current.crlf = bom, crlf
+	current.doc.Content, current.doc.Dirty = text, false
+	current.saved, current.digest = text, digest
 	if s.doc.ID == id {
-		s.doc, s.saved, s.digest, s.crlf, s.bom = entry.doc, entry.saved, entry.digest, entry.crlf, entry.bom
+		s.doc, s.saved, s.digest, s.crlf, s.bom = current.doc, current.saved, current.digest, current.crlf, current.bom
 	}
 	// 原位更新同一 id，避免重复路径创建标签或丢失标签顺序。
 	if s.sessions == nil {
@@ -85,8 +97,8 @@ func (s *Store) Reload(id string, discardDirty bool) (Document, error) {
 	if _, exists := s.sessions[id]; !exists {
 		s.order = append(s.order, id)
 	}
-	s.sessions[id] = entry
-	return entry.doc, nil
+	s.sessions[id] = current
+	return current.doc, nil
 }
 
 // readAuthorizedFile 不跟随后来出现的符号链接。原生打开时已解析链接，

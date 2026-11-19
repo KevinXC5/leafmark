@@ -39,6 +39,10 @@ func (a *nativeApp) saveDocument(id, content string, saveAs bool, done func(ok b
 		}
 		return
 	}
+	prevPath := ""
+	if doc, ok := a.document(id); ok {
+		prevPath = doc.Path
+	}
 	gen := a.saveGen[id] + 1
 	a.saveGen[id] = gen
 	a.saving[id] = true
@@ -80,8 +84,11 @@ func (a *nativeApp) saveDocument(id, content string, saveAs bool, done func(ok b
 			}
 			a.refreshTitle()
 			a.persistRecovery()
-			a.persistSession()
-			a.reloadNavigation()
+			// 仅首次保存或另存为变更路径时更新会话并刷新文件树，避免普通/自动保存反复扫盘。
+			if prevPath == "" || saved.Path != prevPath {
+				a.persistSession()
+				a.reloadNavigation()
+			}
 			if done != nil {
 				done(true)
 			}
@@ -176,8 +183,9 @@ func (a *nativeApp) confirmReload(id string) {
 	}()
 }
 
-// noteEdits 记下正文发生变化的时刻。编辑器未暴露改动时间，不能用打开时刻代替。
-func (a *nativeApp) noteEdits(now time.Time) {
+// noteEdits 发现正文变化时立即同步草稿状态并记录改动时刻，避免未保存标记短暂消失及外部冲突误判。
+func (a *nativeApp) noteEdits(now time.Time) bool {
+	changed := false
 	for _, tab := range a.tabs {
 		if tab.editor == nil {
 			continue
@@ -186,17 +194,26 @@ func (a *nativeApp) noteEdits(now time.Time) {
 		if prev, ok := a.seenText[tab.id]; !ok || prev != text {
 			if ok {
 				a.editedAt[tab.id] = now
+				if err := a.files.store.Draft(tab.id, text); err != nil && !errors.Is(err, documents.ErrStale) {
+					log.Printf("同步草稿失败：%v", err)
+				}
+				a.recoveryPending = true
+				changed = true
 			}
 			a.seenText[tab.id] = text
 		}
 	}
+	if changed {
+		a.refreshTitle()
+	}
+	return changed
 }
 
-// scheduleAutoSave 在视图里按帧检查，距上次改动满 2 秒才写已有路径。
-func (a *nativeApp) scheduleAutoSave(now time.Time) {
-	a.noteEdits(now)
+// scheduleAutoSave 在视图里按帧检查，距上次改动满 2 秒才写已有路径。返回值表示本帧是否发现新编辑。
+func (a *nativeApp) scheduleAutoSave(now time.Time) bool {
+	edited := a.noteEdits(now)
 	if !a.settings.AutoSave {
-		return
+		return edited
 	}
 	for _, tab := range a.tabs {
 		if tab.editor == nil {
@@ -221,4 +238,5 @@ func (a *nativeApp) scheduleAutoSave(now time.Time) {
 		}
 		a.saveDocument(tab.id, content, false, nil)
 	}
+	return edited
 }

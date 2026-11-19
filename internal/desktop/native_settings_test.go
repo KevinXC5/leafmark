@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"leafmark/internal/nativeeditor"
 )
 
 // styledEditor 在桩编辑器之上记录排版设置，用来核对设置确实传到了编辑器。
@@ -455,5 +456,116 @@ func TestSettingsSharesResizedSidebar(t *testing.T) {
 	menu.ItemByID("settings").Click(nil, nil)
 	if !app.settingsOn {
 		t.Fatal("重复选择设置不应关闭设置")
+	}
+}
+
+func TestCheckedShortcutsFallsBackPerItemAndKeepsValidCustom(t *testing.T) {
+	defaults := defaultNativeShortcuts()
+
+	// 1. 仅单条语法无效时，只回退该条，保留其余合法自定义绑定。
+	oneInvalid := defaults
+	oneInvalid.Save = "s" // 缺少修饰键
+	oneInvalid.Find = "Mod-Alt-f"
+	oneInvalid.Bold = "Shift-Alt-F3" // 同时检查规范化
+	got := checkedShortcuts(oneInvalid)
+	if got.Save != defaults.Save || got.Find != "Mod-Alt-f" || got.Bold != "Alt-Shift-F3" {
+		t.Fatalf("单条无效不应重置其余自定义绑定：%+v", got)
+	}
+
+	// 2. 某条自定义与默认值冲突时，仅回退冲突项，保留其他无辜自定义项。
+	conflictWithDefault := defaults
+	conflictWithDefault.Save = "Mod-b" // 与默认 Bold 冲突
+	conflictWithDefault.Find = "Mod-Alt-f"
+	got = checkedShortcuts(conflictWithDefault)
+	if got.Save != defaults.Save || got.Bold != defaults.Bold || got.Find != "Mod-Alt-f" {
+		t.Fatalf("与默认冲突应只回退冲突项并保留其他自定义：%+v", got)
+	}
+
+	// 3. 两条自定义互撞时，保留先出现的项，回退后一项，保留其余自定义项。
+	twoCustomConflict := defaults
+	twoCustomConflict.Save = "Mod-Alt-k"
+	twoCustomConflict.Open = "Mod-Alt-k"
+	twoCustomConflict.Find = "Mod-Alt-f"
+	got = checkedShortcuts(twoCustomConflict)
+	if got.Save != "Mod-Alt-k" || got.Open != defaults.Open || got.Find != "Mod-Alt-f" {
+		t.Fatalf("两条自定义冲突应只回退后者：%+v", got)
+	}
+
+	// 4. 合法互换两个绑定时完整保留。
+	swapped := defaults
+	swapped.Save = defaults.Bold
+	swapped.Bold = defaults.Save
+	got = checkedShortcuts(swapped)
+	if got != swapped {
+		t.Fatalf("合法互换的绑定不应被回退：%+v", got)
+	}
+
+	// 5. 连锁冲突：Save 无效回退为 Mod-s，恰好与自定义 Find="Mod-s" 冲突，应消解冲突且保留无辜的 Bold。
+	chained := defaults
+	chained.Save = "invalid"
+	chained.Find = "Mod-s"
+	chained.Bold = "Mod-Alt-b"
+	got = checkedShortcuts(chained)
+	if got.Save != defaults.Save || got.Find != defaults.Find || got.Bold != "Mod-Alt-b" {
+		t.Fatalf("连锁冲突消解失败：%+v", got)
+	}
+	for _, item := range shortcutActions {
+		if other := shortcutConflict(got, item.id, *got.binding(item.id)); other != "" {
+			t.Fatalf("校验结果仍残留冲突：%s 与 %s", item.id, other)
+		}
+	}
+}
+
+func TestParsedShortcutsCacheAndFunctionKeys(t *testing.T) {
+	defaults := defaultNativeShortcuts()
+	parsed := parsedShortcuts(defaults)
+	for i, item := range shortcutActions {
+		mods, key, ok := parseShortcut(*defaults.binding(item.id))
+		if !ok || parsed[i] != (parsedShortcut{mods: mods, key: key, ok: ok}) {
+			t.Fatalf("预解析结果与 parseShortcut 不一致：%s %+v", item.id, parsed[i])
+		}
+	}
+	// 再次调用应命中缓存并返回一致结果。
+	if again := parsedShortcuts(defaults); again != parsed {
+		t.Fatalf("缓存返回不一致：%+v != %+v", again, parsed)
+	}
+	// 修改其中一项绑定应刷新缓存。
+	custom := defaults
+	custom.Find = "Alt-Shift-F12"
+	customParsed := parsedShortcuts(custom)
+	for i, item := range shortcutActions {
+		if item.id == "find" {
+			want := parsedShortcut{mods: ui.Alt | ui.Shift, key: ui.KeyF12, ok: true}
+			if customParsed[i] != want {
+				t.Fatalf("更新绑定后缓存未刷新：got %+v, want %+v", customParsed[i], want)
+			}
+		}
+	}
+	// 核对功能键与非法输入边界。
+	if mods, key, ok := parseShortcut("Ctrl-f1"); !ok || mods != ui.Ctrl || key != ui.KeyF1 {
+		t.Fatalf("F1 解析异常：%v %v %v", mods, key, ok)
+	}
+	for _, bad := range []string{"", "Mod-", "Mod-F0", "Mod-F13", "Mod-F01", "Hyper-a"} {
+		if _, _, ok := parseShortcut(bad); ok {
+			t.Fatalf("非法快捷键 %q 不应解析成功", bad)
+		}
+	}
+}
+
+func TestSettingsPrebuiltOptionsAndCachedPalette(t *testing.T) {
+	if len(settingsLineHeightValues) != 19 || len(settingsLineHeightLabels) != 19 {
+		t.Fatalf("行高预构造选项数量异常：%d/%d", len(settingsLineHeightValues), len(settingsLineHeightLabels))
+	}
+	if settingsLineHeightLabels[0] != "1.3" || settingsLineHeightLabels[18] != "2.2" {
+		t.Fatalf("行高边界选项不符：%q .. %q", settingsLineHeightLabels[0], settingsLineHeightLabels[18])
+	}
+	if len(shortcutActionLabels) != len(shortcutActions) {
+		t.Fatalf("快捷键动作标签数量异常：%d", len(shortcutActionLabels))
+	}
+	for _, dark := range []bool{false, true} {
+		p1, p2 := settingsColors(dark), settingsColors(dark)
+		if p1 != p2 || p1.quoteRule != nativeeditor.QuoteRule(nativeTheme(dark)) {
+			t.Fatalf("深色=%v：缓存调色板不一致", dark)
+		}
 	}
 }

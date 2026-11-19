@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -324,5 +325,177 @@ func TestMissingWorkspaceAndFailedPersistence(t *testing.T) {
 	raw, _ := os.ReadFile(blocked)
 	if string(raw) != "保留" {
 		t.Fatal("配置写入删除了用户文件")
+	}
+}
+
+func TestConcurrentTreeCurrentAndRecent(t *testing.T) {
+	s, dir, _ := setup(t)
+	if err := os.MkdirAll(filepath.Join(dir, "docs", "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "root.md"), "# 根文档\n")
+	write(t, filepath.Join(dir, "docs", "a.md"), "# 文档 A\n")
+	write(t, filepath.Join(dir, "docs", "sub", "b.markdown"), "# 文档 B\n")
+	if err := s.Remember("root.md"); err != nil {
+		t.Fatal(err)
+	}
+
+	const workers = 6
+	const iters = 30
+	var wg sync.WaitGroup
+	errs := make(chan error, workers*iters)
+
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < iters; i++ {
+				nodes, err := s.Tree()
+				if err != nil {
+					errs <- fmt.Errorf("并发 Tree 失败：%v", err)
+					return
+				}
+				if len(nodes) != 2 || nodes[0].Name != "docs" || nodes[1].Name != "root.md" {
+					errs <- fmt.Errorf("并发 Tree 结果异常：%+v", nodes)
+					return
+				}
+				state := s.Current()
+				if state.Workspace == nil || state.Workspace.Path != dir {
+					errs <- fmt.Errorf("并发 Current 异常：%+v", state)
+					return
+				}
+				recent := s.Recent()
+				if len(recent) == 0 {
+					errs <- errors.New("并发 Recent 不应为空")
+					return
+				}
+				if i%5 == 0 {
+					target := "docs/a.md"
+					if id%2 == 0 {
+						target = "docs/sub/b.markdown"
+					}
+					if err := s.Remember(target); err != nil {
+						errs <- fmt.Errorf("并发 Remember 失败：%v", err)
+						return
+					}
+				}
+			}
+		}(w)
+	}
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+}
+
+func TestTreeNestedDirsHiddenDirsAndSymlinkFiltering(t *testing.T) {
+	s, dir, _ := setup(t)
+	outside := t.TempDir()
+	write(t, filepath.Join(outside, "leak.md"), "外部机密")
+
+	// 构造多层嵌套目录，混入隐藏目录、隐藏文件、node_modules、非 Markdown 文件。
+	for _, rel := range []string{
+		"a/b/c",
+		"a/empty",
+		"a/.hidden-dir",
+		"a/b/.git",
+		"a/node_modules/pkg",
+		".top-hidden/sub",
+	} {
+		if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(rel)), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(t, filepath.Join(dir, "a", "b", "c", "deep.md"), "深层笔记")
+	write(t, filepath.Join(dir, "a", "b", "note.MARKDOWN"), "二级笔记")
+	write(t, filepath.Join(dir, "a", ".secret.md"), "隐藏文件")
+	write(t, filepath.Join(dir, "a", ".hidden-dir", "in-hidden.md"), "隐藏目录内文件")
+	write(t, filepath.Join(dir, "a", "b", ".git", "config.md"), "git目录内文件")
+	write(t, filepath.Join(dir, "a", "node_modules", "pkg", "readme.md"), "依赖目录内文件")
+	write(t, filepath.Join(dir, ".top-hidden", "sub", "x.md"), "顶层隐藏目录")
+	write(t, filepath.Join(dir, "a", "b", "image.png"), "非 markdown")
+
+	// 嵌套目录中的各类符号链接：外部目录链接、循环父目录链接、外部文件链接、内部文件链接、悬空链接。
+	links := map[string]string{
+		filepath.Join(dir, "a", "escape-dir"):        outside,
+		filepath.Join(dir, "a", "b", "loop-parent"):  filepath.Join(dir, "a"),
+		filepath.Join(dir, "a", "b", "out-file.md"):  filepath.Join(outside, "leak.md"),
+		filepath.Join(dir, "a", "b", "in-file.md"):   filepath.Join(dir, "a", "b", "c", "deep.md"),
+		filepath.Join(dir, "a", "b", "dangling.md"):  filepath.Join(dir, "not-exist.md"),
+	}
+	for link, target := range links {
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("当前环境不支持创建符号链接：%v", err)
+		}
+	}
+
+	nodes, err := s.Tree()
+	if err != nil {
+		t.Fatalf("Tree 扫描失败：%v", err)
+	}
+	// 扁平化收集所有可见节点路径，验证顺序、层级及严格过滤结果。
+	var paths []string
+	var walk func(items []Node)
+	walk = func(items []Node) {
+		for _, n := range items {
+			kind := "F:"
+			if n.Directory {
+				kind = "D:"
+			}
+			paths = append(paths, kind+n.Path)
+			walk(n.Children)
+		}
+	}
+	walk(nodes)
+
+	want := []string{
+		"D:a",
+		"D:a/b",
+		"D:a/b/c",
+		"F:a/b/c/deep.md",
+		"F:a/b/note.MARKDOWN",
+		"D:a/empty",
+	}
+	if strings.Join(paths, "|") != strings.Join(want, "|") {
+		t.Fatalf("过滤或排序结果不符合预期：\ngot:  %v\nwant: %v", paths, want)
+	}
+}
+
+func TestOpenDocumentAndOpenRecentDecodeBytes(t *testing.T) {
+	s, dir, _ := setup(t)
+	cases := []struct {
+		name        string
+		raw         []byte
+		wantContent string
+	}{
+		{"仅LF", []byte("# 标题\n正文\n"), "# 标题\n正文\n"},
+		{"仅BOM", append([]byte{0xef, 0xbb, 0xbf}, []byte("# 中文\n行二\n")...), "# 中文\n行二\n"},
+		{"仅CRLF", []byte("第一行\r\n第二行\r\n"), "第一行\n第二行\n"},
+		{"BOM与CRLF", append([]byte{0xef, 0xbb, 0xbf}, []byte("甲\r\n乙\r\n")...), "甲\n乙\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rel := tc.name + ".md"
+			abs := filepath.Join(dir, rel)
+			if err := os.WriteFile(abs, tc.raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			doc, err := s.OpenDocument(rel)
+			if err != nil {
+				t.Fatalf("OpenDocument 失败：%v", err)
+			}
+			if doc.Content != tc.wantContent || !bytes.Equal(doc.Raw, tc.raw) {
+				t.Fatalf("OpenDocument 解码异常：content=%q raw=%q", doc.Content, doc.Raw)
+			}
+			recentDoc, err := s.OpenRecent(abs)
+			if err != nil {
+				t.Fatalf("OpenRecent 失败：%v", err)
+			}
+			if recentDoc.Content != tc.wantContent || !bytes.Equal(recentDoc.Raw, tc.raw) || recentDoc.Relative != rel {
+				t.Fatalf("OpenRecent 解码异常：%+v", recentDoc)
+			}
+		})
 	}
 }

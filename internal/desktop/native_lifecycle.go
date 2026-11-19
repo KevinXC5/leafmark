@@ -88,14 +88,13 @@ func installNativeCloseHandler(win *mygo.Window, app *nativeApp) func() {
 // View 绘制原生主界面。每次调用都在主线程，编辑器始终排版，不经网页。
 func (a *nativeApp) View(c *ui.Context) {
 	a.applyTheme(c)
-	a.scheduleAutoSave(c.Now())
-	// 编辑器输入在本帧晚些时候处理，定时帧负责发现输入并驱动两秒后的保存。
-	c.After(250 * time.Millisecond)
-	if a.recoveryAt.IsZero() || c.Now().Sub(a.recoveryAt) >= 2*time.Second {
-		a.recoveryAt = c.Now()
+	now := c.Now()
+	edited := a.scheduleAutoSave(now)
+	if a.recoveryAt.IsZero() || now.Sub(a.recoveryAt) >= recoveryWriteInterval {
+		a.recoveryAt = now
 		a.persistRecovery()
 	}
-	a.watchExternal(c.Now())
+	a.watchExternal(now)
 	a.handleShortcuts(c)
 	bar := c.TitleBar()
 	if a.settingsOn {
@@ -121,6 +120,8 @@ func (a *nativeApp) View(c *ui.Context) {
 	a.viewPrompt(c)
 	a.viewRawEditor(c)
 	a.viewUpdateDialog(c)
+	// 编辑器输入在本帧内处理完毕；有活跃编辑或待自动保存时保持 250ms 响应，空闲时按外部文件检查周期唤醒。
+	c.After(a.nextFrameDelay(now, edited))
 	// 验证只在真实帧构建完成后插入操作，不走网页。
 	if a.verifyStep != nil {
 		a.verifyStep(c)
@@ -128,12 +129,63 @@ func (a *nativeApp) View(c *ui.Context) {
 }
 
 const (
-	nativeLightPaper = "#faf9f5"
-	nativeDarkPaper  = "#242220"
+	nativeLightPaper      = "#faf9f5"
+	nativeDarkPaper       = "#242220"
+	activeFrameInterval   = 250 * time.Millisecond
+	recoveryWriteInterval = 2 * time.Second
 )
 
-// nativeTheme 统一书写、设置、源码和导出的语义色，也覆盖控件库的交互状态。
-func nativeTheme(dark bool) *ui.Theme {
+var (
+	nativeLightTheme = buildNativeTheme(false)
+	nativeDarkTheme  = buildNativeTheme(true)
+)
+
+func (a *nativeApp) hasPendingEdit() bool {
+	for _, tab := range a.tabs {
+		if a.pendingEdit(tab) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *nativeApp) hasPendingAutoSave() bool {
+	if !a.settings.AutoSave || len(a.editedAt) == 0 {
+		return false
+	}
+	for id, since := range a.editedAt {
+		if since.IsZero() || a.saving[id] || a.conflicts[id] {
+			continue
+		}
+		if doc, ok := a.document(id); ok && doc.Path != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// nextFrameDelay 计算下一次定时唤醒的间隔：活跃编辑或待自动保存保持 250ms；
+// 完全空闲时按外部文件检查或恢复落盘的剩余时间注册，避免 4Hz 空转。
+func (a *nativeApp) nextFrameDelay(now time.Time, edited bool) time.Duration {
+	if edited || a.hasPendingEdit() || a.hasPendingAutoSave() {
+		return activeFrameInterval
+	}
+	delay := externalInterval
+	if !a.externalAt.IsZero() {
+		if rem := externalInterval - now.Sub(a.externalAt); rem > 0 && rem < delay {
+			delay = rem
+		}
+	}
+	if a.recoveryPending && !a.recoveryBlocked && !a.recoveryAt.IsZero() {
+		if rem := recoveryWriteInterval - now.Sub(a.recoveryAt); rem > 0 && rem < delay {
+			delay = rem
+		}
+	}
+	return delay
+}
+
+// buildNativeTheme 构建一套只读语义主题，供浅色与深色包级缓存复用。
+func buildNativeTheme(dark bool) *ui.Theme {
 	base := ui.LightTheme()
 	if dark {
 		base = ui.DarkTheme()
@@ -163,7 +215,20 @@ func nativeTheme(dark bool) *ui.Theme {
 	base.AccentText = ui.Hex(nativeDarkPaper)
 	base.Selection = base.Accent.Alpha(.25)
 	base.Focus = base.Accent.Alpha(.55)
+	// 滚动条用细而淡的墨色，悬停在滚动区上才出现。
+	base.Scrollbar = base.TextMuted.Alpha(0.3)
+	base.ScrollbarWidth = 4
+	base.Font = "Inter"
+	base.FontSize = uiThemeFontSize
 	return base
+}
+
+// nativeTheme 返回缓存的只读语义主题，供书写、设置、源码和导出共用，调用方不得修改返回值。
+func nativeTheme(dark bool) *ui.Theme {
+	if dark {
+		return nativeDarkTheme
+	}
+	return nativeLightTheme
 }
 
 func (a *nativeApp) applyTheme(c *ui.Context) {
@@ -174,32 +239,42 @@ func (a *nativeApp) applyTheme(c *ui.Context) {
 	case "dark":
 		dark = true
 	}
-	base := nativeTheme(dark)
-	// 滚动条用细而淡的墨色，悬停在滚动区上才出现。
-	base.Scrollbar = base.TextMuted.Alpha(0.3)
-	base.ScrollbarWidth = 4
 	// 界面文字随字号设置等比缩放：默认字号下取基准字号。
-	base.Font = "Inter"
-	base.FontSize = uiThemeFontSize * a.settings.FontSize / uiBaseFontSize
-	c.SetTheme(base)
+	fontSize := uiThemeFontSize * a.settings.FontSize / uiBaseFontSize
+	if a.cachedTheme == nil || a.cachedThemeDark != dark || a.cachedThemeFontSize != fontSize {
+		// 按主题与字号缓存实例级副本，避免每帧分配且不污染包级模板。
+		theme := *nativeTheme(dark)
+		theme.FontSize = fontSize
+		a.cachedTheme = &theme
+		a.cachedThemeDark = dark
+		a.cachedThemeFontSize = fontSize
+	}
+	c.SetTheme(a.cachedTheme)
 	a.effectiveDark = dark
 }
 
 func (a *nativeApp) handleShortcuts(c *ui.Context) {
+	parsed := parsedShortcuts(a.settings.Shortcuts)
 	// 设置页里只响应打开/关闭设置，避免误触发新建、保存等文档操作。
 	if a.settingsOn {
-		if mods, key, ok := parseShortcut(a.settings.Shortcuts.Settings); ok && !a.shortcutOpen && c.Shortcut(mods, key) {
-			a.command("settings")
+		for i, item := range shortcutActions {
+			if item.id != "settings" {
+				continue
+			}
+			if p := parsed[i]; p.ok && !a.shortcutOpen && c.Shortcut(p.mods, p.key) {
+				a.command("settings")
+			}
+			break
 		}
 		return
 	}
 	source := sourceMode(a.active())
-	for _, item := range shortcutActions {
+	for i, item := range shortcutActions {
 		// 源码模式的文字快捷键交给文本域自己处理。
 		if source && (item.id == "bold" || item.id == "italic" || item.id == "link") {
 			continue
 		}
-		if mods, key, ok := parseShortcut(*a.settings.Shortcuts.binding(item.id)); ok && c.Shortcut(mods, key) {
+		if p := parsed[i]; p.ok && c.Shortcut(p.mods, p.key) {
 			a.command(item.command)
 			return
 		}
@@ -265,6 +340,7 @@ func (a *nativeApp) finishClose(ids []string) {
 		a.dropTab(id)
 		delete(a.saveGen, id)
 		delete(a.saving, id)
+		delete(a.conflicts, id)
 		delete(a.editedAt, id)
 		delete(a.seenText, id)
 	}

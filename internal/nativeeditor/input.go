@@ -2,9 +2,12 @@ package nativeeditor
 
 import (
 	"runtime"
+	"sort"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"leafmark/internal/richtext"
 )
 
 func wordModifier() ui.Modifiers {
@@ -29,6 +32,7 @@ func (e *Editor) onInput(services ui.Services) func(ui.InputEvent) bool {
 				// 右键落在选区之外时先把光标移过去，菜单才作用于点到的位置。
 				if off, sel := e.lay.hit(x, y), e.selection(); off < sel.Start || off > sel.End {
 					e.anchor, e.focus = off, off
+					e.hasGoalX = false
 				}
 				return false
 			}
@@ -51,7 +55,8 @@ func (e *Editor) onInput(services ui.Services) func(ui.InputEvent) bool {
 				e.anchor, e.focus = off, off
 			}
 			e.dragging = true
-			e.compose = ""
+			e.hasGoalX = false
+			e.cancelCompose()
 			if e.pressHot.kind != hotDetails {
 				e.reveal = true
 			}
@@ -62,6 +67,7 @@ func (e *Editor) onInput(services ui.Services) func(ui.InputEvent) bool {
 				return e.updatePointer(ev.X+e.scroll.X, ev.Y+e.scroll.Y, ev.Mods)
 			}
 			e.focus = e.lay.hit(ev.X+e.scroll.X, ev.Y+e.scroll.Y)
+			e.hasGoalX = false
 			e.reveal = true
 			e.hand = e.hand && e.anchor == e.focus // 拖出选区后恢复文本指针
 			return true
@@ -141,9 +147,14 @@ func (e *Editor) onKey(services ui.Services, ev ui.InputEvent) bool {
 		return true
 	case ui.KeyEnter:
 		if mods == ui.Cmd || mods == ui.Ctrl {
+			// 源码模式始终保持单块纯文本不变式，禁止拆出新段落块。
+			if e.sourceMode {
+				return false
+			}
 			e.cancelCompose()
 			sel := e.doc.CreateParagraphAfter(e.focus)
 			e.anchor, e.focus = sel.Start, sel.End
+			e.hasGoalX = false
 			e.dirty, e.reveal = true, true
 			return true
 		}
@@ -162,6 +173,7 @@ func (e *Editor) onKey(services ui.Services, ev ui.InputEvent) bool {
 	case ui.KeyA:
 		if mods == ui.Cmd {
 			e.anchor, e.focus = 0, e.doc.Len()
+			e.hasGoalX = false
 			return true
 		}
 	case ui.KeyC:
@@ -216,6 +228,7 @@ func (e *Editor) onCommand(services ui.Services, name string) bool {
 		e.paste(services)
 	case "selectAll":
 		e.anchor, e.focus = 0, e.doc.Len()
+		e.hasGoalX = false
 	case "undo":
 		e.Undo()
 	case "redo":
@@ -230,6 +243,9 @@ func (e *Editor) onCommand(services ui.Services, name string) bool {
 
 func (e *Editor) move(key ui.Key, extend, extra bool) {
 	e.cancelCompose()
+	if key != ui.KeyUp && key != ui.KeyDown {
+		e.hasGoalX = false
+	}
 	n := e.doc.Len()
 	next := e.focus
 	switch key {
@@ -294,26 +310,142 @@ func (e *Editor) vertical(offset int, down bool) int {
 		return offset
 	}
 	ln := e.lay.lines[li]
-	x := ln.caretX(offset)
-	j := li
+	curBox := e.blockBox(ln.block)
+	if !e.hasGoalX {
+		e.goalX = curBox.x + ln.caretX(offset)
+		e.hasGoalX = true
+	}
+	targetX := e.goalX
+
+	// 表格内上下方向键优先在同一单元格折行间移动，再跨表格行保持同列。
+	if curBox.kind == richtext.TableBlock {
+		if down {
+			if li+1 < len(e.lay.lines) {
+				next := e.lay.lines[li+1]
+				if next.block == ln.block && next.tableRow == ln.tableRow && next.tableCol == ln.tableCol {
+					return next.hitOffset(targetX - curBox.x)
+				}
+			}
+			if j, ok := e.tableLineAt(curBox, ln.tableRow+1, ln.tableCol, true); ok {
+				return e.lay.lines[j].hitOffset(targetX - curBox.x)
+			}
+			if len(curBox.lines) > 0 {
+				after := curBox.lines[len(curBox.lines)-1] + 1
+				if after < len(e.lay.lines) {
+					return e.hitVerticalTarget(after, targetX, true)
+				}
+			}
+			return e.doc.Len()
+		}
+		if li > 0 {
+			prev := e.lay.lines[li-1]
+			if prev.block == ln.block && prev.tableRow == ln.tableRow && prev.tableCol == ln.tableCol {
+				return prev.hitOffset(targetX - curBox.x)
+			}
+		}
+		if ln.tableRow > 0 {
+			if j, ok := e.tableLineAt(curBox, ln.tableRow-1, ln.tableCol, false); ok {
+				return e.lay.lines[j].hitOffset(targetX - curBox.x)
+			}
+		}
+		if len(curBox.lines) > 0 {
+			before := curBox.lines[0] - 1
+			if before >= 0 {
+				return e.hitVerticalTarget(before, targetX, false)
+			}
+		}
+		return 0
+	}
+
 	if down {
 		if li+1 >= len(e.lay.lines) {
 			return e.doc.Len()
 		}
-		j = li + 1
-	} else {
-		if li == 0 {
-			return 0
-		}
-		j = li - 1
+		return e.hitVerticalTarget(li+1, targetX, true)
 	}
-	return e.lay.lines[j].hitOffset(x)
+	if li == 0 {
+		return 0
+	}
+	return e.hitVerticalTarget(li-1, targetX, false)
 }
 
-func (e *Editor) wordBound(offset, dir int) int {
-	rs := []rune(e.doc.Text())
+// tableLineAt 返回表格中指定行列的首行（fromTop=true）或末行（fromTop=false）在 lay.lines 中的下标。
+func (e *Editor) tableLineAt(b blockBox, row, col int, fromTop bool) (int, bool) {
+	chosen := -1
+	fallback := -1
+	for _, idx := range b.lines {
+		ln := e.lay.lines[idx]
+		if ln.tableRow != row {
+			if ln.tableRow > row {
+				break
+			}
+			continue
+		}
+		if ln.tableCol == col {
+			if fromTop {
+				return idx, true
+			}
+			chosen = idx
+		} else if ln.tableCol < col {
+			if fallback < 0 || ln.tableCol > e.lay.lines[fallback].tableCol || (!fromTop && ln.tableCol == e.lay.lines[fallback].tableCol) {
+				fallback = idx
+			}
+		}
+	}
+	if chosen >= 0 {
+		return chosen, true
+	}
+	if fallback >= 0 {
+		return fallback, true
+	}
+	return -1, false
+}
+
+// hitVerticalTarget 把屏幕横坐标落到目标行上；目标若是表格则先按列边界匹配到同横坐标所在列。
+func (e *Editor) hitVerticalTarget(j int, targetX float32, fromTop bool) int {
+	targetLn := e.lay.lines[j]
+	targetBox := e.blockBox(targetLn.block)
+	relX := targetX - targetBox.x
+	if targetBox.kind == richtext.TableBlock && len(targetBox.cols) > 1 {
+		col := sort.Search(len(targetBox.cols)-1, func(c int) bool {
+			return targetBox.cols[c] > relX
+		}) - 1
+		if col < 0 {
+			col = 0
+		}
+		if col >= len(targetBox.cols)-1 {
+			col = len(targetBox.cols) - 2
+		}
+		if tj, ok := e.tableLineAt(targetBox, targetLn.tableRow, col, fromTop); ok {
+			return e.lay.lines[tj].hitOffset(relX)
+		}
+	}
+	return targetLn.hitOffset(relX)
+}
+
+// localTextWindow 流式解码文档局部窗口 [max(0, offset-before), offset+after) 的 rune，避免把整篇文档转成 []rune。
+func localTextWindow(text string, offset, before, after int) (rs []rune, base int, reachedEnd bool) {
+	start := max(0, offset-before)
+	end := offset + after
+	rs = make([]rune, 0, min(end-start, 512))
+	i := 0
+	for len(text) > 0 {
+		if i >= end {
+			return rs, start, false
+		}
+		r, size := utf8.DecodeRuneInString(text)
+		text = text[size:]
+		if i >= start {
+			rs = append(rs, r)
+		}
+		i++
+	}
+	return rs, start, true
+}
+
+func wordBoundLocal(rs []rune, local, dir int) int {
 	if dir < 0 {
-		i := offset
+		i := min(max(local, 0), len(rs))
 		for i > 0 && unicode.IsSpace(rs[i-1]) {
 			i--
 		}
@@ -326,7 +458,7 @@ func (e *Editor) wordBound(offset, dir int) int {
 		}
 		return i
 	}
-	i := offset
+	i := min(max(local, 0), len(rs))
 	for i < len(rs) && unicode.IsSpace(rs[i]) {
 		i++
 	}
@@ -340,23 +472,102 @@ func (e *Editor) wordBound(offset, dir int) int {
 	return i
 }
 
-// clusterBound 按字形簇移动。ZWJ 序列和键帽 emoji 一次删掉，不拆开。
-func (e *Editor) clusterBound(offset, dir int) int {
-	bounds := clusterBounds([]rune(e.doc.Text()))
-	if dir < 0 {
-		for i := len(bounds) - 1; i >= 0; i-- {
-			if bounds[i] < offset {
-				return bounds[i]
-			}
-		}
+func (e *Editor) wordBound(offset, dir int) int {
+	n := e.doc.Len()
+	if dir < 0 && offset <= 0 {
 		return 0
 	}
-	for _, at := range bounds {
-		if at > offset {
-			return at
+	if dir > 0 && offset >= n {
+		return n
+	}
+	// 布局与文档版本一致时，先在当前行局部窗口内查找，命中内部边界时无需读取全文。
+	if e.lay.docRev == e.doc.Revision() && len(e.lay.lines) > 0 {
+		if li := e.lay.lineAt(offset); li >= 0 {
+			ln := e.lay.lines[li]
+			local := offset - ln.origin
+			if dir < 0 && local > 0 && local <= ln.count {
+				rs, base, _ := localTextWindow(ln.text, local, 256, 0)
+				res := wordBoundLocal(rs, local-base, -1)
+				if res > 0 {
+					return ln.origin + base + res
+				}
+			} else if dir > 0 && local >= 0 && local < ln.count {
+				rs, base, _ := localTextWindow(ln.text, local, 0, 256)
+				res := wordBoundLocal(rs, local-base, 1)
+				if res < len(rs) {
+					return ln.origin + base + res
+				}
+			}
 		}
 	}
-	return e.doc.Len()
+	text := e.doc.Text()
+	for win := 256; ; win *= 2 {
+		before, after := 0, win
+		if dir < 0 {
+			before, after = win, 0
+		}
+		rs, base, reachedEnd := localTextWindow(text, offset, before, after)
+		res := wordBoundLocal(rs, offset-base, dir)
+		if dir < 0 {
+			if res > 0 || base == 0 {
+				return base + res
+			}
+		} else {
+			if res < len(rs) || reachedEnd {
+				return base + res
+			}
+		}
+	}
+}
+
+// clusterBound 按字形簇移动。ZWJ 序列和键帽 emoji 一次删掉，不拆开。
+func (e *Editor) clusterBound(offset, dir int) int {
+	n := e.doc.Len()
+	if dir < 0 && offset <= 0 {
+		return 0
+	}
+	if dir > 0 && offset >= n {
+		return n
+	}
+	// 软换行从不拆簇，光标严格落在当前行内部时只需扫描当前行局部窗口。
+	if e.lay.docRev == e.doc.Revision() && len(e.lay.lines) > 0 {
+		if li := e.lay.lineAt(offset); li >= 0 {
+			ln := e.lay.lines[li]
+			local := offset - ln.origin
+			if (dir < 0 && local > 0 && local <= ln.count) || (dir > 0 && local >= 0 && local < ln.count) {
+				rs, base, _ := localTextWindow(ln.text, local, 64, 64)
+				if at, ok := clusterStepInWindow(rs, local-base, dir); ok {
+					return ln.origin + base + at
+				}
+			}
+		}
+	}
+	rs, base, _ := localTextWindow(e.doc.Text(), offset, 64, 64)
+	if at, ok := clusterStepInWindow(rs, offset-base, dir); ok {
+		return base + at
+	}
+	if dir < 0 {
+		return 0
+	}
+	return n
+}
+
+func clusterStepInWindow(rs []rune, local, dir int) (int, bool) {
+	bounds := clusterBounds(rs)
+	if dir < 0 {
+		for i := len(bounds) - 1; i >= 0; i-- {
+			if bounds[i] < local {
+				return bounds[i], true
+			}
+		}
+		return 0, false
+	}
+	for _, at := range bounds {
+		if at > local {
+			return at, true
+		}
+	}
+	return len(rs), false
 }
 
 // clusterBounds 不把组合符后面的普通文字并进簇；ZWJ 和区域旗帜成对处理。
@@ -428,6 +639,7 @@ func (e *Editor) backspace(word bool) {
 	}
 	sel := e.doc.Delete(from, e.focus)
 	e.anchor, e.focus = sel.Start, sel.End
+	e.hasGoalX = false
 	e.dirty = true
 	e.reveal = true
 }
@@ -447,6 +659,7 @@ func (e *Editor) deleteForward(word bool) {
 	}
 	sel := e.doc.Delete(e.focus, to)
 	e.anchor, e.focus = sel.Start, sel.End
+	e.hasGoalX = false
 	e.dirty = true
 	e.reveal = true
 }
@@ -465,11 +678,14 @@ func (e *Editor) replaceSelection(text string) {
 	if e.readOnly {
 		return
 	}
-	before := e.doc.Markdown()
+	rev := e.doc.Revision()
 	out := e.doc.Replace(e.selection(), text)
 	e.anchor, e.focus = out.Start, out.End
 	e.pending = 0
-	e.dirty = e.dirty || before != e.doc.Markdown()
+	e.hasGoalX = false
+	if e.doc.Revision() != rev {
+		e.dirty = true
+	}
 	e.reveal = true
 }
 
@@ -489,6 +705,7 @@ func (e *Editor) copy(services ui.Services, cut bool) {
 	if cut {
 		out := e.doc.Delete(sel.Start, sel.End)
 		e.anchor, e.focus = out.Start, out.End
+		e.hasGoalX = false
 		e.dirty = true
 		e.reveal = true
 	}
@@ -505,6 +722,7 @@ func (e *Editor) paste(services ui.Services) {
 	e.cancelCompose()
 	sel := e.doc.PasteSelection(e.selection(), text)
 	e.anchor, e.focus = sel.Start, sel.End
+	e.hasGoalX = false
 	e.dirty = true
 	e.reveal = true
 }
@@ -534,19 +752,33 @@ func (e *Editor) composeWidth() float32 {
 	return advanceOf(e.composeGlyphs)
 }
 
-func (e *Editor) blockBox(index int) blockBox {
-	if index >= 0 && index < len(e.lay.blocks) && e.lay.blocks[index].index == index {
-		return e.lay.blocks[index]
+// findBlockBox 按文档块索引二分查找对应排版盒，兼容跳过 ReferenceDef 或收起 details 后的稀疏下标。
+func findBlockBox(lay layout, index int) (blockBox, bool) {
+	blocks := lay.blocks
+	if index >= 0 && index < len(blocks) && blocks[index].index == index {
+		return blocks[index], true
 	}
-	for _, b := range e.lay.blocks {
-		if b.index == index {
-			return b
-		}
+	i := sort.Search(len(blocks), func(i int) bool {
+		return blocks[i].index >= index
+	})
+	if i < len(blocks) && blocks[i].index == index {
+		return blocks[i], true
 	}
-	if len(e.lay.blocks) == 0 {
+	return blockBox{}, false
+}
+
+func blockBoxIn(lay layout, index int) blockBox {
+	if b, ok := findBlockBox(lay, index); ok {
+		return b
+	}
+	if len(lay.blocks) == 0 {
 		return blockBox{}
 	}
-	return e.lay.blocks[0]
+	return lay.blocks[0]
+}
+
+func (e *Editor) blockBox(index int) blockBox {
+	return blockBoxIn(e.lay, index)
 }
 
 func (e *Editor) keepCaretVisible() {

@@ -97,13 +97,13 @@ func (e *Editor) hotAt(x, y float32) hot {
 			if len(span.glyphs) == 0 || span.footnote == "" && span.link == "" {
 				continue
 			}
-			if x < bx+span.glyphs[0].X || x >= bx+advanceOf(span.glyphs) {
+			if x < bx+span.glyphs[0].X || x >= bx+span.endX {
 				continue
 			}
 			if span.footnote != "" {
 				return hot{kind: hotFootRef, value: span.footnote, block: ln.block}
 			}
-			if openable(span.link) {
+			if span.linkSafe && openable(span.link) {
 				return hot{kind: hotLink, value: span.link, block: ln.block}
 			}
 		}
@@ -166,6 +166,7 @@ func (e *Editor) activate(services ui.Services, h hot) {
 			e.cancelCompose()
 			e.anchor, e.focus = at, at
 			e.pending = 0
+			e.hasGoalX = false
 			e.reveal = true
 		}
 	case hotLink:
@@ -180,7 +181,7 @@ func (e *Editor) activate(services ui.Services, h hot) {
 	}
 }
 
-// taskAt 返回坐标下的任务复选框所在块，只有首行的复选框算数。
+// taskAt 返回坐标下的任务复选框所在块，涵盖普通任务块与首块非正文的任务容器装饰。
 func (e *Editor) taskAt(x, y float32) (int, bool) {
 	for _, b := range e.lay.blocks {
 		if b.kind != richtext.Task || len(b.lines) == 0 {
@@ -191,6 +192,15 @@ func (e *Editor) taskAt(x, y float32) (int, bool) {
 			continue
 		}
 		return b.index, true
+	}
+	for _, f := range e.lay.frames {
+		if !f.marker || f.kind != richtext.Task {
+			continue
+		}
+		if x < f.x || x > f.x+20 || y < f.lineY || y > f.lineY+f.lineH {
+			continue
+		}
+		return f.block, true
 	}
 	return 0, false
 }
@@ -210,6 +220,7 @@ func (e *Editor) Replace(query, replacement string, all bool) int {
 		if n > 0 {
 			e.anchor, e.focus = sel.Start, sel.End
 			e.pending = 0
+			e.hasGoalX = false
 			e.dirty, e.reveal = true, true
 		}
 		return n
@@ -238,6 +249,7 @@ func (e *Editor) Replace(query, replacement string, all bool) int {
 	}
 	e.anchor, e.focus = out.End, out.End
 	e.pending = 0
+	e.hasGoalX = false
 	e.dirty, e.reveal = true, true
 	e.Find(query)
 	return 1
@@ -279,66 +291,9 @@ func (e *Editor) matchAt(at int, q []rune) bool {
 	return indexFrom(text, q, at) == at && e.editableSpan(at, at+len(q))
 }
 
-// editableSpan 报告半开区间是否完全落在可直接编辑的文本上。
-// 行内公式、脚注引用、原文占位、图片和分隔线都是原子结构，区间与它们相交即不可编辑。
+// editableSpan 报告半开区间是否完全落在可直接编辑的文本上，委托给文档索引零拷贝判定。
 func (e *Editor) editableSpan(start, end int) bool {
-	if start < 0 || end < start || end > e.doc.Len() {
-		return false
-	}
-	blocks := e.doc.Blocks()
-	for at := start; at < end; at++ {
-		bi := e.doc.BlockIndexAt(at)
-		if bi < 0 || bi >= len(blocks) {
-			return false
-		}
-		b := blocks[bi]
-		switch b.Kind {
-		case richtext.Raw, richtext.Image, richtext.Horizontal:
-			return false
-		case richtext.Code, richtext.TableBlock:
-			continue
-		}
-		if runAt(b, at-blockOrigin(blocks, bi)).atomic {
-			return false
-		}
-	}
-	return true
-}
-
-// blockOrigin 返回块在纯文本中的起点。块与块之间恰好隔一个换行。
-func blockOrigin(blocks []richtext.Block, index int) int {
-	at := 0
-	for i := 0; i < index && i < len(blocks); i++ {
-		at += blockRunes(blocks[i]) + 1
-	}
-	return at
-}
-
-func blockRunes(b richtext.Block) int {
-	switch b.Kind {
-	case richtext.Raw, richtext.Image, richtext.Horizontal:
-		return 1
-	case richtext.Code:
-		return len([]rune(b.Code))
-	default:
-		return len([]rune(visibleRuns(b.Runs)))
-	}
-}
-
-// runPiece 是块内某个偏移所在的 run。atomic 表示公式或脚注引用，整段不可拆开编辑。
-type runPiece struct{ atomic bool }
-
-func runAt(b richtext.Block, local int) runPiece {
-	at := 0
-	for _, r := range b.Runs {
-		n := len([]rune(r.Text))
-		if local < at+n {
-			atomic := r.Marks&richtext.MarkMath != 0 || r.Image != nil || r.Link != nil && r.Link.Footnote != ""
-			return runPiece{atomic: atomic}
-		}
-		at += n
-	}
-	return runPiece{}
+	return e.doc.EditableSpan(start, end)
 }
 
 // expandToCaret 在光标落在收起的 details 正文里时展开祖先。返回是否展开了容器。

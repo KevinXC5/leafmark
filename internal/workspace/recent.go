@@ -5,8 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
-	"unicode/utf8"
 )
 
 func (s *Store) listed(path string) bool {
@@ -63,8 +61,9 @@ func (s *Store) OpenRecent(path string) (*Document, error) {
 	if len(raw) > MaxDocumentBytes {
 		return nil, errors.New("文档不能超过 16 MB")
 	}
-	if !utf8.Valid(raw) || strings.ContainsRune(string(raw), '\x00') {
-		return nil, errors.New("请打开 UTF-8 编码的 Markdown 文档")
+	content, err := decodeDocumentBytes(raw)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.remember(path); err != nil {
 		return nil, err
@@ -75,7 +74,7 @@ func (s *Store) OpenRecent(path string) (*Document, error) {
 			relative = filepath.ToSlash(rel)
 		}
 	}
-	return &Document{Name: name, Path: path, Relative: relative, Raw: raw, Content: strings.ReplaceAll(strings.TrimPrefix(string(raw), string(rune(0xfeff))), "\r\n", "\n")}, nil
+	return &Document{Name: name, Path: path, Relative: relative, Raw: raw, Content: content}, nil
 }
 
 func (s *Store) ClearRecent() error {

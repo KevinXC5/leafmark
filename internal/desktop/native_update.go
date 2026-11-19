@@ -2,9 +2,16 @@ package desktop
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
+
+const updateProgressThrottle = 50 * time.Millisecond
+
+// updateProgressNow 允许测试控制节流时钟，正式运行使用 time.Now。
+var updateProgressNow = time.Now
 
 func (a *nativeApp) checkUpdate() {
 	if a.updates == nil || a.updateBusy {
@@ -31,7 +38,54 @@ func (a *nativeApp) checkUpdate() {
 	}()
 }
 
-// watchUpdates 把更新服务的后台通知接到界面：自动检查发现新版本时弹出更新窗口，下载时刷新进度。
+// throttleUpdateProgress 节流高频下载字节回调：首次、新一轮下载、阶段切换与完成时立即放行，其余按 50ms 间隔上报。
+func throttleUpdateProgress(emit func(downloaded, total int64)) func(downloaded, total int64) {
+	fn, _ := newThrottledUpdateProgress(emit)
+	return fn
+}
+
+func newThrottledUpdateProgress(emit func(downloaded, total int64)) (func(downloaded, total int64), func()) {
+	var (
+		mu             sync.Mutex
+		hasProgress    bool
+		lastEmit       time.Time
+		lastDownloaded int64
+		lastTotal      int64
+	)
+	reset := func() {
+		mu.Lock()
+		hasProgress = false
+		lastEmit = time.Time{}
+		lastDownloaded = 0
+		lastTotal = 0
+		mu.Unlock()
+	}
+	fn := func(downloaded, total int64) {
+		now := updateProgressNow()
+		mu.Lock()
+		complete := total > 0 && downloaded >= total
+		lastComplete := hasProgress && lastTotal > 0 && lastDownloaded >= lastTotal
+		stateChanged := !hasProgress ||
+			downloaded < lastDownloaded ||
+			(downloaded > 0) != (lastDownloaded > 0) ||
+			(total > 0) != (lastTotal > 0) ||
+			(complete && !lastComplete)
+		shouldEmit := stateChanged || now.Sub(lastEmit) >= updateProgressThrottle
+		if shouldEmit {
+			hasProgress = true
+			lastEmit = now
+			lastDownloaded = downloaded
+			lastTotal = total
+		}
+		mu.Unlock()
+		if shouldEmit {
+			emit(downloaded, total)
+		}
+	}
+	return fn, reset
+}
+
+// watchUpdates 把更新服务的后台通知接到界面：自动检查发现新版本时弹出更新窗口，下载时节流刷新进度。
 func (a *nativeApp) watchUpdates() {
 	if a.updates == nil {
 		return
@@ -43,15 +97,20 @@ func (a *nativeApp) watchUpdates() {
 			}
 		})
 	}
-	a.updates.progressFn = func(downloaded, total int64) {
+	fn, reset := newThrottledUpdateProgress(func(downloaded, total int64) {
 		a.update(func() { a.updateDownloaded, a.updateTotal = downloaded, total })
-	}
+	})
+	a.updates.progressFn = fn
+	a.updateProgressReset = reset
 }
 
 // installUpdate 下载并安装已发现的新版本；进度与结果显示在更新窗口里。
 func (a *nativeApp) installUpdate() {
 	if a.updates == nil || a.updateDownloading {
 		return
+	}
+	if a.updateProgressReset != nil {
+		a.updateProgressReset()
 	}
 	a.updateDownloading, a.updateBusy = true, true
 	a.updateDownloaded, a.updateTotal, a.updateError = 0, 0, ""

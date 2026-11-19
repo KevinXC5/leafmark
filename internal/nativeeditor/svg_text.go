@@ -11,37 +11,87 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// SVG 文字由原生字体引擎排版，中文沿用系统字体回退；缓存最近一次显示比例的字形。
+const svgTextScaleCacheSize = 4
+
+// svgTextScaled 缓存单个量化缩放比例下的字形与总宽度，避免同一 SVG 多尺寸显示时每帧重复塑形。
+type svgTextScaled struct {
+	key     int32
+	glyphs  []ui.Glyph
+	advance float32
+}
+
+// SVG 文字由原生字体引擎排版，中文沿用系统字体回退；按量化缩放比例缓存最近使用过的字形。
 type svgText struct {
 	text         string
 	x, y, sx, sy float32
 	font         ui.Font
 	color        ui.Color
 	anchor       string
-	scale        float32
-	glyphs       []ui.Glyph
+	cache        [svgTextScaleCacheSize]svgTextScaled
+	cacheLen     uint8
+}
+
+func svgTextScaleKey(scale float32) int32 {
+	q := math.Round(float64(scale) * 1000)
+	if q < 1 {
+		return 1
+	}
+	if q > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(q)
+}
+
+func (t *svgText) shaped(scale float32) ([]ui.Glyph, float32) {
+	if !(scale > 0) || !(t.sy > 0) {
+		return nil, 0
+	}
+	key := svgTextScaleKey(scale)
+	n := int(t.cacheLen)
+	for i := 0; i < n; i++ {
+		if t.cache[i].key == key {
+			entry := t.cache[i]
+			if i > 0 {
+				copy(t.cache[1:i+1], t.cache[0:i])
+				t.cache[0] = entry
+			}
+			return entry.glyphs, entry.advance
+		}
+	}
+	font := t.font
+	font.Size *= t.sy * scale
+	glyphs := ui.Shape(t.text, font)
+	if ratio := t.sx / t.sy; ratio != 1 {
+		for i := range glyphs {
+			glyphs[i].X *= ratio
+			glyphs[i].Advance *= ratio
+		}
+	}
+	adv := advanceOf(glyphs)
+	if n < svgTextScaleCacheSize {
+		n++
+		t.cacheLen = uint8(n)
+	}
+	if n > 1 {
+		copy(t.cache[1:n], t.cache[0:n-1])
+	}
+	t.cache[0] = svgTextScaled{key: key, glyphs: glyphs, advance: adv}
+	return glyphs, adv
 }
 
 func (t *svgText) paint(p *ui.Painter, fit ui.Rect, scale float32) {
-	if t.scale != scale || t.glyphs == nil {
-		font := t.font
-		font.Size *= t.sy * scale
-		t.glyphs = ui.Shape(t.text, font)
-		ratio := t.sx / t.sy
-		for i := range t.glyphs {
-			t.glyphs[i].X *= ratio
-			t.glyphs[i].Advance *= ratio
-		}
-		t.scale = scale
+	glyphs, adv := t.shaped(scale)
+	if len(glyphs) == 0 {
+		return
 	}
 	x := fit.X + t.x*scale
 	switch t.anchor {
 	case "middle":
-		x -= advanceOf(t.glyphs) / 2
+		x -= adv / 2
 	case "end":
-		x -= advanceOf(t.glyphs)
+		x -= adv
 	}
-	p.Glyphs(t.glyphs, x, fit.Y+t.y*scale, t.color)
+	p.Glyphs(glyphs, x, fit.Y+t.y*scale, t.color)
 }
 
 type svgTextNode struct {
@@ -57,13 +107,35 @@ type svgTextRule struct {
 	rank     int
 }
 
+// isSVGTextStyleAttr 判断属性是否影响文字排版、配色或节点可见性。
+func isSVGTextStyleAttr(k string) bool {
+	switch k {
+	case "display", "visibility",
+		"font-size", "font-weight", "font-family", "font-style",
+		"fill", "opacity", "fill-opacity", "text-anchor":
+		return true
+	}
+	return false
+}
+
+func visitSVGDeclarations(s string, fn func(k, v string)) {
+	for s != "" {
+		part, rest, ok := strings.Cut(s, ";")
+		if k, v, has := strings.Cut(part, ":"); has {
+			fn(strings.TrimSpace(k), strings.TrimSpace(v))
+		}
+		if !ok {
+			break
+		}
+		s = rest
+	}
+}
+
 func svgDeclarations(s string) map[string]string {
 	out := map[string]string{}
-	for _, part := range strings.Split(s, ";") {
-		if k, v, ok := strings.Cut(part, ":"); ok {
-			out[strings.TrimSpace(k)] = strings.TrimSpace(v)
-		}
-	}
+	visitSVGDeclarations(s, func(k, v string) {
+		out[k] = v
+	})
 	return out
 }
 
@@ -87,6 +159,19 @@ func svgTextRules(root *svgTextNode) []svgTextRule {
 					break
 				}
 				rest = next
+				var values map[string]string
+				visitSVGDeclarations(body, func(k, v string) {
+					if !isSVGTextStyleAttr(k) {
+						return
+					}
+					if values == nil {
+						values = map[string]string{}
+					}
+					values[k] = v
+				})
+				if len(values) == 0 {
+					continue
+				}
 				for _, selector := range strings.Split(selectors, ",") {
 					selector = strings.TrimSpace(selector)
 					if selector == "" || strings.ContainsAny(selector, " >+~[:") {
@@ -99,7 +184,7 @@ func svgTextRules(root *svgTextNode) []svgTextRule {
 					if strings.Contains(selector, "#") {
 						rank += 100
 					}
-					rules = append(rules, svgTextRule{selector, svgDeclarations(body), rank})
+					rules = append(rules, svgTextRule{selector, values, rank})
 				}
 			}
 		}
@@ -138,6 +223,8 @@ func svgTexts(raw []byte, width, height float32) []svgText {
 	root := &svgTextNode{}
 	stack := []*svgTextNode{root}
 	dec := xml.NewDecoder(bytes.NewReader(raw))
+	dec.Strict = false
+	dec.CharsetReader = nil
 	for {
 		token, err := dec.Token()
 		if err != nil {
@@ -149,17 +236,23 @@ func svgTexts(raw []byte, width, height float32) []svgText {
 			if len(stack) > 128 {
 				return nil
 			}
-			n := &svgTextNode{name: t.Name.Local, attrs: map[string]string{}}
-			for _, a := range t.Attr {
-				n.attrs[a.Name.Local] = a.Value
+			n := &svgTextNode{name: t.Name.Local}
+			if len(t.Attr) > 0 {
+				n.attrs = make(map[string]string, len(t.Attr))
+				for _, a := range t.Attr {
+					n.attrs[a.Name.Local] = a.Value
+				}
 			}
 			parent.children = append(parent.children, n)
 			stack = append(stack, n)
 		case xml.CharData:
 			parent.children = append(parent.children, &svgTextNode{text: string(t)})
 		case xml.EndElement:
-			if len(stack) > 1 {
-				stack = stack[:len(stack)-1]
+			for i := len(stack) - 1; i >= 1; i-- {
+				if stack[i].name == t.Name.Local {
+					stack = stack[:i]
+					break
+				}
 			}
 		}
 	}
@@ -171,26 +264,48 @@ func svgTexts(raw []byte, width, height float32) []svgText {
 			return
 		}
 		switch n.name {
-		case "defs", "style", "script", "foreignObject", "title", "desc", "metadata", "clipPath", "mask", "symbol":
+		case "defs", "style", "script", "foreignObject", "title", "desc", "metadata", "clipPath", "mask", "symbol", "pattern", "marker":
 			return
 		}
-		style := map[string]string{}
-		for k, v := range inherited {
-			style[k] = v
+		// 不在 text 内的非文本叶子元素（如大量 path/rect）不会产出文字，也无子层可继承。
+		if !inside && n.name != "text" && len(n.children) == 0 {
+			return
 		}
-		for k, v := range n.attrs {
-			style[k] = v
-		}
-		// CSS 的选择器样式优先于 presentation 属性，style 属性优先级最高。
-		for _, rule := range rules {
-			if svgSelectorMatches(rule.selector, n) {
-				for k, v := range rule.values {
-					style[k] = v
+		// 仅当节点实际带有会改变文字样式或可见性的属性/规则/内联样式时才写时复制 inherited。
+		style := inherited
+		if n.name != "" {
+			copied := false
+			setStyle := func(k, v string) {
+				if !isSVGTextStyleAttr(k) {
+					return
+				}
+				if cur, ok := style[k]; ok && cur == v {
+					return
+				}
+				if !copied {
+					next := make(map[string]string, len(inherited)+4)
+					for ik, iv := range inherited {
+						next[ik] = iv
+					}
+					style = next
+					copied = true
+				}
+				style[k] = v
+			}
+			for k, v := range n.attrs {
+				setStyle(k, v)
+			}
+			// CSS 的选择器样式优先于 presentation 属性，style 属性优先级最高。
+			for _, rule := range rules {
+				if svgSelectorMatches(rule.selector, n) {
+					for k, v := range rule.values {
+						setStyle(k, v)
+					}
 				}
 			}
-		}
-		for k, v := range svgDeclarations(n.attrs["style"]) {
-			style[k] = v
+			if inline := n.attrs["style"]; inline != "" {
+				visitSVGDeclarations(inline, setStyle)
+			}
 		}
 		if style["display"] == "none" || style["visibility"] == "hidden" {
 			return
@@ -243,10 +358,6 @@ func svgTexts(raw []byte, width, height float32) []svgText {
 				*x += advanceOf(ui.Shape(text, font))
 			}
 		}
-		// 几何属性不继承，避免父级 x/dx/transform 在子节点重复应用。
-		for _, k := range []string{"x", "y", "dx", "dy", "transform", "viewBox", "id", "class", "style"} {
-			delete(style, k)
-		}
 		for _, child := range n.children {
 			if n.name == "switch" {
 				// 与位图替身使用同一选择规则，避免 draw.io 的备用说明重复覆盖文字。
@@ -260,7 +371,7 @@ func svgTexts(raw []byte, width, height float32) []svgText {
 		}
 	}
 	x, y := float32(0), float32(0)
-	walk(root, map[string]string{}, identityAffine, false, &x, &y)
+	walk(root, nil, identityAffine, false, &x, &y)
 	return out
 }
 

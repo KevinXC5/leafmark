@@ -4,12 +4,14 @@ package desktop
 
 import (
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"leafmark/internal/richtext"
+	"leafmark/internal/workspace"
 )
 
 func TestNativeOutlineVeinGeometry(t *testing.T) {
@@ -372,5 +374,58 @@ func TestSidebarResizeByDragging(t *testing.T) {
 	}
 	if got := sidebarWidth(100, 1100); got != sidebarMinWidth {
 		t.Fatalf("侧栏宽度不应小于 %d，得到 %v", sidebarMinWidth, got)
+	}
+}
+
+func TestViewTreeFilterCacheAndEmptyQueryFastPath(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "正文")
+	app.sidebarMode = "documents"
+	app.folderName = "笔记"
+	app.tree = []workspace.Node{
+		{
+			Name: "日记", Path: "日记", Directory: true,
+			Children: []workspace.Node{
+				{Name: "Spring.md", Path: "日记/Spring.md"},
+				{Name: "Winter.md", Path: "日记/Winter.md"},
+			},
+		},
+		{Name: "Readme.md", Path: "Readme.md"},
+	}
+
+	view := ui.NewTester(app.View, 1100, 760)
+	// 空查询与纯空白查询走零分配快路径，不构建过滤缓存。
+	app.navQuery = "   "
+	view.Frame()
+	if app.navFilterMap != nil {
+		t.Fatal("空查询不应分配文件树过滤缓存")
+	}
+	if !view.HasText("Readme.md") || !view.HasText("日记") {
+		t.Fatal("空查询应完整渲染顶层文件树")
+	}
+
+	// 非空查询构建缓存，大小写不敏感匹配并自动展开命中目录。
+	app.navQuery = "  SPRING "
+	view.Frame()
+	if !view.HasText("日记") || !view.HasText("Spring.md") || view.HasText("Winter.md") || view.HasText("Readme.md") {
+		t.Fatal("文件树过滤结果不符合预期")
+	}
+	firstPtr := reflect.ValueOf(app.navFilterMap).Pointer()
+	if firstPtr == 0 {
+		t.Fatal("非空查询应建立过滤缓存")
+	}
+	// 相同查询与树版本下应直接命中同一份缓存 map。
+	view.Frame()
+	if secondPtr := reflect.ValueOf(app.navFilterMap).Pointer(); secondPtr != firstPtr {
+		t.Fatal("相同查询重复渲染未复用文件树过滤缓存")
+	}
+
+	// 树版本号更新后缓存应失效并重新计算。
+	app.treeGen.Add(1)
+	app.tree = []workspace.Node{{Name: "Spring-New.md", Path: "Spring-New.md"}}
+	view.Frame()
+	if !view.HasText("Spring-New.md") || view.HasText("Spring.md") {
+		t.Fatal("文件树更新后过滤缓存未失效")
 	}
 }

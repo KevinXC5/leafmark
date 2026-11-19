@@ -20,6 +20,12 @@ type Updates struct {
 	busy      bool
 	installed bool
 
+	// 缓存基于当前 pending 与应用版本算好的更新日志，避免每帧 Status() 重复解析。
+	cachedNotes        string
+	cachedNotesPending *mygo.Update
+	cachedNotesRaw     string
+	cachedNotesVersion string
+
 	// 依赖仅在实例创建时替换；未设置时调用 MyGo，避免测试修改全局状态。
 	versionFn func() string
 	enabledFn func() bool
@@ -32,6 +38,15 @@ type Updates struct {
 	availableFn func(UpdateStatus)
 	progressFn  func(downloaded, total int64)
 }
+
+// parseReleaseNotes 允许测试统计日志筛选调用次数，正式运行始终指向 releaseNotesSince。
+var parseReleaseNotes = releaseNotesSince
+
+// updateCanceledError 在保持既有提示文案的同时保留 context.Canceled 语义，便于界面识别主动取消。
+type updateCanceledError struct{}
+
+func (updateCanceledError) Error() string { return "更新已取消，可稍后重试" }
+func (updateCanceledError) Unwrap() error { return context.Canceled }
 
 func (u *Updates) version() string {
 	if u.versionFn != nil {
@@ -90,13 +105,32 @@ type UpdateStatus struct {
 	Installed bool   `json:"installed"`
 }
 
+// resolveNotesLocked 在持有 u.mu 时返回当前 pending 对应的更新日志，并复用缓存结果。
+func (u *Updates) resolveNotesLocked(currentVersion string) string {
+	if u.pending == nil {
+		u.cachedNotes = ""
+		u.cachedNotesPending = nil
+		u.cachedNotesRaw = ""
+		u.cachedNotesVersion = ""
+		return ""
+	}
+	if u.cachedNotesPending == u.pending && u.cachedNotesRaw == u.pending.Notes && u.cachedNotesVersion == currentVersion {
+		return u.cachedNotes
+	}
+	u.cachedNotes = parseReleaseNotes(u.pending.Notes, currentVersion)
+	u.cachedNotesPending = u.pending
+	u.cachedNotesRaw = u.pending.Notes
+	u.cachedNotesVersion = currentVersion
+	return u.cachedNotes
+}
+
 func (u *Updates) Status() UpdateStatus {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	status := UpdateStatus{Version: u.version(), Enabled: u.enabled(), Installed: u.installed}
 	if u.pending != nil {
 		status.Available = u.pending.Version
-		status.Notes = releaseNotesSince(u.pending.Notes, status.Version)
+		status.Notes = u.resolveNotesLocked(status.Version)
 	}
 	return status
 }
@@ -192,6 +226,7 @@ func (u *Updates) Check(ctx context.Context) (UpdateStatus, error) {
 	}
 	u.mu.Lock()
 	u.pending = up
+	u.resolveNotesLocked(u.version())
 	u.mu.Unlock()
 	return u.Status(), nil
 }
@@ -216,7 +251,7 @@ func (u *Updates) Install(ctx context.Context) (UpdateStatus, error) {
 	if err := u.installWithTimeout(ctx, up, time.Minute); err != nil {
 		switch {
 		case errors.Is(err, context.Canceled):
-			return UpdateStatus{}, errors.New("更新已取消，可稍后重试")
+			return UpdateStatus{}, updateCanceledError{}
 		case errors.Is(err, context.DeadlineExceeded):
 			return UpdateStatus{}, errors.New("更新下载或安装超时，请检查网络连接后重试")
 		default:

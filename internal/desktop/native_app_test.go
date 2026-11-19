@@ -636,3 +636,211 @@ func saveNativeSettings(settings nativeSettings) error {
 	}
 	return saveNativeSettingsIn(dir, settings)
 }
+
+func TestNoteEditsImmediatelyMarksDirtyAndClearsOnUndo(t *testing.T) {
+	app, dir := newTestApp(t)
+	useStubEditors(t)
+	path := filepath.Join(dir, "笔记.md")
+	if err := os.WriteFile(path, []byte("原文"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := app.files.store.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.adopt(doc, doc.Content)
+	editor := app.active().editor.(*stubEditor)
+
+	now := time.Now()
+	if app.noteEdits(now) {
+		t.Fatal("未编辑时 noteEdits 不应报告变化")
+	}
+	editor.text = "新正文"
+	if !app.noteEdits(now) {
+		t.Fatal("修改正文后 noteEdits 应报告变化")
+	}
+	// noteEdits 更新 seenText 的同时必须同步 Draft，确保 250ms-2s 窗口内 doc.Dirty 立即为 true。
+	updated, ok := app.document(doc.ID)
+	if !ok || !updated.Dirty || updated.Content != "新正文" {
+		t.Fatalf("noteEdits 未立即同步草稿状态：ok=%v dirty=%v content=%q", ok, updated.Dirty, updated.Content)
+	}
+	if app.editedAt[doc.ID].IsZero() {
+		t.Fatal("noteEdits 应记录编辑时间用于自动保存防抖")
+	}
+	// 撤销回原文后，Dirty 应立即恢复为 false。
+	editor.text = "原文"
+	if !app.noteEdits(now.Add(100 * time.Millisecond)) {
+		t.Fatal("恢复原文后 noteEdits 应检测到变化")
+	}
+	reverted, _ := app.document(doc.ID)
+	if reverted.Dirty {
+		t.Fatal("正文回到磁盘基线后 Dirty 应恢复为 false")
+	}
+}
+
+type linkStubEditor struct {
+	stubEditor
+	openLink func(string)
+}
+
+func (e *linkStubEditor) SetOpenLink(fn func(string)) { e.openLink = fn }
+
+func TestConnectEditorBlocksUnsafeExternalURLs(t *testing.T) {
+	app, _ := newTestApp(t)
+	editor := &linkStubEditor{}
+	app.connectEditor(editor)
+	if editor.openLink == nil {
+		t.Fatal("connectEditor 未绑定外链回调")
+	}
+	for _, bad := range []string{
+		"",
+		"javascript:alert(1)",
+		"file:///etc/passwd",
+		"customapp://open",
+		"https://user:pass@example.com/path",
+		"https://example.com/\nfoo",
+	} {
+		app.notice = ""
+		editor.openLink(bad)
+		if app.notice == "" {
+			t.Fatalf("非法外链 %q 未被拦截提示", bad)
+		}
+	}
+}
+
+func TestFinishCloseClearsConflicts(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	doc := app.files.New()
+	app.adopt(doc, "正文")
+	app.conflicts[doc.ID] = true
+	app.finishClose([]string{doc.ID})
+	if app.conflicts[doc.ID] {
+		t.Fatal("关闭标签后应清理 conflicts 记录")
+	}
+}
+
+func TestPersistRecoverySkipsUnchangedAndClearResetsCache(t *testing.T) {
+	app, dir := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), welcome)
+
+	recoveryPath := filepath.Join(dir, "native", nativeRecoveryName)
+	// 首次空闲调用写入空数组 []。
+	app.persistRecovery()
+	app.writes.Wait()
+	if _, err := os.Stat(recoveryPath); err != nil {
+		t.Fatalf("首次落盘应生成恢复文件：%v", err)
+	}
+	// 删除文件后再次空闲调用，内容仍为空且未变，应跳过写盘（文件不重建）。
+	if err := os.Remove(recoveryPath); err != nil {
+		t.Fatal(err)
+	}
+	app.persistRecovery()
+	app.writes.Wait()
+	if _, err := os.Stat(recoveryPath); !os.IsNotExist(err) {
+		t.Fatalf("空草稿无变化时应跳过重复写盘，err=%v", err)
+	}
+
+	// 修改文档后应重新落盘。
+	app.active().editor.(*stubEditor).text = "未保存草稿内容"
+	app.persistRecovery()
+	app.writes.Wait()
+	if got := readNativeRecovery(); len(got) != 1 || got[0].Content != "未保存草稿内容" {
+		t.Fatalf("草稿变更后未落盘：%+v", got)
+	}
+	// 内容未再变化时应跳过重复写盘。
+	if err := os.Remove(recoveryPath); err != nil {
+		t.Fatal(err)
+	}
+	app.persistRecovery()
+	app.writes.Wait()
+	if _, err := os.Stat(recoveryPath); !os.IsNotExist(err) {
+		t.Fatalf("脏草稿内容未变时应跳过重复写盘，err=%v", err)
+	}
+
+	// clearRecovery 应重置缓存，之后再次调用 persistRecovery 会重新把当前脏草稿写盘。
+	app.clearRecovery()
+	app.persistRecovery()
+	app.writes.Wait()
+	if got := readNativeRecovery(); len(got) != 1 || got[0].Content != "未保存草稿内容" {
+		t.Fatalf("clearRecovery 后缓存未重置，再次落盘失败：%+v", got)
+	}
+}
+
+func TestPersistSettingsVersionOrdering(t *testing.T) {
+	app, _ := newTestApp(t)
+	dir, err := nativeDataDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := defaultNativeSettings()
+	newer.FontSize = 22
+	newer.Theme = "dark"
+	older := defaultNativeSettings()
+	older.FontSize = 14
+	older.Theme = "light"
+
+	ticket := nativeSettingsGeneration.Add(1)
+	if err := writeNativeSettingsVersionIn(dir, newer, ticket); err != nil {
+		t.Fatal(err)
+	}
+	// 旧版本号写入应被忽略，不得覆盖新设置。
+	if err := writeNativeSettingsVersionIn(dir, older, ticket-1); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadNativeSettings(); got != newer {
+		t.Fatalf("旧版本设置覆盖了新设置：got=%+v want=%+v", got, newer)
+	}
+
+	// 连续快速修改并通过 persistSettings 异步落盘，最终磁盘上必须是最后一次设置。
+	for _, size := range []float32{14, 16, 18, 20, 24} {
+		app.settings.FontSize = size
+		app.persistSettings()
+	}
+	app.writes.Wait()
+	if got := loadNativeSettings().FontSize; got != 24 {
+		t.Fatalf("并发保存设置后最终值错误：got=%v want=24", got)
+	}
+}
+
+func TestNextFrameDelayIdlesAndWakesOnEdits(t *testing.T) {
+	app, dir := newTestApp(t)
+	useStubEditors(t)
+	path := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(path, []byte("初始"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := app.files.store.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.adopt(doc, doc.Content)
+	now := time.Now()
+	app.externalAt = now
+	app.recoveryAt = now
+
+	// 完全空闲时按外部文件检查周期唤醒，不再 4Hz 空转。
+	if got := app.nextFrameDelay(now, false); got != externalInterval {
+		t.Fatalf("空闲态唤醒间隔应为 %v，得到 %v", externalInterval, got)
+	}
+	// 本帧刚检测到编辑或有 pendingEdit 时保持 250ms。
+	if got := app.nextFrameDelay(now, true); got != activeFrameInterval {
+		t.Fatalf("刚编辑时唤醒间隔应为 %v，得到 %v", activeFrameInterval, got)
+	}
+	app.active().editor.(*stubEditor).text = "改动"
+	if got := app.nextFrameDelay(now, false); got != activeFrameInterval {
+		t.Fatalf("存在 pendingEdit 时唤醒间隔应为 %v，得到 %v", activeFrameInterval, got)
+	}
+	// 同步后存在可自动保存的 editedAt，应保持 250ms。
+	app.noteEdits(now)
+	if got := app.nextFrameDelay(now, false); got != activeFrameInterval {
+		t.Fatalf("等待自动保存时唤醒间隔应为 %v，得到 %v", activeFrameInterval, got)
+	}
+	// 关闭自动保存且恢复草稿已落盘后，即使 editedAt 存在也不应永久 4Hz 空转。
+	app.settings.AutoSave = false
+	app.recoveryPending = false
+	if got := app.nextFrameDelay(now, false); got != externalInterval {
+		t.Fatalf("关闭自动保存且空闲时应回落 %v，得到 %v", externalInterval, got)
+	}
+}

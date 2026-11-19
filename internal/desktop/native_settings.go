@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -14,22 +15,41 @@ import (
 
 // settingsPalette 用三档文字和填充层次组织设置页，分类图标保留独立的低饱和色。
 type settingsPalette struct {
-	paper, fill, fillStrong, ink, muted, faint, accent, selected ui.Color
-	iconTiles                                                    [4]ui.Color
+	paper, fill, fillStrong, ink, muted, faint, accent, selected, quoteRule ui.Color
+	iconTiles                                                               [4]ui.Color
 }
 
-func settingsColors(dark bool) settingsPalette {
+var (
+	settingsPaletteOnce  sync.Once
+	settingsLightPalette settingsPalette
+	settingsDarkPalette  settingsPalette
+)
+
+func buildSettingsPalette(dark bool) settingsPalette {
 	t := nativeTheme(dark)
 	p := settingsPalette{
 		paper: t.Background, fill: t.Surface, fillStrong: t.SurfacePressed,
 		ink: t.Text, muted: t.TextMuted, faint: t.TextMuted.Alpha(.75),
 		accent: t.Accent, selected: t.Accent.Alpha(.15).Over(t.Surface),
+		quoteRule: nativeeditor.QuoteRule(t),
 		iconTiles: [4]ui.Color{ui.Hex("#ad735c"), ui.Hex("#b08b50"), ui.Hex("#7c886a"), ui.Hex("#73818a")},
 	}
 	if dark {
 		p.iconTiles = [4]ui.Color{ui.Hex("#996a54"), ui.Hex("#957c50"), ui.Hex("#6e795e"), ui.Hex("#65757d")}
 	}
 	return p
+}
+
+// settingsColors 返回缓存好的浅色或深色设置调色板，避免每帧重复构造主题。
+func settingsColors(dark bool) settingsPalette {
+	settingsPaletteOnce.Do(func() {
+		settingsLightPalette = buildSettingsPalette(false)
+		settingsDarkPalette = buildSettingsPalette(true)
+	})
+	if dark {
+		return settingsDarkPalette
+	}
+	return settingsLightPalette
 }
 
 var settingsTabs = []struct{ id, label, icon, intro string }{
@@ -298,13 +318,27 @@ func settingsFilled(c *ui.Context, p settingsPalette, label string) ui.Element {
 }
 
 var (
-	settingsFontIDs     = []string{"newsreader", "serif", "sans", "mono"}
-	settingsFontLabels  = []string{"Newsreader", "系统衬线", "系统无衬线", "等宽"}
-	settingsWidthIDs    = []string{"narrow", "comfort", "wide"}
-	settingsWidthLabels = []string{"窄", "舒适", "宽"}
-	settingsThemeIDs    = []string{"light", "dark", "system"}
-	settingsThemeLabels = []string{"浅色", "深色", "跟随系统"}
+	settingsFontIDs          = []string{"newsreader", "serif", "sans", "mono"}
+	settingsFontLabels       = []string{"Newsreader", "系统衬线", "系统无衬线", "等宽"}
+	settingsWidthIDs         = []string{"narrow", "comfort", "wide"}
+	settingsWidthLabels      = []string{"窄", "舒适", "宽"}
+	settingsThemeIDs         = []string{"light", "dark", "system"}
+	settingsThemeLabels      = []string{"浅色", "深色", "跟随系统"}
+	settingsLineHeightValues = make([]float32, 19)
+	settingsLineHeightLabels = make([]string, 19)
+	shortcutActionLabels     = make([]string, len(shortcutActions))
 )
+
+func init() {
+	for i := range settingsLineHeightValues {
+		v := float32(130+i*5) / 100
+		settingsLineHeightValues[i] = v
+		settingsLineHeightLabels[i] = strconv.FormatFloat(float64(v), 'f', -1, 32)
+	}
+	for i, item := range shortcutActions {
+		shortcutActionLabels[i] = item.label
+	}
+}
 
 func indexOf(list []string, value string) int {
 	for i, item := range list {
@@ -344,15 +378,18 @@ func (a *nativeApp) viewSettingsEditor(c *ui.Context, p settingsPalette) {
 			})
 		})
 		settingsRow(c, p, "行高", "", func() {
-			var values []float32
-			var labels []string
-			for i := 0; i < 19; i++ {
-				v := float32(130+i*5) / 100
-				values, labels = append(values, v), append(labels, strconv.FormatFloat(float64(v), 'f', -1, 32))
+			current := ""
+			for i, v := range settingsLineHeightValues {
+				if v == a.settings.LineHeight {
+					current = settingsLineHeightLabels[i]
+					break
+				}
 			}
-			current := strconv.FormatFloat(float64(a.settings.LineHeight), 'f', -1, 32)
-			settingsSelect(c, p, "行高", current, scaled(c, 105), labels, func(i int) {
-				a.changeSettings(func(s *nativeSettings) { s.LineHeight = values[i] })
+			if current == "" {
+				current = strconv.FormatFloat(float64(a.settings.LineHeight), 'f', -1, 32)
+			}
+			settingsSelect(c, p, "行高", current, scaled(c, 105), settingsLineHeightLabels, func(i int) {
+				a.changeSettings(func(s *nativeSettings) { s.LineHeight = settingsLineHeightValues[i] })
 			})
 		})
 		settingsRow(c, p, "阅读宽度", "", func() {
@@ -416,7 +453,7 @@ func (a *nativeApp) viewSettingsAppearance(c *ui.Context, p settingsPalette, nar
 				ui.Text(c, name).Font(sourceFontFamily).FontSize(scaled(c, 11)).TextColor(preview.muted)
 				ui.Text(c, "在宁静中，\n看见清晰。").Font(book).FontSize(scaled(c, 29)).LineHeight(1.1).TextColor(preview.ink)
 				ui.Text(c, "写下一点，再读一遍。\n让下一个想法，慢慢成形。").Font(book).FontSize(scaled(c, 16)).LineHeight(1.6).TextColor(preview.muted)
-				ui.Box(c).BorderWidth(0, 0, 0, 2).BorderColor(nativeeditor.QuoteRule(nativeTheme(dark))).Padding(3, 0, 3, 12).Children(func() {
+				ui.Box(c).BorderWidth(0, 0, 0, 2).BorderColor(preview.quoteRule).Padding(3, 0, 3, 12).Children(func() {
 					ui.Text(c, "为重要的事，留一点空间。").Font(book).FontSize(scaled(c, 15)).Italic().TextColor(preview.muted)
 				})
 				ui.Text(c, "循着一个小小的念头 ↗").FontSize(scaled(c, 12)).TextColor(preview.accent)
@@ -485,6 +522,10 @@ func (a *nativeApp) viewSettingsGeneral(c *ui.Context, p settingsPalette) {
 						}
 					case status.Available != "":
 						if settingsLink(c, p, "查看更新").Clicked() {
+							// 重新打开更新窗口时清理上次取消或关闭前遗留的过时错误提示。
+							if !a.updateOpen || a.updateError == (updateCanceledError{}).Error() {
+								a.updateError = ""
+							}
 							a.updateOpen = true
 						}
 					}
@@ -565,18 +606,61 @@ func (a *nativeApp) clearData(label string) {
 	})
 }
 
+// releaseNoteBlock 缓存更新日志解析后的块、纯文本和标题版本号判定，避免动画帧重复解析 Markdown。
+type releaseNoteBlock struct {
+	block     richtext.Block
+	text      string
+	isVersion bool
+}
+
+var releaseNotesCache struct {
+	mu       sync.Mutex
+	ready    bool
+	markdown string
+	blocks   []releaseNoteBlock
+}
+
+// parseReleaseNoteBlocks 允许测试统计 Markdown 解析次数，正式运行调用 richtext.Parse。
+var parseReleaseNoteBlocks = func(markdown string) []richtext.Block {
+	return richtext.Parse(markdown).Blocks()
+}
+
+func cachedReleaseNoteBlocks(markdown string) []releaseNoteBlock {
+	releaseNotesCache.mu.Lock()
+	defer releaseNotesCache.mu.Unlock()
+	if releaseNotesCache.ready && releaseNotesCache.markdown == markdown {
+		return releaseNotesCache.blocks
+	}
+	parsed := parseReleaseNoteBlocks(markdown)
+	items := make([]releaseNoteBlock, len(parsed))
+	for i, b := range parsed {
+		var sb strings.Builder
+		for _, r := range b.Runs {
+			sb.WriteString(r.Text)
+		}
+		text := sb.String()
+		isVersion := false
+		if b.Kind == richtext.Heading {
+			_, isVersion = parseVersion(text)
+		}
+		items[i] = releaseNoteBlock{
+			block:     b,
+			text:      text,
+			isVersion: isVersion,
+		}
+	}
+	releaseNotesCache.ready = true
+	releaseNotesCache.markdown = markdown
+	releaseNotesCache.blocks = items
+	return items
+}
+
 // viewReleaseNotes 把 Markdown 写成的更新日志排成小标题、段落与列表，不露出标记符号。
 func viewReleaseNotes(c *ui.Context, markdown string, muted ui.Color) {
-	plain := func(runs []richtext.Run) string {
-		var b strings.Builder
-		for _, r := range runs {
-			b.WriteString(r.Text)
-		}
-		return b.String()
-	}
+	items := cachedReleaseNoteBlocks(markdown)
 	ui.Column(c).FillWidth().Gap(8).Children(func() {
-		for i, b := range richtext.Parse(markdown).Blocks() {
-			text := plain(b.Runs)
+		for i, item := range items {
+			b, text := item.block, item.text
 			switch b.Kind {
 			case richtext.Heading:
 				top := float32(10)
@@ -584,7 +668,7 @@ func viewReleaseNotes(c *ui.Context, markdown string, muted ui.Color) {
 					top = 0
 				}
 				// 跨版本升级时日志按版本分节，版本号标题比分类标题醒目一级。
-				if _, ok := parseVersion(text); ok {
+				if item.isVersion {
 					if i > 0 {
 						top = 18
 					}
@@ -768,11 +852,7 @@ func (a *nativeApp) viewShortcutDialog(c *ui.Context, p settingsPalette) {
 		ui.Text(c, "快捷键设置").Font(`"Newsreader", "Songti SC", "STSong", serif`).FontSize(scaled(c, 26))
 		ui.Text(c, fmt.Sprintf("选择动作，然后录制组合键。Mod 在本机对应 %s。", mod)).FontSize(scaled(c, 12)).LineHeight(1.8).TextColor(p.muted)
 		ui.Text(c, "动作").FontSize(scaled(c, 12)).Margin(10, 0, 0, 0)
-		labels := make([]string, len(shortcutActions))
-		for i, item := range shortcutActions {
-			labels[i] = item.label
-		}
-		settingsSelect(c, p, "动作", shortcutLabel(a.shortcutAction), 424, labels, func(i int) {
+		settingsSelect(c, p, "动作", shortcutLabel(a.shortcutAction), 424, shortcutActionLabels, func(i int) {
 			a.shortcutAction, a.shortcutCandidate, a.shortcutStatus, a.shortcutRecording = shortcutActions[i].id, "", "", false
 		})
 		current := a.settings.Shortcuts.binding(a.shortcutAction)

@@ -130,10 +130,19 @@ type nativeApp struct {
 	sidebarFrom   float32 // 按下时指针在窗口中的横坐标
 	sidebarStart  float32 // 按下时的侧栏宽度
 	effectiveDark bool    // 当前原生界面的实际主题，包含跟随系统的结果。
+	// 实例级主题缓存，避免 View 每帧重建 *ui.Theme。
+	cachedTheme         *ui.Theme
+	cachedThemeDark     bool
+	cachedThemeFontSize float32
 
 	// 空值与 outline 都显示原版默认的大纲页。
 	sidebarMode     string
 	navQuery        string
+	navTreeGen      uint64
+	navTreePtr      *workspace.Node
+	navTreeLen      int
+	navFilterKey    string
+	navFilterMap    map[string]bool
 	settingsSection string
 	outlineMarkdown string
 	outlineSource   bool
@@ -172,11 +181,9 @@ type nativeApp struct {
 	editedAt map[string]time.Time
 	seenText map[string]string
 
-	closed    atomic.Bool
-	booted    atomic.Bool
-	treeGen   atomic.Uint64
-	pendingMu sync.Mutex
-	pending   []string
+	closed  atomic.Bool
+	booted  atomic.Bool
+	treeGen atomic.Uint64
 
 	// verifyStep 由原生验证在真实帧末尾驱动界面，正式运行保持 nil。
 	verifyStep            func(*ui.Context)
@@ -189,6 +196,12 @@ type nativeApp struct {
 	sessionReady          bool
 	updateBusy            bool
 	recoveryAt            time.Time
+	recoveryPending       bool // 有尚未经 persistRecovery 核对的草稿变化
+	recoveryCacheMu       sync.Mutex
+	lastRecoveryValid     bool
+	lastRecoveryDir       string
+	lastRecoveryJSON      string
+	lastRecoveryTicket    uint64
 	// externalAt 与 externalBusy 控制对当前文档磁盘变化的轮询。
 	externalAt   time.Time
 	externalBusy bool
@@ -198,8 +211,9 @@ type nativeApp struct {
 	updateNote        string
 	updateOpen        bool
 	updateDownloading bool // 正在下载或安装，弹窗显示进度条
-	updateCancel      context.CancelFunc
-	updateDownloaded  int64
+	updateCancel        context.CancelFunc
+	updateProgressReset func()
+	updateDownloaded    int64
 	updateTotal       int64
 	updateError       string
 	updateNotesScroll ui.ScrollState
@@ -272,12 +286,10 @@ func (a *nativeApp) tabByID(id string) *nativeTab {
 }
 
 func (a *nativeApp) document(id string) (documents.Document, bool) {
-	for _, doc := range a.files.store.List() {
-		if doc.ID == id {
-			return doc, true
-		}
+	if a == nil || a.files == nil || a.files.store == nil || id == "" {
+		return documents.Document{}, false
 	}
-	return documents.Document{}, false
+	return a.files.store.Get(id)
 }
 
 func (a *nativeApp) syncEditor(tab *nativeTab) {
@@ -354,6 +366,10 @@ func (a *nativeApp) replaceEditor(id, markdown string) {
 func (a *nativeApp) connectEditor(editor documentEditor) {
 	if links, ok := editor.(interface{ SetOpenLink(func(string)) }); ok {
 		links.SetOpenLink(func(url string) {
+			if err := validateExternalURL(url); err != nil {
+				a.notice = err.Error()
+				return
+			}
 			go func() {
 				if err := mygo.Shell.OpenExternal(url); err != nil {
 					a.update(func() { a.notice = err.Error() })
@@ -515,9 +531,6 @@ func (a *nativeApp) enqueueOpen(paths []string) {
 	if n == 0 {
 		return
 	}
-	a.pendingMu.Lock()
-	a.pending = append(a.pending, paths...)
-	a.pendingMu.Unlock()
 	if a.booted.Load() {
 		a.update(a.openQueued)
 	}
@@ -539,10 +552,14 @@ func (a *nativeApp) openQueued() {
 			} else if doc, loadErr := a.files.store.LoadSnapshot(path, raw); loadErr != nil {
 				a.notice = loadErr.Error()
 			} else {
-				if a.files.workspace != nil {
-					if rememberErr := a.files.workspace.rememberAuthorized(doc.Path); rememberErr != nil {
-						log.Printf("记录近期文件失败：%v", rememberErr)
-					}
+				if ws := a.files.workspace; ws != nil && doc.Path != "" {
+					docPath := doc.Path
+					// 近期文件落盘涉及 fsync，移入后台协程避免阻塞主线程。
+					a.writes.Go(func() {
+						if rememberErr := ws.rememberAuthorized(docPath); rememberErr != nil {
+							log.Printf("记录近期文件失败：%v", rememberErr)
+						}
+					})
 				}
 				a.adopt(doc, doc.Content)
 			}
@@ -700,7 +717,6 @@ func (a *nativeApp) openWorkspace(relative string) {
 				return
 			}
 			a.adopt(loaded, loaded.Content)
-			a.reloadNavigation()
 		})
 	}()
 }
@@ -804,21 +820,21 @@ func (a *nativeApp) setFont(size float32) {
 }
 
 // imageReader 把 Markdown 图片路径限制在当前文档已授权的资源内。
-// 相对路径经 Assets.ReadImage 变成 data URI 再解码；已经是 data URI 的只解码，不读磁盘。
+// 本地相对路径经 Assets.ReadImageRaw 直接读取原始字节并解码，免去 Base64 往返；
+// 已经是 data URI 的只解码，不读磁盘。
 func imageReader(store *Assets, id string) func(string) *nativeeditor.Picture {
 	return func(markdownPath string) *nativeeditor.Picture {
 		if store == nil || markdownPath == "" {
 			return nil
 		}
-		dataURI := markdownPath
-		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(markdownPath)), "data:") {
-			uri, err := store.ReadImage(id, markdownPath)
-			if err != nil || uri == "" {
-				return nil
-			}
-			dataURI = uri
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(markdownPath)), "data:") {
+			return decodeImageData(markdownPath)
 		}
-		return decodeImageData(dataURI)
+		raw, format, err := store.ReadImageRaw(id, markdownPath)
+		if err != nil || len(raw) == 0 {
+			return nil
+		}
+		return decodeImageRaw(raw, format == "svg")
 	}
 }
 
@@ -829,10 +845,17 @@ func decodeImageData(dataURI string) *nativeeditor.Picture {
 		return nil
 	}
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(dataURI[i+len(marker):]))
-	if err != nil || len(raw) == 0 || len(raw) > 8<<20 {
+	if err != nil {
 		return nil
 	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(dataURI)), "data:image/svg+xml") {
+	return decodeImageRaw(raw, strings.HasPrefix(strings.ToLower(strings.TrimSpace(dataURI)), "data:image/svg+xml"))
+}
+
+func decodeImageRaw(raw []byte, svg bool) *nativeeditor.Picture {
+	if len(raw) == 0 || len(raw) > 8<<20 {
+		return nil
+	}
+	if svg {
 		return nativeeditor.DecodeSVG(raw)
 	}
 	bm, err := ui.DecodeBitmap(raw)

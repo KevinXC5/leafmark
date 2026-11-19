@@ -27,18 +27,32 @@ func (e *Editor) ensureImages(now time.Time) {
 	}
 	var urls []string
 	referenced := map[string]struct{}{}
+	addURL := func(u string) {
+		if u == "" {
+			return
+		}
+		if _, seen := referenced[u]; !seen {
+			referenced[u] = struct{}{}
+			urls = append(urls, u)
+		}
+	}
 	for _, b := range e.doc.Blocks() {
-		if b.Kind == richtext.Image && b.URL != "" {
-			if _, seen := referenced[b.URL]; !seen {
-				referenced[b.URL] = struct{}{}
-				urls = append(urls, b.URL)
-			}
+		if b.Kind == richtext.Image {
+			addURL(b.URL)
 		}
 		for _, r := range b.Runs {
-			if r.Image != nil && r.Image.URL != "" {
-				if _, seen := referenced[r.Image.URL]; !seen {
-					referenced[r.Image.URL] = struct{}{}
-					urls = append(urls, r.Image.URL)
+			if r.Image != nil {
+				addURL(r.Image.URL)
+			}
+		}
+		if b.Table != nil {
+			for _, row := range b.Table.Rows {
+				for _, cell := range row {
+					for _, r := range cell.Runs {
+						if r.Image != nil {
+							addURL(r.Image.URL)
+						}
+					}
 				}
 			}
 		}
@@ -65,7 +79,8 @@ func (e *Editor) ensureImages(now time.Time) {
 			delete(e.failedAt, url)
 			continue
 		}
-		if !now.Before(at.Add(imageRetryDelay)) {
+		// 缓存回收释放了空间或退避到期时，允许重新拉取。
+		if pruned || !now.Before(at.Add(imageRetryDelay)) {
 			delete(e.failedAt, url)
 			delete(e.fetched, url)
 		}
@@ -158,7 +173,12 @@ func (e *Editor) drainImages(c *ui.Context, now time.Time) {
 				continue
 			}
 			if e.remoteB+len(res.data) > remoteTotal || len(e.images) >= maxCachedImages {
-				delete(e.fetched, res.url)
+				// 预算或缓存名额已满时保留 fetched 标记并进入退避，待退避到期或有图片被回收后再重试，避免每帧死循环拉取。
+				if e.failedAt == nil {
+					e.failedAt = map[string]time.Time{}
+				}
+				e.failedAt[res.url] = now
+				e.imagesRetryAt = e.nextImageRetry()
 				continue
 			}
 			pic := BitmapPicture(decodeImage(res.data))

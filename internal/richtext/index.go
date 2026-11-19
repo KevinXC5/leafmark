@@ -41,6 +41,39 @@ func (d *Document) Revision() uint64 {
 	return d.rev
 }
 
+// EditableSpan 报告半开区间是否完全落在可直接编辑的正文上，不复制块切片。
+// 原文占位、块级图片、分隔线、行内公式、脚注引用与行内图片都不可拆开编辑。
+func (d *Document) EditableSpan(start, end int) bool {
+	if start < 0 || end < start || end > len(d.index) {
+		return false
+	}
+	for at := start; at < end; at++ {
+		sp := d.index[at]
+		if sp.block < 0 || sp.block >= len(d.blocks) {
+			return false
+		}
+		b := &d.blocks[sp.block]
+		switch b.Kind {
+		case Raw, Image, Horizontal:
+			return false
+		case Code, TableBlock:
+			continue
+		}
+		if sp.gap || sp.run < 0 {
+			continue
+		}
+		runs := d.runsAt(sp)
+		if runs == nil || sp.run >= len(runs) {
+			continue
+		}
+		r := runs[sp.run]
+		if r.Marks&MarkMath != 0 || r.Image != nil || (r.Link != nil && r.Link.Footnote != "") {
+			return false
+		}
+	}
+	return true
+}
+
 // InlineMathOrigin 报告光标是否严格落在某条行内公式内部；命中时返回该公式的起始偏移，否则返回 -1。
 func (d *Document) InlineMathOrigin(at int) int {
 	if at <= 0 || at >= len(d.index) {

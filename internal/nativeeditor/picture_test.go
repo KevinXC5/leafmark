@@ -3,10 +3,15 @@ package nativeeditor
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"leafmark/internal/diagram"
+	"leafmark/internal/mathlayout"
 	"leafmark/internal/richtext"
+	"math"
+	"sync"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -138,4 +143,120 @@ func TestBlockImageFillsContentWidth(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDecodeSVGLightSchemeAndPaintGuards(t *testing.T) {
+	raw := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100">
+<rect width="200" height="100" style="fill: light-dark(rgb(10, 20, 30), rgb(240, 240, 240));"/>
+<text x="20" y="50" style="fill: light-dark(#112233, #eeeeee); font-size: 20px;">浅色文字</text>
+</svg>`)
+	pic := DecodeSVG(raw)
+	if pic == nil || len(pic.texts) != 1 {
+		t.Fatalf("含 light-dark() 的 SVG 应正常解析：%+v", pic)
+	}
+	if pic.texts[0].color != ui.RGB(0x11, 0x22, 0x33) {
+		t.Fatalf("文字颜色应采用 light-dark() 的浅色分支：%v", pic.texts[0].color)
+	}
+
+	// 空指针、空矢量、非正或 NaN/Inf 目标矩形都不应 panic。
+	var nilPic *Picture
+	nilPic.paint(nil, ui.Rect{W: 100, H: 100}, false)
+	pic.paint(nil, ui.Rect{W: 100, H: 100}, false)
+	empty := &Picture{w: 100, h: 50}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Size(100, 50).Draw(func(p *ui.Painter, r ui.Rect) {
+			empty.paint(p, r, true)
+			pic.paint(p, ui.Rect{W: 0, H: 50}, false)
+			pic.paint(p, ui.Rect{W: float32(math.NaN()), H: 50}, false)
+			pic.paint(p, ui.Rect{W: float32(math.Inf(1)), H: 50}, false)
+		})
+	}, 100, 50)
+	tt.Frame()
+}
+
+func TestRenderedCacheEvictsOldestHalfWithoutThrashing(t *testing.T) {
+	c := newShapeCache()
+	chartSrc := "graph LR\n  A[入口] --> B[出口]"
+
+	// 模拟拖动窗口宽度超过 64 个不同宽度，同时保持热点宽度活跃。
+	hotWidth := float32(500)
+	hotLay := c.diagram(chartSrc, hotWidth)
+	if hotLay == nil {
+		t.Fatal("流程图应能正常布局")
+	}
+	// 验证不同整数宽度仍保持精确对齐缓存，不合并为同一宽度。
+	lay420 := c.diagram(chartSrc, 420)
+	lay421 := c.diagram(chartSrc, 421)
+	if lay420 == nil || lay421 == nil || lay420 == lay421 {
+		t.Fatal("相邻整数宽度应独立布局缓存以保留精确对齐语义")
+	}
+
+	var recentLay *diagram.Layout
+	for w := 501; w <= 580; w++ {
+		if w%10 == 0 {
+			// 周期性访问热点宽度，刷新其访问序。
+			if got := c.diagram(chartSrc, hotWidth); got != hotLay {
+				t.Fatalf("热点流程图在拖动至宽度 %d 时不应被误淘汰", w)
+			}
+		}
+		recentLay = c.diagram(chartSrc, float32(w))
+		if len(c.diagrams) > diagramCacheLimit {
+			t.Fatalf("流程图缓存超出上限：%d > %d", len(c.diagrams), diagramCacheLimit)
+		}
+	}
+	if len(c.diagrams) <= diagramCacheLimit/2 {
+		t.Fatalf("达到上限时应仅淘汰旧条目而非全清，当前条目数：%d", len(c.diagrams))
+	}
+	if got := c.diagram(chartSrc, hotWidth); got != hotLay {
+		t.Fatal("淘汰后热点流程图应仍命中原缓存对象")
+	}
+	if got := c.diagram(chartSrc, 580); got != recentLay {
+		t.Fatal("淘汰后最新宽度的流程图应仍命中原缓存对象")
+	}
+
+	// 公式缓存超过 512 上限时同样淘汰最久未用的一半，不发生一刀切全清。
+	hotMath := c.math("x^2 + y^2", 16, true)
+	if hotMath == nil {
+		t.Fatal("公式应能正常布局")
+	}
+	var lastMathSrc string
+	var lastMathBox *mathlayout.Box
+	for i := 0; i < mathCacheLimit+40; i++ {
+		if i%100 == 0 {
+			if got := c.math("x^2 + y^2", 16, true); got != hotMath {
+				t.Fatalf("热点公式在第 %d 次插入时不应被误淘汰", i)
+			}
+		}
+		lastMathSrc = fmt.Sprintf("x_%d + %d", i, i)
+		lastMathBox = c.math(lastMathSrc, 16, false)
+		if len(c.maths) > mathCacheLimit {
+			t.Fatalf("公式缓存超出上限：%d > %d", len(c.maths), mathCacheLimit)
+		}
+	}
+	if len(c.maths) <= mathCacheLimit/2 {
+		t.Fatalf("公式缓存达到上限时应保留最近一半条目，当前条目数：%d", len(c.maths))
+	}
+	if got := c.math("x^2 + y^2", 16, true); got != hotMath {
+		t.Fatal("淘汰后热点公式应仍命中原缓存对象")
+	}
+	if got := c.math(lastMathSrc, 16, false); got != lastMathBox {
+		t.Fatal("淘汰后最新公式应仍命中原缓存对象")
+	}
+
+	// 多实例并发读写与淘汰应在 -race 下无数据竞争。
+	var wg sync.WaitGroup
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			local := newShapeCache()
+			for w := 300; w < 380; w++ {
+				local.diagram(chartSrc, float32(w))
+			}
+			for i := 0; i < 64; i++ {
+				local.math(fmt.Sprintf("a_%d_%d", id, i), 16, false)
+			}
+		}(g)
+	}
+	wg.Wait()
 }

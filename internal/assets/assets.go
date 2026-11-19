@@ -33,61 +33,92 @@ type ImportResult struct {
 
 // ReadImage 的文档路径只能由调用方从已打开文档的授权记录取得。
 func ReadImage(documentPath, resource string) (string, error) {
+	raw, format, err := readImageFromDoc(documentPath, resource, true)
+	if err != nil {
+		return "", err
+	}
+	return encodeDataURI(raw, format), nil
+}
+
+// ReadImageRaw 读取已授权文档相对路径的图片原始字节与格式，跳过 Base64 往返编码。
+func ReadImageRaw(documentPath, resource string) ([]byte, string, error) {
+	return readImageFromDoc(documentPath, resource, false)
+}
+
+func readImageFromDoc(documentPath, resource string, fullDecode bool) ([]byte, string, error) {
 	if documentPath == "" || !filepath.IsAbs(documentPath) {
-		return "", ErrInvalidPath
+		return nil, "", ErrInvalidPath
 	}
 	relative, err := resourcePath(resource)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	root, err := os.OpenRoot(filepath.Dir(documentPath))
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	defer root.Close()
 	u, _ := url.Parse(resource)
-	return readResource(root, filepath.FromSlash(u.Path), relative)
+	return readResourceRaw(root, filepath.FromSlash(u.Path), relative, fullDecode)
 }
 
 // FindImage 先按相对路径读取；文件不存在时按 Obsidian 的习惯，在文档目录和所属工作区里
 // 按文件名或路径后缀查找。workspaceRoot 只能来自工作区的授权记录，文档不在其中时不搜索它。
 func FindImage(documentPath, workspaceRoot, resource string) (string, error) {
-	uri, err := ReadImage(documentPath, resource)
+	raw, format, err := findImageRaw(documentPath, workspaceRoot, resource, true)
+	if err != nil {
+		return "", err
+	}
+	return encodeDataURI(raw, format), nil
+}
+
+// FindImageRaw 与 FindImage 相同的安全边界与查找规则，但直接返回校验后的图片字节与格式。
+// 原生渲染路径直接交由位图/SVG 解码器使用，省去 Base64 编解码与重复像素解码。
+func FindImageRaw(documentPath, workspaceRoot, resource string) ([]byte, string, error) {
+	return findImageRaw(documentPath, workspaceRoot, resource, false)
+}
+
+func findImageRaw(documentPath, workspaceRoot, resource string, fullDecode bool) ([]byte, string, error) {
+	raw, format, err := readImageFromDoc(documentPath, resource, fullDecode)
 	if err == nil || !errors.Is(err, fs.ErrNotExist) {
-		return uri, err
+		return raw, format, err
 	}
 	relative, pathErr := resourcePath(resource)
 	if pathErr != nil {
-		return "", pathErr
+		return nil, "", pathErr
 	}
 	dir := filepath.Dir(documentPath)
-	dirs := []string{dir}
-	if rel, relErr := filepath.Rel(workspaceRoot, dir); workspaceRoot != "" && filepath.IsAbs(workspaceRoot) && relErr == nil && rel != "." && filepath.IsLocal(rel) {
-		dirs = append(dirs, workspaceRoot)
+	type searchScope struct {
+		dir  string
+		skip string
 	}
-	for _, dir := range dirs {
-		root, openErr := os.OpenRoot(dir)
+	scopes := []searchScope{{dir: dir}}
+	if rel, relErr := filepath.Rel(workspaceRoot, dir); workspaceRoot != "" && filepath.IsAbs(workspaceRoot) && relErr == nil && rel != "." && filepath.IsLocal(rel) {
+		scopes = append(scopes, searchScope{dir: workspaceRoot, skip: filepath.ToSlash(rel)})
+	}
+	for _, scope := range scopes {
+		root, openErr := os.OpenRoot(scope.dir)
 		if openErr != nil {
 			continue
 		}
-		found, ok := locate(root, relative)
+		found, ok := locate(root, relative, scope.skip)
 		if ok {
-			uri, err = readResource(root, found, found)
+			raw, format, err = readResourceRaw(root, found, found, fullDecode)
 		}
 		root.Close()
 		if ok {
-			return uri, err
+			return raw, format, err
 		}
 	}
-	return "", err
+	return nil, "", err
 }
 
 const maxSearchEntries = 10000
 const maxSearchDepth = 64
 
 // locate 在 root 下找文件名或路径后缀与 relative 相同的普通文件，不区分大小写，
-// 多个匹配时取层级最浅的。隐藏目录、node_modules 和符号链接不进入。
-func locate(root *os.Root, relative string) (string, bool) {
+// 多个匹配时取层级最浅的。隐藏目录、node_modules、符号链接和已搜过的 skipDir 不进入。
+func locate(root *os.Root, relative, skipDir string) (string, bool) {
 	want := "/" + strings.ToLower(filepath.ToSlash(relative))
 	best, bestDepth, seen := "", 0, 0
 	_ = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
@@ -99,6 +130,9 @@ func locate(root *os.Root, relative string) (string, bool) {
 		}
 		if p == "." {
 			return nil
+		}
+		if skipDir != "" && p == skipDir && d.IsDir() {
+			return fs.SkipDir
 		}
 		if seen++; seen > maxSearchEntries {
 			return fs.SkipAll
@@ -121,8 +155,8 @@ func locate(root *os.Root, relative string) (string, bool) {
 	return filepath.FromSlash(best), best != ""
 }
 
-// readResource 读取 root 下的 relative。written 是清理前的路径，用来检查被 .. 消去的片段。
-func readResource(root *os.Root, written, relative string) (string, error) {
+// readResourceRaw 读取 root 下的 relative。written 是清理前的路径，用来检查被 .. 消去的片段。
+func readResourceRaw(root *os.Root, written, relative string, fullDecode bool) ([]byte, string, error) {
 	// 清理路径前也检查被 .. 消去的片段，避免符号链接藏在规范化路径中。
 	prefix := ""
 	for _, part := range strings.Split(written, string(filepath.Separator)) {
@@ -133,24 +167,23 @@ func readResource(root *os.Root, written, relative string) (string, error) {
 		}
 		info, err := root.Lstat(prefix)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return "", ErrInvalidPath
+			return nil, "", ErrInvalidPath
 		}
 		if err == nil && info.Mode()&os.ModeSymlink != 0 {
-			return "", ErrInvalidPath
+			return nil, "", ErrInvalidPath
 		}
 	}
 	parent, err := directory(root, filepath.Dir(relative), false)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	defer parent.Close()
 	f, err := openRegular(parent, filepath.Base(relative))
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	defer f.Close()
-	_, uri, _, err := readImage(f)
-	return uri, err
+	return readImageBytes(f, fullDecode)
 }
 
 func resourcePath(resource string) (string, error) {
@@ -230,40 +263,61 @@ func openRegular(root *os.Root, name string) (*os.File, error) {
 	return f, nil
 }
 
-func readImage(f *os.File) ([]byte, string, string, error) {
+func encodeDataURI(raw []byte, format string) string {
+	mime := map[string]string{
+		"svg":  "image/svg+xml",
+		"png":  "image/png",
+		"jpeg": "image/jpeg",
+		"gif":  "image/gif",
+		"webp": "image/webp",
+	}[format]
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)
+}
+
+func readImageBytes(f *os.File, fullDecode bool) ([]byte, string, error) {
 	info, err := f.Stat()
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, "", "", errors.New("请选择普通图片文件")
+		return nil, "", errors.New("请选择普通图片文件")
 	}
 	if info.Size() > MaxImageBytes {
-		return nil, "", "", errors.New("图片不能超过 8 MB")
+		return nil, "", errors.New("图片不能超过 8 MB")
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, MaxImageBytes+1))
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", err
 	}
 	if len(raw) > MaxImageBytes {
-		return nil, "", "", errors.New("图片不能超过 8 MB")
+		return nil, "", errors.New("图片不能超过 8 MB")
 	}
 	if isSVG(raw) {
-		return raw, "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(raw), "svg", nil
+		return raw, "svg", nil
 	}
 	config, format, err := image.DecodeConfig(bytes.NewReader(raw))
 	mime := map[string]string{"png": "image/png", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}[format]
 	if err != nil || mime == "" || config.Width <= 0 || config.Height <= 0 {
-		return nil, "", "", errors.New("请选择有效的 PNG、JPEG、GIF、WebP 或 SVG 图片")
+		return nil, "", errors.New("请选择有效的 PNG、JPEG、GIF、WebP 或 SVG 图片")
 	}
 	// 先检查像素数，再实际解码，避免压缩图片造成过量内存分配。
 	if config.Width > MaxImagePixels/config.Height {
-		return nil, "", "", errors.New("图片像素数过大")
+		return nil, "", errors.New("图片像素数过大")
 	}
-	if _, decoded, err := image.Decode(bytes.NewReader(raw)); err != nil || decoded != format {
-		return nil, "", "", errors.New("图片内容损坏")
+	if fullDecode {
+		if _, decoded, err := image.Decode(bytes.NewReader(raw)); err != nil || decoded != format {
+			return nil, "", errors.New("图片内容损坏")
+		}
 	}
-	return raw, "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw), format, nil
+	return raw, format, nil
+}
+
+func readImage(f *os.File) ([]byte, string, string, error) {
+	raw, format, err := readImageBytes(f, true)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return raw, encodeDataURI(raw, format), format, nil
 }
 
 // isSVG 检查根元素是否是 SVG 命名空间下的 svg，只读到根元素为止。

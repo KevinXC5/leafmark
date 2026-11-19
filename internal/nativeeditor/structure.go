@@ -30,6 +30,7 @@ func (e *Editor) insertBlock(name string) bool {
 		sel = e.doc.CreateParagraphAfter(sel.Start)
 	}
 	e.anchor, e.focus = sel.Start, sel.End
+	e.hasGoalX = false
 	return true
 }
 
@@ -96,12 +97,14 @@ func (e *Editor) moveCell(block, row, col int, back bool) {
 	if index >= cells {
 		if sel, ok := e.doc.TableInsertRow(block, len(table.Rows), e.selection()); ok {
 			e.anchor, e.focus = sel.Start, sel.End
+			e.hasGoalX = false
 			e.dirty, e.reveal = true, true
 		}
 		return
 	}
 	start, _, _, _ := e.cellSpan(block, index)
 	e.anchor, e.focus = start, start
+	e.hasGoalX = false
 	e.reveal = true
 }
 
@@ -158,6 +161,7 @@ func (e *Editor) contextMenu(services ui.Services, m *ui.Menu) {
 		if changed {
 			e.cancelCompose()
 			e.anchor, e.focus = next.Start, next.End
+			e.hasGoalX = false
 			e.dirty, e.reveal = true, true
 		}
 	}
@@ -213,6 +217,7 @@ func (e *Editor) requestRawEdit(off int) bool {
 	e.cancelCompose()
 	e.dragging = false
 	e.anchor, e.focus = off, off
+	e.hasGoalX = false
 	e.editRaw(bi, strings.TrimRight(blocks[bi].Raw, " \t\r\n"))
 	return true
 }
@@ -228,6 +233,7 @@ func (e *Editor) ReplaceRaw(index int, markdown string) bool {
 		sel, ok := e.doc.DeleteBlock(index, e.selection())
 		if ok {
 			e.anchor, e.focus = sel.Start, sel.End
+			e.hasGoalX = false
 			e.dirty, e.reveal = true, true
 		}
 		return ok
@@ -237,6 +243,7 @@ func (e *Editor) ReplaceRaw(index int, markdown string) bool {
 	}
 	at := e.blockOrigin(index)
 	e.anchor, e.focus = at, at
+	e.hasGoalX = false
 	e.dirty, e.reveal = true, true
 	return true
 }

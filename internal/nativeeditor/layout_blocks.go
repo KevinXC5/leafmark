@@ -40,7 +40,7 @@ func placeCode(box *blockBox, code, lang string, fontSize float32, cache *shapeC
 			pieces = wrapSource(cache, part, wrap, size)
 		}
 		for pi, piece := range pieces {
-			ln := line{block: box.index, y: box.y + y, ascent: m.Ascent + (lineH-m.Ascent-m.Descent)/2, height: lineH, prefix: pad, text: piece, origin: box.origin + runesBefore, count: len([]rune(piece)), newline: pi == len(pieces)-1}
+			ln := line{block: box.index, y: box.y + y, ascent: m.Ascent + (lineH-m.Ascent-m.Descent)/2, height: lineH, prefix: pad, text: piece, origin: box.origin + runesBefore, count: len([]rune(piece)), newline: pi == len(pieces)-1, fontSize: size, fontCode: true}
 			g := cache.shape(piece, size, false, false, true)
 			shiftGlyphs(g, pad)
 			ln.glyphs = g
@@ -114,11 +114,15 @@ func sourceSpans(glyphs []ui.Glyph, origin int, kinds []uint8) []paintSpan {
 		if at := origin + g.Cluster; at >= 0 && at < len(kinds) {
 			kind = kinds[at]
 		}
+		end := g.X + g.Advance
 		if n := len(out); n > 0 && out[n-1].source == kind {
 			out[n-1].glyphs = append(out[n-1].glyphs, g)
+			if end > out[n-1].endX {
+				out[n-1].endX = end
+			}
 			continue
 		}
-		out = append(out, paintSpan{glyphs: []ui.Glyph{g}, source: kind})
+		out = append(out, paintSpan{glyphs: []ui.Glyph{g}, endX: end, source: kind})
 	}
 	return out
 }
@@ -165,11 +169,15 @@ func codeSpans(glyphs []ui.Glyph, text, lang string) []paintSpan {
 	var spans []paintSpan
 	for _, g := range glyphs {
 		ink := inks[max(0, min(g.Cluster, len(rs)))]
+		end := g.X + g.Advance
 		if n := len(spans); n > 0 && spans[n-1].ink == ink {
 			spans[n-1].glyphs = append(spans[n-1].glyphs, g)
+			if end > spans[n-1].endX {
+				spans[n-1].endX = end
+			}
 			continue
 		}
-		spans = append(spans, paintSpan{glyphs: []ui.Glyph{g}, ink: ink})
+		spans = append(spans, paintSpan{glyphs: []ui.Glyph{g}, endX: end, ink: ink})
 	}
 	return spans
 }
@@ -216,6 +224,7 @@ func placeTable(box *blockBox, table *richtext.TableData, fontSize float32, cach
 	if table == nil || len(table.Rows) == 0 {
 		return fontSize + 8
 	}
+	box.tableHeader = table.Header
 	cols := 0
 	for _, row := range table.Rows {
 		cols = max(cols, len(row))
@@ -284,14 +293,21 @@ func placeTable(box *blockBox, table *richtext.TableData, fontSize float32, cach
 					}
 				}
 				ln.prefix = dx
+				ln.tableRow = ri
+				ln.tableCol = ci
+				ln.cellLeft = box.cols[ci]
+				ln.cellRight = box.cols[ci+1]
 				shiftGlyphs(ln.glyphs, dx)
-				for _, span := range ln.spans {
-					shiftGlyphs(span.glyphs, dx)
+				for si := range ln.spans {
+					shiftGlyphs(ln.spans[si].glyphs, dx)
+					if len(ln.spans[si].glyphs) > 0 {
+						ln.spans[si].endX += dx
+					}
 				}
 				ln.width = advanceOf(ln.glyphs)
 				box.lines = append(box.lines, idx)
 			}
-			runesBefore += len([]rune(visibleRuns(runs)))
+			runesBefore += runsRuneCount(runs)
 		}
 		y += rowH
 		box.rows = append(box.rows, y)
@@ -335,7 +351,7 @@ func placePlaceholder(box *blockBox, b richtext.Block, fontSize float32, cache *
 	if kind == richtext.Horizontal {
 		h = 18
 	}
-	ln := line{block: box.index, y: box.y + 8, ascent: m.Ascent, height: h, text: text, origin: box.origin, count: 0, prefix: 12}
+	ln := line{block: box.index, y: box.y + 8, ascent: m.Ascent, height: h, text: text, origin: box.origin, count: 0, prefix: 12, fontSize: fontSize * 0.9}
 	if text != "" {
 		ln.glyphs = cache.shape(text, fontSize*0.9, false, false, false)
 		shiftGlyphs(ln.glyphs, 12)

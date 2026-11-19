@@ -1,5 +1,11 @@
 package richtext
 
+const (
+	maxUndoSteps = 200
+	minUndoSteps = 16
+	maxUndoRunes = 8 << 20 // 约 8M runes，避免超大文档撤销栈无界扩张
+)
+
 // snapshot 是撤销栈中的文档与选区。
 type snapshot struct {
 	blocks []editBlock
@@ -7,6 +13,7 @@ type snapshot struct {
 	// typing 为 true 时，紧接着的同点插入并入这一步。
 	typing bool
 	at     int
+	runes  int
 }
 
 func (d *Document) remember(sel Selection) {
@@ -29,10 +36,8 @@ func (d *Document) rememberType(sel Selection) {
 }
 
 func (d *Document) rememberKind(sel Selection, typing bool) {
-	d.undo = append(d.undo, snapshot{blocks: cloneEdit(d.blocks), sel: sel, typing: typing, at: sel.Start})
-	if len(d.undo) > 200 {
-		d.undo = d.undo[1:]
-	}
+	d.undo = append(d.undo, snapshot{blocks: cloneEdit(d.blocks), sel: sel, typing: typing, at: sel.Start, runes: len(d.text)})
+	d.trimUndo()
 	d.redo = nil
 	d.clean = false
 	d.pending = nil
@@ -42,6 +47,20 @@ func (d *Document) rememberKind(sel Selection, typing bool) {
 		d.coalesce = coalesceInsert
 	} else {
 		d.coalesce = coalesceNone
+	}
+}
+
+func (d *Document) trimUndo() {
+	if len(d.undo) > maxUndoSteps {
+		d.undo = d.undo[len(d.undo)-maxUndoSteps:]
+	}
+	total := 0
+	for i := range d.undo {
+		total += d.undo[i].runes
+	}
+	for len(d.undo) > minUndoSteps && total > maxUndoRunes {
+		total -= d.undo[0].runes
+		d.undo = d.undo[1:]
 	}
 }
 

@@ -6,9 +6,11 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"leafmark/internal/richtext"
 )
 
 func TestUpdateDialogShowsProgressAndRestart(t *testing.T) {
@@ -245,5 +247,158 @@ func TestUpdateNotesBulletTopAlignedAndScrollReset(t *testing.T) {
 	app.dismissUpdate()
 	if app.updateNotesScroll.Y != 0 || app.updateNotesScroll.MaxY != 0 {
 		t.Fatalf("关闭更新弹窗后应重置滚动状态：%+v", app.updateNotesScroll)
+	}
+}
+
+func TestUpdateNotesViewCachesParsedMarkdown(t *testing.T) {
+	// 重置包级缓存避免受其他测试影响。
+	releaseNotesCache.mu.Lock()
+	releaseNotesCache.ready = false
+	releaseNotesCache.markdown = ""
+	releaseNotesCache.blocks = nil
+	releaseNotesCache.mu.Unlock()
+
+	parses := 0
+	prev := parseReleaseNoteBlocks
+	parseReleaseNoteBlocks = func(markdown string) []richtext.Block {
+		parses++
+		return richtext.Parse(markdown).Blocks()
+	}
+	t.Cleanup(func() { parseReleaseNoteBlocks = prev })
+
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "正文")
+	app.updates = &Updates{
+		pending: &mygo.Update{
+			Version: "0.9.8",
+			Notes:   "### 0.9.8\n\n#### 优化\n\n- 减少动画重绘开销。\n\n### 0.9.7\n\n- 另一项改进。\n",
+		},
+		versionFn: func() string { return "0.9.6" },
+		enabledFn: func() bool { return true },
+	}
+	app.updateOpen, app.updateDownloading = true, true
+	view := ui.NewTester(app.View, 1100, 760)
+	for range 8 {
+		view.Frame()
+	}
+	if parses != 1 {
+		t.Fatalf("同一更新日志多帧渲染不应重复解析 Markdown，实际解析 %d 次", parses)
+	}
+	blocks := cachedReleaseNoteBlocks(app.updates.Status().Notes)
+	versionHeadings, normalHeadings := 0, 0
+	for _, b := range blocks {
+		if b.block.Kind == richtext.Heading {
+			if b.isVersion {
+				versionHeadings++
+			} else {
+				normalHeadings++
+			}
+		}
+	}
+	if versionHeadings != 2 || normalHeadings != 1 {
+		t.Fatalf("版本号标题判定异常：version=%d normal=%d", versionHeadings, normalHeadings)
+	}
+
+	// 更换更新日志后应重新解析一次。
+	app.updates.pending = &mygo.Update{Version: "0.9.9", Notes: "全新日志。"}
+	view.Frame()
+	view.Frame()
+	if parses != 2 {
+		t.Fatalf("更换更新日志后应仅重新解析一次，实际解析 %d 次", parses)
+	}
+}
+
+func TestUpdateCancelAndReopenDialogClearsStaleError(t *testing.T) {
+	app, _ := newTestApp(t)
+	useStubEditors(t)
+	app.adopt(app.files.Current(), "正文")
+	app.updates = &Updates{
+		pending:   &mygo.Update{Version: "0.9.8", Notes: "新版本说明。"},
+		versionFn: func() string { return "0.9.7" },
+		enabledFn: func() bool { return true },
+	}
+	// 模拟取消下载后残留的取消提示，关闭弹窗后在通用设置页再次点击“查看更新”时应清空过时提示。
+	app.updateOpen = true
+	app.updateError = (updateCanceledError{}).Error()
+	app.dismissUpdate()
+	if app.updateOpen {
+		t.Fatal("取消关闭弹窗后应退出更新窗口")
+	}
+	if app.updateError != "更新已取消，可稍后重试" {
+		t.Fatalf("取消下载后应保留状态记录供后台核对：%q", app.updateError)
+	}
+
+	app.settingsOn, app.settingsSection = true, "general"
+	view := ui.NewTester(app.View, 1100, 760)
+	view.Frame()
+	if err := view.Click("查看更新"); err != nil {
+		t.Fatal(err)
+	}
+	view.Frame()
+	if !app.updateOpen || app.updateError != "" {
+		t.Fatalf("重新点击查看更新后应打开干净弹窗：open=%v err=%q", app.updateOpen, app.updateError)
+	}
+	if view.HasText("更新已取消，可稍后重试") {
+		t.Fatal("重开更新弹窗不应展示上次取消错误提示")
+	}
+	if !view.HasText("安装完成后可重启应用以使用新版本，重启前会检查未保存的文档。") {
+		t.Fatalf("重开更新弹窗应恢复默认提示：%v", view.Texts())
+	}
+}
+
+func TestUpdateProgressThrottlePreservesTransitionsAndCompletion(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	prevNow := updateProgressNow
+	updateProgressNow = func() time.Time { return now }
+	t.Cleanup(func() { updateProgressNow = prevNow })
+
+	var emitted [][2]int64
+	cb := throttleUpdateProgress(func(downloaded, total int64) {
+		emitted = append(emitted, [2]int64{downloaded, total})
+	})
+
+	// 1. 首次回调立即上报（连接中）
+	cb(0, 0)
+	// 2. 10ms 后开始有字节（状态从连接中变为下载中），应立即上报
+	now = now.Add(10 * time.Millisecond)
+	cb(100, 0)
+	// 3. 10ms 后同阶段小幅增长，应被节流
+	now = now.Add(10 * time.Millisecond)
+	cb(200, 0)
+	// 4. 5ms 后得知总大小（状态变化），应立即上报
+	now = now.Add(5 * time.Millisecond)
+	cb(300, 1000)
+	// 5. 20ms 后未满 50ms，应被节流
+	now = now.Add(20 * time.Millisecond)
+	cb(500, 1000)
+	// 6. 再过 30ms（距上次上报满 50ms），应上报
+	now = now.Add(30 * time.Millisecond)
+	cb(700, 1000)
+	// 7. 5ms 后下载完成（1000/1000），即便未满 50ms 也必须立即上报
+	now = now.Add(5 * time.Millisecond)
+	cb(1000, 1000)
+	// 8. 5ms 后重复完成回调，应被节流
+	now = now.Add(5 * time.Millisecond)
+	cb(1000, 1000)
+	// 9. 5ms 后新一轮下载重试（字节数回退），应立即上报
+	now = now.Add(5 * time.Millisecond)
+	cb(50, 1000)
+
+	want := [][2]int64{
+		{0, 0},
+		{100, 0},
+		{300, 1000},
+		{700, 1000},
+		{1000, 1000},
+		{50, 1000},
+	}
+	if len(emitted) != len(want) {
+		t.Fatalf("节流上报次数不符：got %v, want %v", emitted, want)
+	}
+	for i := range want {
+		if emitted[i] != want[i] {
+			t.Fatalf("第 %d 次上报不符：got %v, want %v", i, emitted[i], want[i])
+		}
 	}
 }

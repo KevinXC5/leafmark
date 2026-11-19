@@ -1,7 +1,12 @@
 package nativeeditor
 
 import (
+	"cmp"
+	"runtime"
+	"slices"
 	"strings"
+	"sync"
+	"weak"
 
 	"github.com/egoist/mygo/ui"
 	"leafmark/internal/diagram"
@@ -10,6 +15,11 @@ import (
 
 // 块级公式比正文略大，与常见的数学排版一致。
 const displayMathScale = 1.2
+
+const (
+	mathCacheLimit    = 512
+	diagramCacheLimit = 64
+)
 
 type mathKey struct {
 	src     string
@@ -25,37 +35,125 @@ type diagramKey struct {
 	nodeLine ui.Color
 }
 
+// renderedOrder 记录某张渲染缓存的访问序，达到上限时只淘汰最久未用的一半条目，避免全清造成缓存颠簸。
+type renderedOrder[K comparable] struct {
+	tick  uint64
+	order map[K]uint64
+}
+
+func (o *renderedOrder[K]) touch(key K) {
+	if o.order == nil {
+		o.order = map[K]uint64{}
+	}
+	o.tick++
+	o.order[key] = o.tick
+}
+
+func evictOldestHalf[K comparable, V any](cache map[K]V, o *renderedOrder[K], limit int) {
+	if len(cache) < limit {
+		return
+	}
+	keep := max(1, limit/2)
+	if len(cache) <= keep {
+		return
+	}
+	for k := range o.order {
+		if _, ok := cache[k]; !ok {
+			delete(o.order, k)
+		}
+	}
+	type agedKey struct {
+		key K
+		age uint64
+	}
+	entries := make([]agedKey, 0, len(cache))
+	for k := range cache {
+		entries = append(entries, agedKey{key: k, age: o.order[k]})
+	}
+	slices.SortFunc(entries, func(a, b agedKey) int {
+		return cmp.Compare(a.age, b.age)
+	})
+	drop := len(entries) - keep
+	for _, item := range entries[:drop] {
+		delete(cache, item.key)
+		delete(o.order, item.key)
+	}
+}
+
+type renderedTracker struct {
+	maths    renderedOrder[mathKey]
+	diagrams renderedOrder[diagramKey]
+}
+
+var (
+	renderedTrackersMu sync.Mutex
+	renderedTrackers   = map[weak.Pointer[shapeCache]]*renderedTracker{}
+)
+
+func (c *shapeCache) renderedTracker() *renderedTracker {
+	wp := weak.Make(c)
+	renderedTrackersMu.Lock()
+	t := renderedTrackers[wp]
+	created := false
+	if t == nil {
+		t = &renderedTracker{}
+		renderedTrackers[wp] = t
+		created = true
+	}
+	renderedTrackersMu.Unlock()
+	if created {
+		runtime.AddCleanup(c, func(key weak.Pointer[shapeCache]) {
+			renderedTrackersMu.Lock()
+			delete(renderedTrackers, key)
+			renderedTrackersMu.Unlock()
+		}, wp)
+	}
+	return t
+}
+
 // math 排版一条公式并缓存结果。源码不在支持范围内时返回 nil，调用方退回显示原文。
 func (c *shapeCache) math(src string, size float32, display bool) *mathlayout.Box {
+	if c.maths == nil {
+		c.maths = map[mathKey]*mathlayout.Box{}
+	}
+	tracker := c.renderedTracker()
 	key := mathKey{src: src, size: int(size * 100), display: display}
 	if box, ok := c.maths[key]; ok {
+		tracker.maths.touch(key)
 		return box
 	}
 	box, err := mathlayout.Layout(src, size, display)
 	if err != nil {
 		box = nil
 	}
-	if len(c.maths) >= 512 {
-		clear(c.maths)
+	if len(c.maths) >= mathCacheLimit {
+		evictOldestHalf(c.maths, &tracker.maths, mathCacheLimit)
 	}
 	c.maths[key] = box
+	tracker.maths.touch(key)
 	return box
 }
 
 // diagram 解析并布局一张流程图。不是受支持的图类型时返回 nil。
 func (c *shapeCache) diagram(src string, width float32) *diagram.Layout {
+	if c.diagrams == nil {
+		c.diagrams = map[diagramKey]*diagram.Layout{}
+	}
+	tracker := c.renderedTracker()
 	key := diagramKey{src: src, width: int(width), text: c.diagramStyle.Text, nodeFill: c.diagramStyle.NodeFill, nodeLine: c.diagramStyle.NodeLine}
 	if lay, ok := c.diagrams[key]; ok {
+		tracker.diagrams.touch(key)
 		return lay
 	}
 	var lay *diagram.Layout
 	if graph, err := diagram.Parse(src); err == nil {
 		lay = graph.Layout(c.diagramStyle, width)
 	}
-	if len(c.diagrams) >= 64 {
-		clear(c.diagrams)
+	if len(c.diagrams) >= diagramCacheLimit {
+		evictOldestHalf(c.diagrams, &tracker.diagrams, diagramCacheLimit)
 	}
 	c.diagrams[key] = lay
+	tracker.diagrams.touch(key)
 	return lay
 }
 

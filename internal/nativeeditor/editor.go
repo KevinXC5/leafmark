@@ -50,6 +50,9 @@ type Editor struct {
 	composeGlyphs  []ui.Glyph
 	composeMetrics ui.FontMetrics
 	composeAdvance float32
+	composeAscent  float32
+	goalX          float32 // 连续上下移动时记住的屏幕内容横坐标
+	hasGoalX       bool
 	dirty          bool // Changed 尚未被读取
 	wordMod        ui.Modifiers
 	wantFocus      bool // 下一帧把键盘焦点交还给正文
@@ -69,7 +72,6 @@ type Editor struct {
 	sourceMode     bool // 整篇是一块等宽纯文本，Markdown 原样返回
 	sourceSyntax   func(string) []SourceSpan
 	sourcePalette  [6]ui.Color
-	sourceSet      bool
 	sourceKey      sourceLayoutKey // 上一次源码排版的输入，未变时复用 sourceLay
 	sourceLay      layout
 	sourceLaid     bool
@@ -152,6 +154,9 @@ func (e *Editor) FontSize(size float32) {
 	if size > 96 {
 		size = 96
 	}
+	if size == e.fontSize {
+		return
+	}
 	e.fontSize = size
 	e.cache.reset()
 	clear(e.cache.faces)
@@ -202,6 +207,7 @@ func (e *Editor) Undo() {
 	if sel, ok := e.doc.Undo(); ok {
 		e.anchor, e.focus = sel.Start, sel.End
 		e.pending = 0
+		e.hasGoalX = false
 		e.dirty = true
 		e.reveal = true
 	}
@@ -215,6 +221,7 @@ func (e *Editor) Redo() {
 	if sel, ok := e.doc.Redo(); ok {
 		e.anchor, e.focus = sel.Start, sel.End
 		e.pending = 0
+		e.hasGoalX = false
 		e.dirty = true
 		e.reveal = true
 	}
@@ -227,9 +234,12 @@ func (e *Editor) Format(name string) {
 	if e.readOnly {
 		return
 	}
+	rev := e.doc.Revision()
 	if mark, ok := markByName(name); ok {
 		e.doc.ToggleMark(e.selection(), mark)
-		e.dirty = true
+		if e.doc.Revision() != rev {
+			e.dirty = true
+		}
 		if e.anchor == e.focus {
 			e.pending = e.doc.MarksAt(e.focus)
 		}
@@ -238,7 +248,10 @@ func (e *Editor) Format(name string) {
 	if !e.insertBlock(name) && !e.formatBlock(name) {
 		return
 	}
-	e.dirty = true
+	if e.doc.Revision() != rev {
+		e.dirty = true
+	}
+	e.hasGoalX = false
 	e.reveal = true
 }
 
@@ -309,6 +322,7 @@ func (e *Editor) InsertLink(label, url string) {
 	}
 	sel := e.doc.InsertLinkSelection(e.selection(), label, url)
 	e.anchor, e.focus = sel.Start, sel.End
+	e.hasGoalX = false
 	e.dirty = true
 	e.reveal = true
 }
@@ -320,6 +334,7 @@ func (e *Editor) InsertImage(alt, path string) {
 	}
 	sel := e.doc.InsertImage(e.focus, alt, path)
 	e.anchor, e.focus = sel.Start, sel.End
+	e.hasGoalX = false
 	e.dirty = true
 	e.reveal = true
 	e.wantImage(path)
@@ -335,6 +350,7 @@ func (e *Editor) Find(query string) bool {
 		return false
 	}
 	e.anchor, e.focus = at, at+len([]rune(query))
+	e.hasGoalX = false
 	e.reveal = true
 	return true
 }
@@ -383,6 +399,7 @@ func (e *Editor) SetSelection(start, end int) {
 		end = n
 	}
 	e.anchor, e.focus = start, end
+	e.hasGoalX = false
 	e.reveal = true
 }
 
@@ -432,11 +449,43 @@ func (e *Editor) View(c *ui.Context) {
 		pointer = ui.CursorPointer
 	}
 	box.Cursor(pointer)
-	// 组合输入只预排字形，Draw 不写排版缓存或文档。
-	e.composeGlyphs = e.cache.shape(e.compose, e.fontSize, false, false, false)
-	e.composeMetrics = e.cache.metrics(e.fontSize, false, false)
-	caret := min(max(e.comCaret, 0), len([]rune(e.compose)))
-	e.composeAdvance = measure(e.cache, string([]rune(e.compose)[:caret]), e.fontSize, false, false, false)
+	// 组合输入只预排字形，Draw 不写排版缓存或文档；未处于组合输入时跳过空串塑形与测量。
+	if e.compose != "" {
+		size, code := e.fontSize, e.sourceMode
+		family, weight := "", 0
+		var lineAscent float32
+		if li := e.lay.lineAt(e.focus); li >= 0 {
+			ln := e.lay.lines[li]
+			if ln.fontSize > 0 {
+				size = ln.fontSize
+			}
+			code = ln.fontCode
+			family = ln.fontFamily
+			weight = ln.fontWeight
+			lineAscent = ln.ascent
+		}
+		oldFamily, oldWeight := e.cache.family, e.cache.weight
+		if family != "" {
+			e.cache.family = family
+		}
+		if weight != 0 {
+			e.cache.weight = weight
+		}
+		e.composeGlyphs = e.cache.shape(e.compose, size, false, false, code)
+		e.composeMetrics = e.cache.metrics(size, false, code)
+		caret := min(max(e.comCaret, 0), len([]rune(e.compose)))
+		e.composeAdvance = measure(e.cache, string([]rune(e.compose)[:caret]), size, false, false, code)
+		if lineAscent > 0 {
+			e.composeAscent = lineAscent
+		} else {
+			e.composeAscent = e.composeMetrics.Ascent
+		}
+		e.cache.family, e.cache.weight = oldFamily, oldWeight
+	} else {
+		e.composeGlyphs = nil
+		e.composeAdvance = 0
+		e.composeAscent = 0
+	}
 	if e.reveal {
 		if e.expandToCaret() {
 			e.lay = e.reflow(width)
@@ -468,9 +517,9 @@ func (e *Editor) View(c *ui.Context) {
 }
 
 // sourceLayoutKey 是源码排版的全部输入。源码整篇是一块等宽纯文本，
-// 版面只取决于正文与这些版面参数，不受光标、主题和图片影响。
+// 版面只取决于文档版本与这些版面参数，不受光标、主题和图片影响。
 type sourceLayoutKey struct {
-	text                                    string
+	docRev                                  uint64
 	width, fontSize, lineHeight, readingCol float32
 	family                                  string
 	weight                                  int
@@ -518,13 +567,13 @@ func (e *Editor) reflow(width float32) layout {
 		e.wysiwygKey, e.wysiwygLaid = key, true
 		return e.wysiwygLay
 	}
-	key := sourceLayoutKey{text: e.doc.Text(), width: width, fontSize: e.fontSize, lineHeight: e.cache.lineHeight, readingCol: e.cache.readingWidth, family: e.cache.family, weight: e.cache.weight, syntax: e.sourceSyntax != nil}
+	key := sourceLayoutKey{docRev: e.doc.Revision(), width: width, fontSize: e.fontSize, lineHeight: e.cache.lineHeight, readingCol: e.cache.readingWidth, family: e.cache.family, weight: e.cache.weight, syntax: e.sourceSyntax != nil}
 	if e.sourceLaid && key == e.sourceKey {
 		return e.sourceLay
 	}
 	e.cache.sourceSpans, e.cache.sourceKinds = nil, nil
 	if e.sourceSyntax != nil {
-		e.cache.sourceSpans = e.sourceSyntax(key.text)
+		e.cache.sourceSpans = e.sourceSyntax(e.doc.Text())
 		e.cache.sourceKinds = sourceKindTable(e.cache.sourceSpans, e.doc.Len())
 	}
 	e.flowCount++
@@ -558,18 +607,19 @@ func (e *Editor) PointForOffset(offset int) (x, y, h float32) {
 	if offset > n {
 		offset = n
 	}
+	lay := e.lay
 	if e.width < 120 {
 		e.cache.source = e.sourceMode
 		e.cache.collapsed = e.collapsed
-		e.lay = e.reflow(720)
-		e.width = 720
+		lay = e.reflow(720)
+		e.lay = lay
 	}
-	li := e.lay.lineAt(offset)
+	li := lay.lineAt(offset)
 	if li < 0 {
 		return padX, padY, e.fontSize
 	}
-	ln := e.lay.lines[li]
-	b := e.blockBox(ln.block)
+	ln := lay.lines[li]
+	b := blockBoxIn(lay, ln.block)
 	return b.x + ln.caretX(offset), ln.y, ln.height
 }
 
@@ -594,15 +644,17 @@ func (e *Editor) SelectionAnchor() (x, y, lineH, viewW float32, ok bool) {
 	return x, y, lineH, e.width, true
 }
 
-// BlockRect 返回块的内容矩形。越界时 ok 为 false。
+// BlockRect 返回块的内容矩形。越界或被折叠隐藏时 ok 为 false。
 func (e *Editor) BlockRect(index int) (x, y, w, h float32, ok bool) {
 	if e.lay.width == 0 {
-		e.lay = flow(e.doc, 720, e.fontSize, e.cache, e.images)
+		e.cache.source = e.sourceMode
+		e.cache.collapsed = e.collapsed
+		e.lay = e.reflow(720)
 	}
-	if index < 0 || index >= len(e.lay.blocks) {
+	b, found := findBlockBox(e.lay, index)
+	if !found {
 		return 0, 0, 0, 0, false
 	}
-	b := e.lay.blocks[index]
 	return b.x, b.y, b.w, b.h, true
 }
 
@@ -679,6 +731,9 @@ func (e *Editor) LayoutSnapshot() LayoutSnapshot {
 				continue
 			}
 			w, h := pic.Size()
+			if w <= 0 || h <= 0 {
+				continue
+			}
 			scale := min(span.glyphs[0].Advance/float32(w), (ln.height-2)/float32(h))
 			out.Images = append(out.Images, ImageSnapshot{Width: float32(w) * scale, Height: float32(h) * scale, ContentWidth: e.blockBox(ln.block).w, TextRuns: len(pic.texts)})
 		}
@@ -692,21 +747,32 @@ func (e *Editor) LayoutSnapshot() LayoutSnapshot {
 			h -= e.fontSize + 6
 		}
 		w, ih := b.image.Size()
+		if w <= 0 || ih <= 0 {
+			continue
+		}
 		scale := min(b.w/float32(w), h/float32(ih))
 		out.Images = append(out.Images, ImageSnapshot{Width: float32(w) * scale, Height: float32(ih) * scale, ContentWidth: b.w, TextRuns: len(b.image.texts)})
 	}
 	return out
 }
 
-// toggleTaskAt 只有点击首行复选框才切换完成状态，文字区域继续用于选区。
+// toggleTaskAt 只有点击复选框才切换完成状态，文字区域继续用于选区。
 func (e *Editor) toggleTaskAt(x, y float32) bool {
 	bi, ok := e.taskAt(x, y)
 	if !ok || e.readOnly {
 		return false
 	}
-	e.doc.SetChecked(bi, !e.doc.Blocks()[bi].Checked)
+	blocks := e.doc.Blocks()
+	if bi < 0 || bi >= len(blocks) {
+		return false
+	}
+	rev := e.doc.Revision()
+	e.doc.SetChecked(bi, !blocks[bi].Checked)
 	e.cancelCompose()
 	e.dragging = false
-	e.dirty = true
+	e.hasGoalX = false
+	if e.doc.Revision() != rev {
+		e.dirty = true
+	}
 	return true
 }

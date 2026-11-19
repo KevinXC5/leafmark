@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"html"
 	"os"
 	"path"
 	"path/filepath"
@@ -26,12 +27,38 @@ type sourceEditor struct {
 	size float32
 	// bounds 是上一帧编辑区的边界，供验收确认它铺满书写区域。
 	bounds ui.Rect
+	// 记录已应用的配色主题，仅在深浅色切换时更新，避免每帧重复下发。
+	paletteSet  bool
+	paletteDark bool
 	// 查找从上一处之后继续。源码整篇都在一个代码块里，查找按全文匹配，不走富文本的跳过规则。
 	findFrom int
 	findHit  string
 }
 
 const sourceFontFamily = `"Geist Mono", "SFMono-Regular", "Consolas", monospace`
+
+var (
+	sourceLightPalette = buildSourcePalette(false)
+	sourceDarkPalette  = buildSourcePalette(true)
+)
+
+func buildSourcePalette(dark bool) [6]ui.Color {
+	colors := sourcePalette(dark)
+	var palette [6]ui.Color
+	palette[sourceHeading] = colors.heading
+	palette[sourceMark] = colors.mark
+	palette[sourceLink] = colors.link
+	palette[sourceCode] = colors.code
+	palette[sourceMath] = colors.math
+	return palette
+}
+
+func cachedSourcePalette(dark bool) [6]ui.Color {
+	if dark {
+		return sourceDarkPalette
+	}
+	return sourceLightPalette
+}
 
 func newSourceEditor(markdown string, size float32) *sourceEditor {
 	ed := nativeeditor.NewPlainText(markdown)
@@ -53,20 +80,17 @@ func sourceSyntax(text string) []nativeeditor.SourceSpan {
 }
 
 func (s *sourceEditor) applyPalette(dark bool) {
-	colors := sourcePalette(dark)
 	s.ed.SetFontFamily(sourceFontFamily)
 	s.ed.SetLineHeight(1.7)
-	var palette [6]ui.Color
-	palette[sourceHeading] = colors.heading
-	palette[sourceMark] = colors.mark
-	palette[sourceLink] = colors.link
-	palette[sourceCode] = colors.code
-	palette[sourceMath] = colors.math
-	s.ed.SetSourcePalette(palette)
+	s.ed.SetSourcePalette(cachedSourcePalette(dark))
+	s.paletteSet = true
+	s.paletteDark = dark
 }
 
 func (s *sourceEditor) View(c *ui.Context) {
-	s.applyPalette(c.Theme().Dark)
+	if dark := c.Theme().Dark; !s.paletteSet || s.paletteDark != dark {
+		s.applyPalette(dark)
+	}
 	box := ui.Box(c).Fill().MinHeight(0)
 	box.Children(func() { s.ed.View(c) })
 	s.bounds = box.Bounds()
@@ -112,27 +136,46 @@ func (s *sourceEditor) FontSize(size float32) {
 	s.ed.SetLineHeight(1.7)
 }
 
+// runeOffsetToByte 返回第 runeOffset 个 rune 对应的字节起点；超出文本长度时返回 len(text)。
+func runeOffsetToByte(text string, runeOffset int) int {
+	if runeOffset <= 0 {
+		return 0
+	}
+	for i := range text {
+		if runeOffset == 0 {
+			return i
+		}
+		runeOffset--
+	}
+	return len(text)
+}
+
 // Find 选中下一处 query，并由编辑器把它滚进视野。从头再找时回到文首。
 func (s *sourceEditor) Find(query string) bool {
 	if query == "" {
 		return false
 	}
-	runes := []rune(s.Text())
-	q := []rune(query)
+	text := s.Text()
 	from := s.findFrom
-	if s.findHit != query {
+	if s.findHit != query || from < 0 {
 		from = 0
 	}
-	at := sourceIndex(runes, q, from)
-	if at < 0 && from > 0 {
-		at = sourceIndex(runes, q, 0)
+	byteFrom := runeOffsetToByte(text, from)
+	idx := -1
+	if rel := strings.Index(text[byteFrom:], query); rel >= 0 {
+		idx = byteFrom + rel
 	}
-	if at < 0 {
+	if idx < 0 && from > 0 {
+		idx = strings.Index(text, query)
+	}
+	if idx < 0 {
 		s.findHit = ""
 		return false
 	}
-	s.ed.SetSelection(at, at+len(q))
-	s.findFrom = at + len(q)
+	at := utf8.RuneCountInString(text[:idx])
+	qLen := utf8.RuneCountInString(query)
+	s.ed.SetSelection(at, at+qLen)
+	s.findFrom = at + qLen
 	s.findHit = query
 	return true
 }
@@ -490,15 +533,23 @@ func (a *nativeApp) exportSnapshot() (id, name, markdown string, ok bool) {
 
 // renderExportBody 把 Markdown 快照渲染为导出用的 HTML 正文，本地图片内嵌为数据地址，可在后台协程执行。
 func renderExportBody(assets *Assets, id, markdown string, dark bool) string {
+	var imageCache map[string]string
 	return richtext.Parse(markdown).HTMLWithRenderers(func(url string) string {
 		lower := strings.ToLower(strings.TrimSpace(url))
 		if assets == nil || strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 			return ""
 		}
+		if cached, ok := imageCache[url]; ok {
+			return cached
+		}
 		uri, err := assets.ReadImage(id, url)
 		if err != nil {
-			return ""
+			uri = ""
 		}
+		if imageCache == nil {
+			imageCache = map[string]string{}
+		}
+		imageCache[url] = uri
 		return uri
 	}, exportRenderers(dark))
 }
@@ -566,6 +617,7 @@ img { max-width: 100%; }
 
 // exportRenderers 把公式和流程图排成自包含的 SVG。排版失败时返回 false，导出退回源码。
 func exportRenderers(dark bool) richtext.Renderers {
+	diagramStyle := exportDiagramStyle(dark)
 	return richtext.Renderers{
 		InlineMath: func(src string) (string, float32, bool) {
 			box, err := mathlayout.Layout(src, exportFontSize, false)
@@ -583,17 +635,21 @@ func exportRenderers(dark bool) richtext.Renderers {
 			svg, err := box.SVG()
 			return svg, err == nil
 		},
-		Diagram: func(src string) (string, bool) { return exportDiagram(src, dark) },
+		Diagram: func(src string) (string, bool) { return exportDiagramWithStyle(src, diagramStyle) },
 	}
 }
 
 // exportDiagram 把 Mermaid 源码排成 SVG。排版失败时返回 false，导出退回源码。
 func exportDiagram(src string, dark bool) (string, bool) {
+	return exportDiagramWithStyle(src, exportDiagramStyle(dark))
+}
+
+func exportDiagramWithStyle(src string, style diagram.Style) (string, bool) {
 	graph, err := diagram.Parse(src)
 	if err != nil || graph == nil {
 		return "", false
 	}
-	svg := graph.Layout(exportDiagramStyle(dark), exportContentWidth).SVG()
+	svg := graph.Layout(style, exportContentWidth).SVG()
 	return svg, svg != ""
 }
 
@@ -614,7 +670,7 @@ func exportDocument(name, body string, dark bool) string {
 		class = ` class="dark"`
 	}
 	title := strings.TrimSuffix(name, filepath.Ext(name))
-	escaped := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(title)
+	escaped := html.EscapeString(title)
 	return "<!doctype html>\n<html lang=\"zh-CN\"" + class + ">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" + escaped + "</title>\n<style>" + exportStyle + "</style>\n</head>\n<body>\n<main>\n" + body + "</main>\n</body>\n</html>\n"
 }
 
@@ -641,8 +697,8 @@ func (a *nativeApp) exportHTML() {
 			CreateDirectories: true,
 		})
 		if err == nil && target != "" {
-			html := exportDocument(name, renderExportBody(assets, id, markdown, dark), dark)
-			err = workspace.WriteHTML(target, html)
+			docHTML := exportDocument(name, renderExportBody(assets, id, markdown, dark), dark)
+			err = workspace.WriteHTML(target, docHTML)
 		}
 		a.exportDone(target, err)
 	}()
@@ -669,6 +725,41 @@ func (a *nativeApp) exportMarkdown() {
 	}()
 }
 
+// writeExportPDF 通过同目录临时文件原子写入 PDF，拒绝覆盖符号链接或非普通文件。
+func writeExportPDF(target string, pdf []byte) error {
+	mode := os.FileMode(0644)
+	if info, err := os.Lstat(target); err == nil {
+		if !info.Mode().IsRegular() {
+			return errors.New("导出目标不是普通文件")
+		}
+		mode = info.Mode().Perm()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(target), ".leafmark-*.pdf.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if err := f.Chmod(mode); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := f.Write(pdf); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, target)
+}
+
 // exportPDF 用系统自带的网页引擎把导出的 HTML 排成 A4 页面。
 // 引擎只在导出期间以不可见窗口存在，主界面仍是原生绘制。
 func (a *nativeApp) exportPDF() {
@@ -689,39 +780,50 @@ func (a *nativeApp) exportPDF() {
 			CreateDirectories: true,
 		})
 		if err == nil && target != "" {
-			html := exportDocument(name, renderExportBody(assets, id, markdown, dark), dark)
+			docHTML := exportDocument(name, renderExportBody(assets, id, markdown, dark), dark)
 			var pdf []byte
-			if pdf, err = renderPDF(html); err == nil {
-				err = os.WriteFile(target, pdf, 0644)
+			if pdf, err = renderPDF(docHTML); err == nil {
+				err = writeExportPDF(target, pdf)
 			}
 		}
-		a.update(func() { a.exporting = false })
-		a.exportDone(target, err)
+		a.update(func() {
+			a.exporting = false
+			a.setExportNotice(target, err)
+		})
 	}()
 }
 
+func (a *nativeApp) setExportNotice(target string, err error) {
+	switch {
+	case err != nil:
+		a.notice = "导出失败：" + err.Error()
+	case target != "":
+		a.notice = "已导出 " + filepath.Base(target)
+	}
+}
+
 func (a *nativeApp) exportDone(target string, err error) {
-	a.update(func() {
-		switch {
-		case err != nil:
-			a.notice = "导出失败：" + err.Error()
-		case target != "":
-			a.notice = "已导出 " + filepath.Base(target)
-		}
-	})
+	a.update(func() { a.setExportNotice(target, err) })
 }
 
 // renderPDF 在不可见的网页窗口里加载 HTML 并打印成 PDF。须在后台协程调用。
-func renderPDF(html string) ([]byte, error) {
+func renderPDF(docHTML string) ([]byte, error) {
 	var page *mygo.Window
 	loaded := make(chan error, 2)
 	mygo.RunOnMain(func() {
 		page = mygo.NewWindow(mygo.WindowOptions{Hidden: true, Width: 794, Height: 1123})
+		if page == nil {
+			loaded <- errors.New("无法创建导出窗口")
+			return
+		}
 		page.Page().OnDidFinishLoad(func() { loaded <- nil })
 		page.Page().OnDidFailLoad(func(e *mygo.LoadError) { loaded <- fmt.Errorf("加载导出内容失败：%v", e) })
-		page.Page().LoadHTML(html, "")
+		page.Page().LoadHTML(docHTML, "")
 	})
-	defer page.Destroy()
+	if page == nil {
+		return nil, errors.New("无法创建导出窗口")
+	}
+	defer mygo.RunOnMain(func() { page.Destroy() })
 	select {
 	case err := <-loaded:
 		if err != nil {
