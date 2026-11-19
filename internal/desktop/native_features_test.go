@@ -476,3 +476,43 @@ func TestExportStyleMatchesNativeColors(t *testing.T) {
 		t.Fatal("单列表头应保留两侧圆角")
 	}
 }
+
+func TestToggleSourcePreservesApproximatePosition(t *testing.T) {
+	prev := newDocumentEditor
+	newDocumentEditor = func(markdown string) documentEditor { return nativeeditor.New(markdown) }
+	t.Cleanup(func() { newDocumentEditor = prev })
+
+	app, _ := newTestApp(t)
+	markdown := "# 第一章\n\n" + strings.Repeat("甲段落内容。\n\n", 12) + "## 第二章\n\n" + strings.Repeat("乙段落内容。\n\n", 12) + "## 第三章\n\n末尾内容。\n"
+	app.adopt(app.files.Current(), markdown)
+
+	// 光标停在第二章中间，切到源码后应落在源码的第二章区间内。
+	richHeadings := nativeOutline(markdown)
+	srcHeadings := nativeSourceOutline(markdown)
+	if len(richHeadings) != 3 || len(srcHeadings) != 3 {
+		t.Fatalf("测试文档标题数异常：%d / %d", len(richHeadings), len(srcHeadings))
+	}
+	midRich := (richHeadings[1].at + richHeadings[2].at) / 2
+	app.active().editor.SetSelection(midRich, midRich)
+
+	app.toggleSource()
+	srcStart, srcEnd := app.active().editor.Selection()
+	if srcStart != srcEnd || srcStart < srcHeadings[1].at || srcStart > srcHeadings[2].at {
+		t.Fatalf("切到源码后光标未落在第二章 [%d, %d]：实际 (%d, %d)", srcHeadings[1].at, srcHeadings[2].at, srcStart, srcEnd)
+	}
+
+	// 再切回原位编辑，光标应仍落在第二章区间内。
+	app.toggleSource()
+	backStart, backEnd := app.active().editor.Selection()
+	if backStart != backEnd || backStart < richHeadings[1].at || backStart > richHeadings[2].at {
+		t.Fatalf("切回原位后光标未落在第二章 [%d, %d]：实际 (%d, %d)", richHeadings[1].at, richHeadings[2].at, backStart, backEnd)
+	}
+
+	// 边界位置：开头与末尾应准确保持。
+	if got := mapModeOffset("无标题纯正文", false, 0, 6, 6); got != 0 {
+		t.Fatalf("开头偏移应为 0，实际 %d", got)
+	}
+	if got := mapModeOffset("无标题纯正文", false, 6, 6, 10); got != 10 {
+		t.Fatalf("末尾偏移应为 10，实际 %d", got)
+	}
+}

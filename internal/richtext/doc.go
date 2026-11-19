@@ -176,6 +176,9 @@ type Document struct {
 	pending  *pendingMark
 	clean    bool
 	coalesce coalesceKind
+	rev      uint64 // 内容或格式每次变化递增，供排版和上层缓存失效判断
+	mdCache  string
+	mdValid  bool
 }
 
 type coalesceKind int

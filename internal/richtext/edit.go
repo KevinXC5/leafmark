@@ -523,6 +523,7 @@ func (d *Document) SetOrdered(blockIndex int, ordered bool) {
 	d.remember(Selection{})
 	d.blocks[blockIndex].Ordered = ordered
 	d.blocks[blockIndex].dirty = true
+	d.invalidateCache()
 }
 
 // SetChecked 设置任务是否完成。
@@ -544,6 +545,7 @@ func (d *Document) SetChecked(blockIndex int, checked bool) {
 		}
 	}
 	d.blocks[blockIndex].dirty = true
+	d.invalidateCache()
 }
 
 // InsertImage 在光标所在块之后插入图片块。

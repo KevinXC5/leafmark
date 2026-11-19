@@ -9,8 +9,13 @@ import (
 // Markdown 序列化。未改动的块回写源码，Raw 原样保留。
 // 整文纯文本（NewPlainText）直接返回正文，不包代码围栏。
 func (d *Document) Markdown() string {
+	if d.mdValid {
+		return d.mdCache
+	}
 	if len(d.blocks) == 1 && d.blocks[0].plain {
-		return d.blocks[0].Code
+		d.mdCache = d.blocks[0].Code
+		d.mdValid = true
+		return d.mdCache
 	}
 	var out strings.Builder
 	out.WriteString(d.prefix)
@@ -59,7 +64,9 @@ func (d *Document) Markdown() string {
 			}
 		}
 	}
-	return out.String()
+	d.mdCache = out.String()
+	d.mdValid = true
+	return d.mdCache
 }
 
 func writeBlockMD(b *strings.Builder, bl *editBlock) {

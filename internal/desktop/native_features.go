@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -200,14 +201,17 @@ func sourceMode(tab *nativeTab) bool {
 	return ok
 }
 
-// toggleSource 在所见即所得与源码之间切换当前标签。正文不变，撤销历史从切换后重新开始。
+// toggleSource 在所见即所得与源码之间切换当前标签。正文不变，保留大致光标与滚动位置，撤销历史从切换后重新开始。
 func (a *nativeApp) toggleSource() {
 	tab := a.active()
 	if tab == nil || tab.editor == nil {
 		return
 	}
+	fromSource := sourceMode(tab)
+	oldStart, _ := tab.editor.Selection()
+	oldLen := utf8.RuneCountInString(tab.editor.Text())
 	markdown := tab.editor.Markdown()
-	if sourceMode(tab) {
+	if fromSource {
 		fresh := newDocumentEditor(markdown)
 		a.configureEditor(fresh)
 		a.connectEditor(fresh)
@@ -215,10 +219,70 @@ func (a *nativeApp) toggleSource() {
 			fresh.SetReadPicture(imageReader(a.assets, tab.id))
 		}
 		tab.editor = fresh
-		return
+	} else {
+		tab.editor = newSourceEditor(markdown, a.settings.FontSize)
+		a.configureEditor(tab.editor)
 	}
-	tab.editor = newSourceEditor(markdown, a.settings.FontSize)
-	a.configureEditor(tab.editor)
+	if oldStart > 0 {
+		newLen := utf8.RuneCountInString(tab.editor.Text())
+		target := mapModeOffset(markdown, fromSource, oldStart, oldLen, newLen)
+		tab.editor.SetSelection(target, target)
+	}
+}
+
+// mapModeOffset 按标题章节的分段比例，把光标偏移从源码或原位模式映射到另一侧；
+// 文档没有标题或两侧标题数不一致时，按整篇正文比例估算。
+func mapModeOffset(markdown string, fromSource bool, oldOffset, oldLen, newLen int) int {
+	if oldOffset <= 0 || oldLen <= 0 || newLen <= 0 {
+		return 0
+	}
+	if oldOffset >= oldLen {
+		return newLen
+	}
+	var oldHeadings, newHeadings []nativeHeading
+	if fromSource {
+		oldHeadings = nativeSourceOutline(markdown)
+		newHeadings = nativeOutline(markdown)
+	} else {
+		oldHeadings = nativeOutline(markdown)
+		newHeadings = nativeSourceOutline(markdown)
+	}
+	oldStart, oldEnd := 0, oldLen
+	newStart, newEnd := 0, newLen
+	if len(oldHeadings) > 0 && len(oldHeadings) == len(newHeadings) {
+		sec := -1
+		for i, h := range oldHeadings {
+			if h.at == oldOffset {
+				return min(max(newHeadings[i].at, 0), newLen)
+			}
+			if h.at < oldOffset {
+				sec = i
+			} else {
+				break
+			}
+		}
+		if sec < 0 {
+			oldEnd = oldHeadings[0].at
+			newEnd = newHeadings[0].at
+		} else {
+			oldStart = oldHeadings[sec].at
+			newStart = newHeadings[sec].at
+			if sec+1 < len(oldHeadings) {
+				oldEnd = oldHeadings[sec+1].at
+				newEnd = newHeadings[sec+1].at
+			}
+		}
+	}
+	oldStart = min(max(oldStart, 0), oldLen)
+	oldEnd = min(max(oldEnd, oldStart), oldLen)
+	newStart = min(max(newStart, 0), newLen)
+	newEnd = min(max(newEnd, newStart), newLen)
+	if oldEnd <= oldStart || newEnd <= newStart {
+		return newStart
+	}
+	ratio := float64(oldOffset-oldStart) / float64(oldEnd-oldStart)
+	target := newStart + int(ratio*float64(newEnd-newStart)+0.5)
+	return min(max(target, newStart), newEnd)
 }
 
 // ask 打开一个单行输入框；ok 在主线程收到去掉首尾空白后的非空输入。
@@ -410,30 +474,42 @@ func (a *nativeApp) exportDark() bool {
 	}
 }
 
-// exportBody 生成当前文档的 HTML 正文，本地图片内嵌为数据地址，导出的文件可以单独打开。
-func (a *nativeApp) exportBody(dark bool) (name, body string, ok bool) {
+// exportSnapshot 在主线程取得当前文档的只读快照，避免后台协程访问编辑器状态。
+func (a *nativeApp) exportSnapshot() (id, name, markdown string, ok bool) {
 	tab := a.active()
 	if tab == nil || tab.editor == nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	doc, _ := a.document(tab.id)
 	name = doc.Name
 	if name == "" {
 		name = "未命名.md"
 	}
-	id := tab.id
-	body = richtext.Parse(tab.editor.Markdown()).HTMLWithRenderers(func(url string) string {
+	return tab.id, name, tab.editor.Markdown(), true
+}
+
+// renderExportBody 把 Markdown 快照渲染为导出用的 HTML 正文，本地图片内嵌为数据地址，可在后台协程执行。
+func renderExportBody(assets *Assets, id, markdown string, dark bool) string {
+	return richtext.Parse(markdown).HTMLWithRenderers(func(url string) string {
 		lower := strings.ToLower(strings.TrimSpace(url))
-		if a.assets == nil || strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		if assets == nil || strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 			return ""
 		}
-		uri, err := a.assets.ReadImage(id, url)
+		uri, err := assets.ReadImage(id, url)
 		if err != nil {
 			return ""
 		}
 		return uri
 	}, exportRenderers(dark))
-	return name, body, true
+}
+
+// exportBody 生成当前文档的 HTML 正文，本地图片内嵌为数据地址，导出的文件可以单独打开。
+func (a *nativeApp) exportBody(dark bool) (name, body string, ok bool) {
+	id, name, markdown, ok := a.exportSnapshot()
+	if !ok {
+		return "", "", false
+	}
+	return name, renderExportBody(a.assets, id, markdown, dark), true
 }
 
 // exportStyle 是导出文档的版式：纸面配色与应用一致，打印时去掉背景色块以外的装饰。
@@ -553,12 +629,11 @@ func exportName(name, ext string) string {
 
 func (a *nativeApp) exportHTML() {
 	dark := a.exportDark()
-	name, body, ok := a.exportBody(dark)
+	id, name, markdown, ok := a.exportSnapshot()
 	if !ok {
 		return
 	}
-	html := exportDocument(name, body, dark)
-	win := a.window()
+	win, assets := a.window(), a.assets
 	go func() {
 		target, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
 			Parent: win, Title: "导出 HTML", DefaultPath: exportName(name, ".html"),
@@ -566,6 +641,7 @@ func (a *nativeApp) exportHTML() {
 			CreateDirectories: true,
 		})
 		if err == nil && target != "" {
+			html := exportDocument(name, renderExportBody(assets, id, markdown, dark), dark)
 			err = workspace.WriteHTML(target, html)
 		}
 		a.exportDone(target, err)
@@ -600,12 +676,11 @@ func (a *nativeApp) exportPDF() {
 		return
 	}
 	dark := a.exportDark()
-	name, body, ok := a.exportBody(dark)
+	id, name, markdown, ok := a.exportSnapshot()
 	if !ok {
 		return
 	}
-	html := exportDocument(name, body, dark)
-	win := a.window()
+	win, assets := a.window(), a.assets
 	a.exporting = true
 	go func() {
 		target, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
@@ -614,6 +689,7 @@ func (a *nativeApp) exportPDF() {
 			CreateDirectories: true,
 		})
 		if err == nil && target != "" {
+			html := exportDocument(name, renderExportBody(assets, id, markdown, dark), dark)
 			var pdf []byte
 			if pdf, err = renderPDF(html); err == nil {
 				err = os.WriteFile(target, pdf, 0644)

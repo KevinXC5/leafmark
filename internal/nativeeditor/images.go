@@ -7,28 +7,88 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"leafmark/internal/richtext"
 )
 
 const (
-	remoteLimit  = 2 << 20 // 单张远程图最多 2MB
-	remoteTotal  = 8 << 20
-	remoteActive = 3
+	remoteLimit     = 2 << 20 // 单张远程图最多 2MB
+	remoteTotal     = 8 << 20
+	remoteActive    = 3
+	imageRetryDelay = 15 * time.Second
 )
 
-func (e *Editor) ensureImages() {
+func (e *Editor) ensureImages(now time.Time) {
+	rev := e.doc.Revision()
+	if e.imagesDocRev == rev && (e.imagesRetryAt.IsZero() || now.Before(e.imagesRetryAt)) {
+		return
+	}
+	var urls []string
+	referenced := map[string]struct{}{}
 	for _, b := range e.doc.Blocks() {
-		if b.Kind == richtext.Image {
-			e.wantImage(b.URL)
+		if b.Kind == richtext.Image && b.URL != "" {
+			if _, seen := referenced[b.URL]; !seen {
+				referenced[b.URL] = struct{}{}
+				urls = append(urls, b.URL)
+			}
 		}
 		for _, r := range b.Runs {
-			if r.Image != nil {
-				e.wantImage(r.Image.URL)
+			if r.Image != nil && r.Image.URL != "" {
+				if _, seen := referenced[r.Image.URL]; !seen {
+					referenced[r.Image.URL] = struct{}{}
+					urls = append(urls, r.Image.URL)
+				}
 			}
 		}
 	}
+	// 回收已从文档删除的图片，释放缓存名额与远程字节预算。
+	pruned := false
+	for url := range e.images {
+		if _, ok := referenced[url]; !ok {
+			delete(e.images, url)
+			if n, ok := e.remoteBytes[url]; ok {
+				e.remoteB = max(0, e.remoteB-n)
+				delete(e.remoteBytes, url)
+			}
+			pruned = true
+		}
+	}
+	for url := range e.fetched {
+		if _, ok := referenced[url]; !ok {
+			delete(e.fetched, url)
+		}
+	}
+	for url, at := range e.failedAt {
+		if _, ok := referenced[url]; !ok {
+			delete(e.failedAt, url)
+			continue
+		}
+		if !now.Before(at.Add(imageRetryDelay)) {
+			delete(e.failedAt, url)
+			delete(e.fetched, url)
+		}
+	}
+	if pruned {
+		e.imageRev++
+	}
+	for _, url := range urls {
+		e.wantImage(url)
+	}
+	e.imagesRetryAt = e.nextImageRetry()
+	e.imagesDocRev = rev
+}
+
+func (e *Editor) nextImageRetry() time.Time {
+	var next time.Time
+	for _, at := range e.failedAt {
+		due := at.Add(imageRetryDelay)
+		if next.IsZero() || due.Before(next) {
+			next = due
+		}
+	}
+	return next
 }
 
 func (e *Editor) wantImage(url string) {
@@ -56,9 +116,11 @@ func (e *Editor) wantImage(url string) {
 		// 本地路径只能交给桌面的授权回调，控件自己从不打开磁盘路径。
 		if pic := e.read(url); pictureAllowed(pic) {
 			e.images[url] = pic
+			e.imageRev++
 		}
 	} else if bm := decodeDataURI(url); bm != nil {
 		e.images[url] = BitmapPicture(bm)
+		e.imageRev++
 	}
 }
 
@@ -81,24 +143,46 @@ const maxCachedImages = 32
 const maxImagePixels = 16 << 20
 
 // drainImages 在 UI 线程解码，后台从不读写图片缓存或布局。
-func (e *Editor) drainImages(c *ui.Context) {
+func (e *Editor) drainImages(c *ui.Context, now time.Time) {
 	for {
 		select {
 		case res := <-e.imgCh:
-			e.remoteN--
-			if len(res.data) == 0 || e.remoteB+len(res.data) > remoteTotal || len(e.images) >= maxCachedImages {
+			e.remoteN = max(0, e.remoteN-1)
+			e.imagesDocRev = 0
+			if len(res.data) == 0 {
+				if e.failedAt == nil {
+					e.failedAt = map[string]time.Time{}
+				}
+				e.failedAt[res.url] = now
+				e.imagesRetryAt = e.nextImageRetry()
 				continue
 			}
-			e.remoteB += len(res.data)
+			if e.remoteB+len(res.data) > remoteTotal || len(e.images) >= maxCachedImages {
+				delete(e.fetched, res.url)
+				continue
+			}
 			pic := BitmapPicture(decodeImage(res.data))
 			if pic == nil {
 				pic = DecodeSVG(res.data)
 			}
-			if pic != nil {
-				e.images[res.url] = pic
-				if c != nil {
-					c.Invalidate()
+			if pic == nil {
+				if e.failedAt == nil {
+					e.failedAt = map[string]time.Time{}
 				}
+				e.failedAt[res.url] = now
+				e.imagesRetryAt = e.nextImageRetry()
+				continue
+			}
+			if e.remoteBytes == nil {
+				e.remoteBytes = map[string]int{}
+			}
+			e.remoteB += len(res.data)
+			e.remoteBytes[res.url] = len(res.data)
+			delete(e.failedAt, res.url)
+			e.images[res.url] = pic
+			e.imageRev++
+			if c != nil {
+				c.Invalidate()
 			}
 		default:
 			return

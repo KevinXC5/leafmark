@@ -33,6 +33,11 @@ type Editor struct {
 	cache          *shapeCache
 	images         map[string]*Picture
 	fetched        map[string]struct{}
+	remoteBytes    map[string]int       // 每张已缓存远程图占用的字节数，淘汰时精确扣减
+	failedAt       map[string]time.Time // 远程拉取或解码失败的退避时刻
+	imageRev       uint64               // 图片缓存变化版本号，供排版缓存失效
+	imagesDocRev   uint64               // 上次扫描文档图片时的文档版本号
+	imagesRetryAt  time.Time            // 最早需要检查失败重试的时刻
 	remoteN        int
 	remoteB        int
 	imgCh          chan imageResult
@@ -68,39 +73,54 @@ type Editor struct {
 	sourceKey      sourceLayoutKey // 上一次源码排版的输入，未变时复用 sourceLay
 	sourceLay      layout
 	sourceLaid     bool
+	wysiwygKey     wysiwygLayoutKey // 上一次原位排版的输入，未变时复用 wysiwygLay
+	wysiwygLay     layout
+	wysiwygLaid    bool
+	flowCount      int          // 实际调用 flow 的次数，供测试核对排版缓存命中
 	bounds         ui.Rect      // 最近一帧 Scroll 元素在父容器中的矩形
 	collapsed      map[int]bool // details 容器的视图折叠，不写入文档
+	collapseRev    uint64       // 折叠状态版本号，供排版缓存失效
 }
 
 // New 用 Markdown 创建一个编辑器。
 func New(markdown string) *Editor {
 	return &Editor{
-		doc:       richtext.Parse(markdown),
-		collapsed: map[int]bool{},
-		fontSize:  15,
-		cache:     newShapeCache(),
-		images:    map[string]*Picture{},
-		fetched:   map[string]struct{}{},
-		imgCh:     make(chan imageResult, 8),
-		client:    &http.Client{Timeout: 8 * time.Second},
-		wordMod:   wordModifier(),
+		doc:         richtext.Parse(markdown),
+		collapsed:   map[int]bool{},
+		fontSize:    15,
+		cache:       newShapeCache(),
+		images:      map[string]*Picture{},
+		fetched:     map[string]struct{}{},
+		remoteBytes: map[string]int{},
+		failedAt:    map[string]time.Time{},
+		imgCh:       make(chan imageResult, 8),
+		client:      &http.Client{Timeout: 8 * time.Second},
+		wordMod:     wordModifier(),
 	}
 }
 
 // SetReadImage 设置 Markdown 图片路径的授权读取回调。
 func (e *Editor) SetReadImage(fn func(string) *ui.Bitmap) {
 	if fn == nil {
-		e.read = nil
+		e.SetReadPicture(nil)
 		return
 	}
-	e.read = func(path string) *Picture { return BitmapPicture(fn(path)) }
+	e.SetReadPicture(func(path string) *Picture { return BitmapPicture(fn(path)) })
 }
 
 // ImageReady 报告某个图片地址是否已经取得可绘制的图片。
 func (e *Editor) ImageReady(url string) bool { return e.images[url] != nil }
 
 // SetReadPicture 设置能返回矢量图的授权读取回调，与 SetReadImage 二选一。
-func (e *Editor) SetReadPicture(fn func(string) *Picture) { e.read = fn }
+func (e *Editor) SetReadPicture(fn func(string) *Picture) {
+	e.read = fn
+	e.imagesDocRev = 0
+	for url := range e.fetched {
+		if !safeURL(url, true) && e.images[url] == nil {
+			delete(e.fetched, url)
+		}
+	}
+}
 
 // SetInvalidate 设置后台图片完成时的线程安全窗口刷新回调。
 func (e *Editor) SetInvalidate(fn func()) {
@@ -121,8 +141,6 @@ func (e *Editor) Markdown() string {
 func (e *Editor) Changed() bool {
 	d := e.dirty
 	e.dirty = false
-	if d {
-	}
 	return d
 }
 
@@ -390,8 +408,9 @@ func (e *Editor) View(c *ui.Context) {
 	}
 	e.width, e.viewH = width, height
 	e.bounds = bounds
-	e.drainImages(c)
-	e.ensureImages()
+	now := c.Now()
+	e.drainImages(c, now)
+	e.ensureImages(now)
 	e.cache.caret = -1
 	if e.anchor == e.focus && e.compose == "" && !e.readOnly {
 		e.cache.caret = e.focus
@@ -440,7 +459,7 @@ func (e *Editor) View(c *ui.Context) {
 	box.TrackScroll(&e.scroll).HandleInput(e.onInput(services)).ContextMenu(func(m *ui.Menu) { e.contextMenu(services, m) })
 	cr := e.caretRect()
 	box.TextCaret(ui.Rect{X: cr[0] - e.scroll.X, Y: cr[1] - e.scroll.Y, W: 1, H: cr[3]})
-	theme, now := c.Theme(), c.Now()
+	theme := c.Theme()
 	box.Children(func() {
 		ui.Box(c).Width(max(width, e.lay.width)).Height(e.lay.height).MinHeight(e.lay.height).Draw(func(p *ui.Painter, r ui.Rect) {
 			e.paint(p, r, theme, now)
@@ -458,12 +477,46 @@ type sourceLayoutKey struct {
 	syntax                                  bool
 }
 
-// reflow 按当前宽度排版。源码模式下正文和版面参数没变时复用上一次的结果，
-// 滚动和光标闪烁的帧不必重新着色、折行。返回的排版与缓存共用切片，调用方只读。
+// wysiwygLayoutKey 是原位排版的全部输入。文档、版面参数、图片、折叠状态、图表配色，
+// 以及光标是否落在行内公式内部均未变化时，直接复用上一次排版结果。
+type wysiwygLayoutKey struct {
+	docRev                                  uint64
+	width, fontSize, lineHeight, readingCol float32
+	family                                  string
+	weight                                  int
+	diagramText, diagramFill, diagramLine   ui.Color
+	imageRev                                uint64
+	collapseRev                             uint64
+	mathCaret                               int
+}
+
+// reflow 按当前宽度排版。输入未变化时复用上一次排版结果，
+// 滚动、悬停和光标闪烁的帧不必重排整篇文档。返回的排版与缓存共用切片，调用方只读。
 func (e *Editor) reflow(width float32) layout {
 	if !e.sourceMode {
 		e.cache.sourceSpans, e.cache.sourceKinds = nil, nil
-		return flow(e.doc, width, e.fontSize, e.cache, e.images)
+		key := wysiwygLayoutKey{
+			docRev:      e.doc.Revision(),
+			width:       width,
+			fontSize:    e.fontSize,
+			lineHeight:  e.cache.lineHeight,
+			readingCol:  e.cache.readingWidth,
+			family:      e.cache.family,
+			weight:      e.cache.weight,
+			diagramText: e.cache.diagramStyle.Text,
+			diagramFill: e.cache.diagramStyle.NodeFill,
+			diagramLine: e.cache.diagramStyle.NodeLine,
+			imageRev:    e.imageRev,
+			collapseRev: e.collapseRev,
+			mathCaret:   e.doc.InlineMathOrigin(e.cache.caret),
+		}
+		if e.wysiwygLaid && key == e.wysiwygKey {
+			return e.wysiwygLay
+		}
+		e.flowCount++
+		e.wysiwygLay = flow(e.doc, width, e.fontSize, e.cache, e.images)
+		e.wysiwygKey, e.wysiwygLaid = key, true
+		return e.wysiwygLay
 	}
 	key := sourceLayoutKey{text: e.doc.Text(), width: width, fontSize: e.fontSize, lineHeight: e.cache.lineHeight, readingCol: e.cache.readingWidth, family: e.cache.family, weight: e.cache.weight, syntax: e.sourceSyntax != nil}
 	if e.sourceLaid && key == e.sourceKey {
@@ -474,6 +527,7 @@ func (e *Editor) reflow(width float32) layout {
 		e.cache.sourceSpans = e.sourceSyntax(key.text)
 		e.cache.sourceKinds = sourceKindTable(e.cache.sourceSpans, e.doc.Len())
 	}
+	e.flowCount++
 	e.sourceLay = flow(e.doc, width, e.fontSize, e.cache, e.images)
 	e.sourceKey, e.sourceLaid = key, true
 	return e.sourceLay
@@ -505,7 +559,9 @@ func (e *Editor) PointForOffset(offset int) (x, y, h float32) {
 		offset = n
 	}
 	if e.width < 120 {
-		e.lay = flow(e.doc, 720, e.fontSize, e.cache, e.images)
+		e.cache.source = e.sourceMode
+		e.cache.collapsed = e.collapsed
+		e.lay = e.reflow(720)
 		e.width = 720
 	}
 	li := e.lay.lineAt(offset)

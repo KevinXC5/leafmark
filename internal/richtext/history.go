@@ -21,6 +21,7 @@ func (d *Document) rememberType(sel Selection) {
 			d.redo = nil
 			d.clean = false
 			d.pending = nil
+			d.invalidateCache()
 			return
 		}
 	}
@@ -36,6 +37,7 @@ func (d *Document) rememberKind(sel Selection, typing bool) {
 	d.clean = false
 	d.pending = nil
 	d.after = sel
+	d.invalidateCache()
 	if typing {
 		d.coalesce = coalesceInsert
 	} else {

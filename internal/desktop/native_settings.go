@@ -552,7 +552,7 @@ func (a *nativeApp) clearData(label string) {
 		a.settingsStatus = label + "完成"
 		return
 	}
-	go func() {
+	a.writes.Go(func() {
 		err := a.workspace.ClearRecent()
 		a.update(func() {
 			if err != nil {
@@ -562,7 +562,7 @@ func (a *nativeApp) clearData(label string) {
 			a.settingsStatus = label + "完成"
 			a.reloadNavigation()
 		})
-	}()
+	})
 }
 
 // viewReleaseNotes 把 Markdown 写成的更新日志排成小标题、段落与列表，不露出标记符号。

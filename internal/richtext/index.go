@@ -26,6 +26,35 @@ func (d *Document) reindex() {
 			d.index = append(d.index, span{block: i, cell: -1, run: -1, gap: true})
 		}
 	}
+	d.invalidateCache()
+}
+
+// invalidateCache 在文档内容或格式变更时递增版本号并清除 Markdown 序列化缓存。
+func (d *Document) invalidateCache() {
+	d.rev++
+	d.mdValid = false
+	d.mdCache = ""
+}
+
+// Revision 返回文档内容的单调版本号，每次编辑、格式变更或撤销重做都会递增。
+func (d *Document) Revision() uint64 {
+	return d.rev
+}
+
+// InlineMathOrigin 报告光标是否严格落在某条行内公式内部；命中时返回该公式的起始偏移，否则返回 -1。
+func (d *Document) InlineMathOrigin(at int) int {
+	if at <= 0 || at >= len(d.index) {
+		return -1
+	}
+	sp := d.index[at]
+	if sp.gap || sp.run < 0 || sp.off <= 0 {
+		return -1
+	}
+	runs := d.runsAt(sp)
+	if runs == nil || sp.run >= len(runs) || runs[sp.run].Marks&MarkMath == 0 {
+		return -1
+	}
+	return at - sp.off
 }
 
 func (d *Document) appendRuns(block, cell int, runs []Run) {

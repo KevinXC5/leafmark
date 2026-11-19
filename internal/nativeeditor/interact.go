@@ -160,6 +160,7 @@ func (e *Editor) activate(services ui.Services, h hot) {
 		} else {
 			e.collapsed[h.block] = true
 		}
+		e.collapseRev++
 	case hotFootRef, hotFootBack:
 		if at, ok := e.doc.FootnoteTarget(h.value, h.kind == hotFootBack); ok {
 			e.cancelCompose()
@@ -369,6 +370,7 @@ func (e *Editor) expandToCaret() bool {
 	}
 	if opened {
 		e.cache.collapsed = e.collapsed
+		e.collapseRev++
 	}
 	return opened
 }

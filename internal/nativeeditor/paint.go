@@ -14,15 +14,21 @@ const containerRadius = 10
 
 func (e *Editor) paint(p *ui.Painter, r ui.Rect, theme *ui.Theme, now time.Time) {
 	sel := e.selection()
+	// 画笔只做横向裁剪：视口外的元素在这里跳过，长文档滚动时不必每帧提交全文绘制指令。
+	// 上下各留一屏余量，容纳滚动偏移与本帧绘制位置之间的差。
+	top, bottom := e.scroll.Y-e.viewH, e.scroll.Y+e.viewH*2
 	for _, f := range e.lay.frames {
+		if e.viewH > 0 && (f.y+f.h < top || f.y > bottom) {
+			continue
+		}
 		e.paintFrame(p, r, f, theme)
 	}
 	for _, b := range e.lay.blocks {
+		if e.viewH > 0 && (b.y+b.h < top || b.y > bottom) {
+			continue
+		}
 		e.paintBlock(p, r, b, theme)
 	}
-	// 画笔只做横向裁剪：视口外的行在这里跳过，长文档滚动时不必每帧提交全文字形。
-	// 上下各留一屏余量，容纳滚动偏移与本帧绘制位置之间的差。
-	top, bottom := e.scroll.Y-e.viewH, e.scroll.Y+e.viewH*2
 	for _, ln := range e.lay.lines {
 		if e.viewH > 0 && (ln.y+ln.height < top || ln.y > bottom) {
 			continue
@@ -35,6 +41,9 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect, theme *ui.Theme, now time.Time)
 		active := e.doc.BlockIndexAt(e.focus)
 		veil := theme.Background.Alpha(.58)
 		for _, b := range e.lay.blocks {
+			if e.viewH > 0 && (b.y+b.h < top || b.y > bottom) {
+				continue
+			}
 			if b.index != active {
 				p.Fill(ui.Rect{X: r.X + b.x - 6, Y: r.Y + b.y - 2, W: b.w + 12, H: b.h + 4}, veil, 0)
 			}

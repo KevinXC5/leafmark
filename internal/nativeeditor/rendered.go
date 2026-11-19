@@ -1,7 +1,6 @@
 package nativeeditor
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -19,9 +18,11 @@ type mathKey struct {
 }
 
 type diagramKey struct {
-	src   string
-	width int
-	theme string
+	src      string
+	width    int
+	text     ui.Color
+	nodeFill ui.Color
+	nodeLine ui.Color
 }
 
 // math 排版一条公式并缓存结果。源码不在支持范围内时返回 nil，调用方退回显示原文。
@@ -43,7 +44,7 @@ func (c *shapeCache) math(src string, size float32, display bool) *mathlayout.Bo
 
 // diagram 解析并布局一张流程图。不是受支持的图类型时返回 nil。
 func (c *shapeCache) diagram(src string, width float32) *diagram.Layout {
-	key := diagramKey{src: src, width: int(width), theme: fmt.Sprint(c.diagramStyle.Text, c.diagramStyle.NodeFill, c.diagramStyle.NodeLine)}
+	key := diagramKey{src: src, width: int(width), text: c.diagramStyle.Text, nodeFill: c.diagramStyle.NodeFill, nodeLine: c.diagramStyle.NodeLine}
 	if lay, ok := c.diagrams[key]; ok {
 		return lay
 	}
